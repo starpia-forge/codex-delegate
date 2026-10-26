@@ -1,6 +1,6 @@
 ---
 name: codex-computer-use
-description: Delegate computer use (operating a native desktop app through its screen: screenshots, clicks, typing) to Codex running GPT 6 Astra. Use instead of Claude's own computer-use tools or skill whenever a task needs a desktop app driven. Not for websites.
+description: "Delegate computer use (operating a native desktop app through its screen: screenshots, clicks, typing) to Codex running GPT 6 Astra. Use instead of Claude's own computer-use tools or skill whenever a task needs a desktop app driven. Not for websites."
 ---
 
 Have the Codex computer-use worker drive the desktop. Your job is to brief it, then verify the result from the screenshot it saves. Keep your own hands off the desktop: you drive it only if the user agrees to that after a failure.
