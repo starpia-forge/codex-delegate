@@ -79,6 +79,30 @@ function targetDir(agent, scope) {
   return scope === "user" ? join(agentHome(agent), agent.userDir) : join(process.cwd(), agent.projectDir);
 }
 
+// Read the common TOML spellings of this one optional plugin flag.
+function readComputerUseEnabled(configPath) {
+  try {
+    let section = "";
+    const plugin = String.raw`plugins\s*\.\s*["']computer-use@openai-bundled["']`;
+    const flag = new RegExp(`^${plugin}\\s*\\.\\s*enabled\\s*=\\s*(true|false)\\s*(?:#.*)?$`);
+    const inline = new RegExp(`^${plugin}\\s*=\\s*\\{(.*)\\}\\s*(?:#.*)?$`);
+    for (const line of readFileSync(configPath, "utf8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("[")) {
+        section = trimmed.match(/^\[\s*(.*?)\s*\]\s*(?:#.*)?$/)?.[1] ?? "?";
+        continue;
+      }
+      const key = section ? `${section}.${trimmed}` : trimmed;
+      const enabled = key.match(flag)?.[1]
+        ?? key.match(inline)?.[1].match(/(?:^|,)\s*enabled\s*=\s*(true|false)\s*(?:,|$)/)?.[1];
+      if (enabled !== undefined) return enabled === "true";
+    }
+  } catch {
+    // Missing or unreadable configuration leaves the optional plugin disabled.
+  }
+  return false;
+}
+
 function readMarker(skillDir) {
   try {
     return JSON.parse(readFileSync(join(skillDir, MARKER), "utf8"));
@@ -187,22 +211,8 @@ function doctor() {
   const claudeVersion = run("claude --version");
   check(claudeVersion ? "ok" : "warn", "Claude Code on PATH", claudeVersion ?? "not found");
 
-  // Only this plugin table is needed; avoid a TOML dependency for one flag.
   const configPath = join(agentHome(manifest.agents.codex), "config.toml");
-  let computerUseEnabled = false;
-  try {
-    let inComputerUse = false;
-    for (const line of readFileSync(configPath, "utf8").split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("[")) {
-        inComputerUse = /^\[\s*plugins\s*\.\s*["']computer-use@openai-bundled["']\s*\]\s*(?:#.*)?$/.test(trimmed);
-      } else if (inComputerUse && /^enabled\s*=\s*true\s*(?:#.*)?$/.test(trimmed)) {
-        computerUseEnabled = true;
-      }
-    }
-  } catch {
-    // Missing or unreadable configuration leaves the optional plugin disabled.
-  }
+  const computerUseEnabled = readComputerUseEnabled(configPath);
   check(computerUseEnabled ? "ok" : "warn", "Computer Use plugin enabled",
     computerUseEnabled ? configPath : `enable computer-use@openai-bundled in ${configPath} to use computer use`);
 
