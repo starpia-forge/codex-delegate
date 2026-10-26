@@ -2,11 +2,27 @@
 
 [English](../README.md) | **한국어**
 
-Claude Code(Opus 5.5)가 Leader로 워크플로우를 진행하고, 조사·계획 검토·구현은 Codex 워커에게 위임하도록 스킬을 설치하는 도구입니다.
+## 목적과 철학
 
-> [mattpocock/skills](https://github.com/mattpocock/skills)를 기반으로 한 **비공식** 확장입니다. 원작자와 관련이 없으며, 원작자가 승인하지 않았습니다.
+codex-delegate는 [Matt Pocock의 스킬](https://github.com/mattpocock/skills) 철학을 그대로 따르면서, 각 에이전트가 가장 잘하는 일을 맡도록 합니다. 원본 스킬은 그대로 가져오고, 워크플로우 진입점 스킬 5개에만 패치를 적용해 Codex 워커에게 위임하게 만들었습니다.
 
-원본 스킬을 그대로 가져온 뒤, 워크플로우 진입점 스킬 5개에만 작은 패치를 적용했습니다. 설치 후에는 평소처럼 `/grill-with-docs` → `/to-spec` → `/to-tickets` → `/implement`를 입력하면 됩니다.
+> mattpocock/skills를 기반으로 한 **비공식** 확장입니다. 원작자와 관련이 없으며, 원작자가 승인하지 않았습니다.
+
+### 누가 무엇을 하는가
+
+| 에이전트            | 강점                                                     | 약점                                                         | 이 저장소에서의 역할                                                                       |
+| ------------------- | -------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Claude (Opus 5.5)   | 사용자 의도 파악, 코드 분석, 설계                        | 웹 검색                                                      | **Leader**: 사용자 인터뷰, spec과 티켓 작성, 워커에게 지시, 워커 결과 검증                 |
+| Codex (GPT 6.1 Sol) | 비용 대비 구현 성능                                      | 사용자 의도를 잘못 파악하는 경우가 많고, 작업을 일찍 완료 처리하는 경향 | **구현**: 티켓 하나씩, 테스트를 먼저 작성하며 구현                                         |
+| Codex (GPT 6 Astra) | 날카로운 비판자이자 코드 리뷰어. 특히 computer use에 강함 |                                                              | **공격적 검토**: spec과 티켓 분할안을 게시하기 전에 공격                                   |
+| Codex (GPT 6 Luna)  | 가성비가 좋고, Codex의 훌륭한 웹 검색 도구를 사용할 수 있음 |                                                              | **조사**: 외부 질문에 출처를 달아 답하며, Leader의 약점을 보완                             |
+
+### 원칙
+
+1. **워크플로우는 Matt Pocock의 것을 유지합니다.** 같은 명령, 같은 규율로 진행합니다. 설계를 끝까지 따져 묻고, spec을 쓰고, tracer-bullet 티켓으로 나누고, 테스트를 먼저 작성하며 구현합니다. 위임은 이 단계들 바깥이 아니라 안에 덧붙입니다.
+2. **의도는 Leader가 책임집니다.** 사용자와 대화하는 것은 Claude뿐입니다. 워커는 사용자의 뜻을 추측할 필요가 없습니다. 티켓, 수용 기준, 합의된 테스트 지점이 모두 담긴 지시를 받습니다.
+3. **"완료"는 믿지 않고 검증합니다.** 워커의 보고는 주장일 뿐입니다. Leader가 diff를 읽고, 타입체크와 테스트를 다시 돌리고, 수용 기준을 하나씩 확인한 뒤에야 커밋합니다.
+4. **확정하기 전에 비판받습니다.** 계획은 그 계획을 쓰지 않은 검토자가 공격합니다. 아직 바꾸는 비용이 적을 때 합니다.
 
 ## 설치
 
@@ -36,7 +52,7 @@ npx github:starpia-forge/codex-delegate doctor
 ```
 
 - **업데이트**: `install`을 다시 실행합니다. 새 버전에서 빠진 스킬은 자동으로 제거됩니다.
-- **안전 장치**: 설치한 스킬마다 `.codex-delegate.json` 표시 파일을 남깁니다. `install`, `uninstall`, `update`는 이 표시가 있는 스킬만 건드립니다.
+- **안전 장치**: 설치한 스킬마다 `.codex-delegate.json` 표시 파일을 남깁니다. `install`, `uninstall`, 업데이트는 이 표시가 있는 스킬만 건드립니다.
 - **이름 충돌**: 같은 이름의 스킬이 이미 있고 이 도구가 설치한 것이 아니면(예: 원본 mattpocock-skills), **아무것도 바꾸지 않고 중단**합니다. 덮어쓰려면 `--force`를 붙입니다.
 - **`doctor` 점검 항목**: Node 버전, Codex 설치와 로그인 상태, 역할별 모델과 effort를 현재 Codex 계정에서 쓸 수 있는지, Claude Code에 원본 mattpocock-skills 플러그인이 중복 설치되어 있는지.
 
@@ -45,11 +61,10 @@ npx github:starpia-forge/codex-delegate doctor
 - 대상 저장소에서 `/setup-matt-pocock-skills`를 한 번 실행합니다.
 - `.gitignore`에 `.scratch/codex/`를 추가합니다. 위임 작업마다 이 디렉터리에 `prompt.md`, `result.md`, `result.md.log`가 남습니다.
 
-## 역할
+## 워커 설정
 
 | 역할 | 모델 / effort | sandbox | 사용하는 스킬 |
 |---|---|---|---|
-| Leader | Opus 5.5 / medium | – | 모든 워크플로우를 진행하고 위임 결과를 검증 |
 | `luna` (조사) | `gpt-6-luna` / max, 웹 검색 | read-only | `codex-research` |
 | `astra` (공격적 검토) | `gpt-6-astra` / medium | read-only | `codex-plan-review` |
 | `sol` (구현) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
@@ -60,15 +75,69 @@ npx github:starpia-forge/codex-delegate doctor
 { "sol": { "model": "gpt-6-sol", "effort": "high" } }
 ```
 
-## 위임 흐름
+## 워크플로우
 
+사용자는 단계마다 명령 하나씩, 네 개의 명령을 입력합니다. 주황색 단계는 Claude(Leader)가, 파란색 단계는 Codex 워커가, 회색 단계는 사용자가 수행합니다. 점선 화살표는 위임과 그 결과입니다.
+
+```mermaid
+flowchart TD
+    subgraph grill["/grill-with-docs"]
+        direction LR
+        G1["설계를 따져 묻고<br/>용어집과 ADR 갱신"]
+        Luna{{"Codex · GPT 6 Luna<br/>codex-research"}}
+        G1 -. "외부 사실" .-> Luna
+        Luna -. "출처가 달린 조사 결과" .-> G1
+    end
+
+    subgraph spec["/to-spec"]
+        direction LR
+        P1["spec 초안 작성"]
+        A1{{"Codex · GPT 6 Astra<br/>codex-plan-review"}}
+        P2["수정"]
+        P3["spec 게시"]
+        P1 -. "초안" .-> A1
+        A1 -. "지적 사항" .-> P2
+        P2 --> P3
+    end
+
+    subgraph tickets["/to-tickets"]
+        direction LR
+        T1["tracer-bullet<br/>티켓 초안 작성"]
+        A2{{"Codex · GPT 6 Astra<br/>codex-plan-review"}}
+        T2["수정"]
+        T3(["사용자 승인"])
+        T4["티켓 게시"]
+        T1 -. "분할안" .-> A2
+        A2 -. "지적 사항" .-> T2
+        T2 --> T3 --> T4
+    end
+
+    subgraph impl["/implement, 티켓마다"]
+        direction LR
+        I1["워커에게 지시"]
+        Sol{{"Codex · GPT 6.1 Sol<br/>codex-implement"}}
+        I2["diff, 타입체크,<br/>테스트, 수용 기준 검증"]
+        I3["code-review<br/>후 커밋"]
+        I1 -. "티켓 지시" .-> Sol
+        Sol -. "코드 + 보고" .-> I2
+        I2 -- "통과" --> I3
+        I2 -. "실패: 후속 지시" .-> Sol
+    end
+
+    U(["사용자"]) --> grill
+    grill --> spec
+    spec --> tickets
+    tickets --> impl
+
+    classDef user fill:#e8e8e8,stroke:#666,color:#111
+    classDef claude fill:#f6dcc8,stroke:#c15f2c,color:#111
+    classDef codex fill:#d6e6f5,stroke:#2f6aa3,color:#111
+    class U,T3 user
+    class G1,P1,P2,P3,T1,T2,T4,I1,I2,I3 claude
+    class Luna,A1,A2,Sol codex
 ```
-/grill-with-docs  외부 사실이 필요할 때 → codex-research (백그라운드)
-/to-spec          초안 작성 → codex-plan-review → 반영 → 게시
-/to-tickets       분할 초안 → codex-plan-review → 반영 → 사용자 확인 → 게시
-/implement        티켓마다 codex-implement → Leader가 diff, 타입체크, 테스트 검증 → code-review → 커밋
-/implement-spec   티켓별 서브에이전트가 자기 worktree에서 codex-implement → 검증 → 커밋 → 병합
-```
+
+`/implement-spec`은 모든 티켓에 같은 `/implement` 흐름을 적용합니다. 티켓마다 Claude 서브에이전트가 자기 worktree에서 작업하고, Leader가 각 결과를 통합 브랜치에 병합합니다.
 
 워커는 git 상태를 바꾸지 않습니다. 커밋, 브랜치, 병합은 Leader나 Claude 서브에이전트가 맡습니다.
 
@@ -86,6 +155,7 @@ scripts/build.mjs           skills/ 생성
 skills/                     빌드 산출물. 직접 수정하지 말 것
   claude/                   mattpocock 기본 스킬(진입점 5개는 패치본) + src/skills. Claude Code 전용
   shared/                   워커에게 필요한 원본 스킬만, 수정 없이. Claude와 Codex 공용
+docs/                       번역 문서
 ```
 
 `skills/`는 `skills/{scope}/<name>/SKILL.md` 규칙을 따르므로 `gh skill install`이나 `npx skills add`로도 개별 설치할 수 있습니다. 다만 그 경우에는 에이전트별 구성을 사용자가 직접 맞춰야 합니다.

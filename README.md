@@ -2,11 +2,27 @@
 
 **English** | [한국어](docs/README_ko-kr.md)
 
-Installs skills that let Claude Code (Opus 5.5) lead the workflow while delegating research, plan review and implementation to Codex workers.
+## Purpose and philosophy
 
-> An **unofficial** extension based on [mattpocock/skills](https://github.com/mattpocock/skills). It is not affiliated with or endorsed by the original author.
+codex-delegate keeps [Matt Pocock's skill](https://github.com/mattpocock/skills) philosophy and puts each agent on the work it does best. It vendors the upstream skills as-is and patches only the five workflow entry points, so they delegate to Codex workers.
 
-The upstream skills are vendored as-is, with small patches applied only to the five workflow entry points. Once installed, keep typing `/grill-with-docs` → `/to-spec` → `/to-tickets` → `/implement` as usual.
+> An **unofficial** extension of mattpocock/skills. It is not affiliated with or endorsed by the original author.
+
+### Who does what
+
+| Agent               | Strengths                                                         | Weaknesses                                                       | Role here                                                                                         |
+| ------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Claude (Opus 5.5)   | Understanding user intent, code analysis, design                  | Web search                                                       | **Leader**: interviews the user, writes specs and tickets, briefs workers, verifies their results |
+| Codex (GPT 6.1 Sol) | Implementation performance for the cost                           | Often misreads user intent; tends to mark work as done too early | **Implementer**: builds one ticket at a time, test-first                                          |
+| Codex (GPT 6 Astra) | Sharp critic and code reviewer; especially strong at computer use |                                                                  | **Adversarial reviewer**: attacks specs and ticket breakdowns before they are published           |
+| Codex (GPT 6 Luna)  | Cost-effective; can use Codex's excellent web search tool         |                                                                  | **Researcher**: answers outside questions from cited sources, covering the leader's weak spot     |
+
+### Principles
+
+1. **The workflow stays Matt Pocock's.** Same commands, same discipline: grill the design, write the spec, slice tracer-bullet tickets, build test-first. Delegation is added inside those steps, not around them.
+2. **The leader owns intent.** Only Claude talks to the user. Workers never have to guess what the user meant: they get self-contained briefs with the ticket, acceptance criteria and agreed test seams.
+3. **"Done" is verified, not trusted.** A worker's report is a claim. The leader reads the diff, reruns typechecking and tests, and checks every acceptance criterion before anything is committed.
+4. **Critique comes before commitment.** Plans are challenged by a reviewer that didn't write them, while changing them is still cheap.
 
 ## Installation
 
@@ -45,11 +61,10 @@ npx github:starpia-forge/codex-delegate doctor
 - Run `/setup-matt-pocock-skills` once in the target repository.
 - Add `.scratch/codex/` to `.gitignore`. Each delegated task leaves `prompt.md`, `result.md` and `result.md.log` in this directory.
 
-## Roles
+## Worker configuration
 
 | Role | Model / effort | Sandbox | Used by |
 |---|---|---|---|
-| Leader | Opus 5.5 / medium | – | Runs every workflow and verifies delegated results |
 | `luna` (research) | `gpt-6-luna` / max, web search | read-only | `codex-research` |
 | `astra` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review` |
 | `sol` (implementation) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
@@ -60,15 +75,69 @@ Defaults live in [`src/runner/roles.json`](src/runner/roles.json). To change the
 { "sol": { "model": "gpt-6-sol", "effort": "high" } }
 ```
 
-## Delegation flow
+## Workflow
 
+You type the four commands, one per stage. Orange steps are run by Claude (the leader), blue ones by Codex workers, and grey ones by you. Dotted arrows are delegations and their results.
+
+```mermaid
+flowchart TD
+    subgraph grill["/grill-with-docs"]
+        direction LR
+        G1["Grill the design,<br/>update glossary and ADRs"]
+        Luna{{"Codex · GPT 6 Luna<br/>codex-research"}}
+        G1 -. "outside facts" .-> Luna
+        Luna -. "cited notes" .-> G1
+    end
+
+    subgraph spec["/to-spec"]
+        direction LR
+        P1["Draft spec"]
+        A1{{"Codex · GPT 6 Astra<br/>codex-plan-review"}}
+        P2["Revise"]
+        P3["Publish spec"]
+        P1 -. "draft" .-> A1
+        A1 -. "findings" .-> P2
+        P2 --> P3
+    end
+
+    subgraph tickets["/to-tickets"]
+        direction LR
+        T1["Draft tracer-bullet<br/>tickets"]
+        A2{{"Codex · GPT 6 Astra<br/>codex-plan-review"}}
+        T2["Revise"]
+        T3(["User approves"])
+        T4["Publish tickets"]
+        T1 -. "breakdown" .-> A2
+        A2 -. "findings" .-> T2
+        T2 --> T3 --> T4
+    end
+
+    subgraph impl["/implement, per ticket"]
+        direction LR
+        I1["Brief the worker"]
+        Sol{{"Codex · GPT 6.1 Sol<br/>codex-implement"}}
+        I2["Verify diff, typecheck,<br/>tests, acceptance criteria"]
+        I3["code-review<br/>and commit"]
+        I1 -. "ticket brief" .-> Sol
+        Sol -. "code + report" .-> I2
+        I2 -- "pass" --> I3
+        I2 -. "fail: follow-up" .-> Sol
+    end
+
+    U(["User"]) --> grill
+    grill --> spec
+    spec --> tickets
+    tickets --> impl
+
+    classDef user fill:#e8e8e8,stroke:#666,color:#111
+    classDef claude fill:#f6dcc8,stroke:#c15f2c,color:#111
+    classDef codex fill:#d6e6f5,stroke:#2f6aa3,color:#111
+    class U,T3 user
+    class G1,P1,P2,P3,T1,T2,T4,I1,I2,I3 claude
+    class Luna,A1,A2,Sol codex
 ```
-/grill-with-docs  when outside facts are needed → codex-research (background)
-/to-spec          draft → codex-plan-review → revise → publish
-/to-tickets       draft breakdown → codex-plan-review → revise → user approval → publish
-/implement        per ticket: codex-implement → leader checks diff, typecheck, tests → code-review → commit
-/implement-spec   per-ticket subagents run codex-implement in their own worktree → verify → commit → merge
-```
+
+`/implement-spec` follows the same `/implement` loop for every ticket, with one Claude subagent per ticket working in its own worktree; the leader merges each result into the integration branch.
 
 Workers never change git state. Commits, branches and merges are handled by the leader or Claude subagents.
 
