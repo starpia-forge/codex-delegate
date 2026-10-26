@@ -14,7 +14,7 @@ codex-delegate는 [Matt Pocock의 스킬](https://github.com/mattpocock/skills) 
 | ------------------- | -------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | Claude (Opus 5.5)   | 사용자 의도 파악, 코드 분석, 설계                        | 웹 검색                                                      | **Leader**: 사용자 인터뷰, spec과 티켓 작성, 워커에게 지시, 워커 결과 검증                 |
 | Codex (GPT 6.1 Sol) | 비용 대비 구현 성능                                      | 사용자 의도를 잘못 파악하는 경우가 많고, 작업을 일찍 완료 처리하는 경향 | **구현**: 티켓 하나씩, 테스트를 먼저 작성하며 구현                                         |
-| Codex (GPT 6 Astra) | 날카로운 비판자이자 코드 리뷰어. 특히 computer use에 강함 |                                                              | **공격적 검토**: spec과 티켓 분할안을 게시하기 전에 공격하고, Claude와 함께 코드 리뷰 |
+| Codex (GPT 6 Astra) | 날카로운 비판자이자 코드 리뷰어. 특히 computer use에 강함 |                                                              | **공격적 검토**: spec과 티켓 분할안을 게시하기 전에 공격하고, Claude와 함께 코드 리뷰. **Computer use**: Leader 대신 데스크톱 앱 조작 |
 | Codex (GPT 6 Luna)  | 가성비가 좋고, Codex의 훌륭한 웹 검색 도구를 사용할 수 있음 |                                                              | **조사**: 외부 질문에 출처를 달아 답하며, Leader의 약점을 보완                             |
 
 ### 원칙
@@ -39,7 +39,7 @@ Windows PowerShell에서 "이 시스템에서 스크립트를 실행할 수 없�
 
 | 에이전트 | 설치 위치 (user / project) | 설치되는 스킬 |
 |---|---|---|
-| Claude Code (Leader) | `~/.claude/skills`¹ / `.claude/skills` | `skills/claude/*` 전부 (31개) |
+| Claude Code (Leader) | `~/.claude/skills`¹ / `.claude/skills` | `skills/claude/*` 전부 (32개) |
 | Codex (워커) | `~/.codex/skills`¹ / `.agents/skills` | `skills/codex/*` 전부: `tdd`, `codebase-design`, `research` |
 
 ¹ `CLAUDE_CONFIG_DIR`나 `CODEX_HOME`이 설정되어 있으면 user 범위 스킬은 각 에이전트가 스킬을 찾는 위치인 `$CLAUDE_CONFIG_DIR/skills`, `$CODEX_HOME/skills`에 설치됩니다.
@@ -76,12 +76,30 @@ npx github:starpia-forge/codex-delegate doctor
 | `luna` (조사) | `gpt-6-luna` / max, 웹 검색 | read-only | `codex-research` |
 | `astra` (공격적 검토) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
 | `sol` (구현) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
+| `astra-cu` (computer use) | `gpt-6-astra` / medium | 없음: 승인과 sandbox 우회 | `codex-computer-use` |
 
 기본값은 [`src/runner/roles.json`](../src/runner/roles.json)에 있습니다. 사용자별로 바꾸려면 `~/.codex-delegate/roles.json`에 바꿀 필드만 적습니다. 이 파일은 재설치해도 유지됩니다.
 
 ```json
 { "sol": { "model": "gpt-6-sol", "effort": "high" } }
 ```
+
+### Computer use (`astra-cu`)
+
+`codex-computer-use`는 데스크톱 앱 작업(Windows 앱 클릭, 대화상자에 입력, 앱 화면 확인)을 Codex 워커에게 맡깁니다. 웹사이트는 대상이 아니며 브라우저 도구가 계속 맡습니다. 워커는 마지막 스크린샷 `final.png`를 저장하고, Leader는 이 스크린샷을 완료 기준과 대조한 뒤에야 작업을 완료로 봅니다.
+
+필요한 것:
+
+- Codex 데스크톱 앱이 설치되어 있고, 스킬이 실행되는 동안 **켜져 있어야** 합니다(워커가 이 앱을 통해 화면에 접근합니다. 앱이 꺼져 있으면 `Computer Use native pipe is unavailable`로 실패합니다).
+- Codex에서 Computer Use 플러그인이 활성화되어 있어야 합니다(꺼져 있으면 `doctor`가 경고합니다).
+
+**sandbox가 없는 이유.** `codex exec`에서는 Computer Use 플러그인이 앱마다 승인을 요청하는데, 응답할 사람이 없어 요청이 거부됩니다(`Computer Use was not approved to use <app>`). 그래서 `astra-cu`는 Codex를 `--dangerously-bypass-approvals-and-sandbox`로 실행합니다. 이 옵션은 승인뿐 아니라 셸 sandbox도 끕니다. 워커는 어떤 명령이든 실행하고, 사용자 계정이 쓸 수 있는 곳 어디에나 쓰고, 네트워크를 쓸 수 있으며, 데스크톱의 어떤 앱이든 조작할 수 있습니다. 끄려면 `~/.codex-delegate/roles.json`에 `{ "astra-cu": { "dangerouslyBypassApprovalsAndSandbox": false } }`를 넣습니다. 그러면 computer use는 동작하지 않습니다.
+
+**워커는 한 번에 하나.** 데스크톱은 하나이므로, `astra-cu` 워커가 실행되는 동안 runner가 사용자별 잠금 디렉터리 `~/.codex-delegate/computer-use.lock/`을 잡습니다. 모든 Claude 세션과 worktree에 공통으로 적용됩니다. 두 번째 실행은 Codex를 시작하지 않고 바로 종료 코드 75("computer use busy")로 끝납니다. 잠금에는 runner와 Codex 프로세스의 PID가 기록되고, 둘 다 종료되면 자동으로 회수됩니다. 남는 위험:
+
+- runner가 강제 종료되면(예: 작업 관리자에서) 셸의 손자 프로세스가 기록된 두 PID보다 오래 살아남아, 새 워커가 잠금을 잡은 뒤에도 데스크톱을 계속 조작할 수 있습니다.
+- 회수된 잠금은 삭제되지 않고 `computer-use.lock.stale-<hash>`로 이름이 바뀌므로 `~/.codex-delegate/`에 이런 사본이 쌓일 수 있습니다. 워커가 실행 중이 아닐 때 지우면 됩니다.
+- 불완전한 잠금(runner가 Codex PID를 기록하기 전에 종료됨)은 계속 busy로 취급됩니다. 실행 중인 워커가 없는 것을 확인한 뒤 `~/.codex-delegate/computer-use.lock/`을 직접 지워야 합니다.
 
 ## 워크플로우
 
@@ -164,7 +182,7 @@ flowchart TD
 ```
 bin/cli.mjs                 npx 설치 도구
 install-manifest.json       에이전트별 설치 구성
-src/skills/                 직접 작성한 스킬 (codex-research, codex-plan-review, codex-implement, codex-code-review)
+src/skills/                 직접 작성한 스킬 (codex-research, codex-plan-review, codex-implement, codex-code-review, codex-computer-use)
 src/runner/                 codex-run.mjs와 roles.json (빌드 시 위 스킬 각각에 복사됨)
 src/codex-skills.json       워커가 쓰는 원본 스킬 목록 (skills/codex/로 복사됨)
 patches/                    원본 대비 변경분 (스킬당 1개)
@@ -196,7 +214,8 @@ node scripts/build.mjs --ref main   # 원본을 최신으로 올리고 다시 �
 
 - **Windows sandbox의 git 소유권 오류**: sandbox가 별도 OS 사용자로 실행되어 git이 "dubious ownership"으로 저장소를 거부합니다. `codex-run.mjs`가 해당 프로세스에만 `safe.directory=*`를 넣어 우회합니다.
 - **네트워크 차단**: `sol`과 `astra`는 네트워크가 막혀 있어서 이슈 트래커를 직접 읽지 못합니다. 그래서 위임 스킬이 티켓과 spec 본문을 프롬프트에 직접 담습니다.
-- **Bash 시간 제한**: Bash의 foreground 시간 제한은 10분입니다. 그래서 `luna`, `sol`, 그리고 `astra`의 코드 리뷰는 백그라운드로 실행합니다.
+- **Windows 10의 computer use**: Windows 10(빌드 19045)에서 Codex Computer Use의 스크린샷 시간 초과와 클릭 위치 오류가 GitHub 이슈로 보고되어 있습니다. 이 환경에서는 실패하는 시도가 더 많을 수 있습니다.
+- **Bash 시간 제한**: Bash의 foreground 시간 제한은 10분입니다. 그래서 `luna`, `sol`, `astra-cu`, 그리고 `astra`의 코드 리뷰는 백그라운드로 실행합니다.
 
 ## 라이선스
 

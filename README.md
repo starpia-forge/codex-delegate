@@ -14,7 +14,7 @@ codex-delegate keeps [Matt Pocock's skill](https://github.com/mattpocock/skills)
 | ------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | Claude (Opus 5.5)   | Understanding user intent, code analysis, design                  | Web search                                                       | **Leader**: interviews the user, writes specs and tickets, briefs workers, verifies their results |
 | Codex (GPT 6.1 Sol) | Implementation performance for the cost                           | Often misreads user intent; tends to mark work as done too early | **Implementer**: builds one ticket at a time, test-first                                          |
-| Codex (GPT 6 Astra) | Sharp critic and code reviewer; especially strong at computer use |                                                                  | **Adversarial reviewer**: attacks specs and ticket breakdowns before they are published, and reviews code alongside Claude |
+| Codex (GPT 6 Astra) | Sharp critic and code reviewer; especially strong at computer use |                                                                  | **Adversarial reviewer**: attacks specs and ticket breakdowns before they are published, and reviews code alongside Claude. **Computer use**: drives native desktop apps for the leader |
 | Codex (GPT 6 Luna)  | Cost-effective; can use Codex's excellent web search tool         |                                                                  | **Researcher**: answers outside questions from cited sources, covering the leader's weak spot     |
 
 ### Principles
@@ -39,7 +39,7 @@ One command installs the following set into each agent. The set is defined in [`
 
 | Agent | Location (user / project) | Skills installed |
 |---|---|---|
-| Claude Code (leader) | `~/.claude/skills`¹ / `.claude/skills` | everything in `skills/claude/*` (31 skills) |
+| Claude Code (leader) | `~/.claude/skills`¹ / `.claude/skills` | everything in `skills/claude/*` (32 skills) |
 | Codex (workers) | `~/.codex/skills`¹ / `.agents/skills` | everything in `skills/codex/*`: `tdd`, `codebase-design`, `research` |
 
 ¹ When `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, user-scope skills go to `$CLAUDE_CONFIG_DIR/skills` or `$CODEX_HOME/skills` instead, matching where each agent looks for them.
@@ -76,12 +76,30 @@ npx github:starpia-forge/codex-delegate doctor
 | `luna` (research) | `gpt-6-luna` / max, web search | read-only | `codex-research` |
 | `astra` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
 | `sol` (implementation) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
+| `astra-cu` (computer use) | `gpt-6-astra` / medium | none: approvals and sandbox bypassed | `codex-computer-use` |
 
 Defaults live in [`src/runner/roles.json`](src/runner/roles.json). To change them for yourself, put only the fields you want to override in `~/.codex-delegate/roles.json`. This file survives reinstalls.
 
 ```json
 { "sol": { "model": "gpt-6-sol", "effort": "high" } }
 ```
+
+### Computer use (`astra-cu`)
+
+`codex-computer-use` hands desktop-app work (a click through a Windows app, typing into a dialog, checking what an app shows) to a Codex worker. Websites are out of scope; they stay with browser tools. The worker saves a final screenshot, `final.png`, and the leader checks it against the completion criterion before calling the task done.
+
+Prerequisites:
+
+- the Codex desktop app is installed, and it is **running** while the skill runs (the worker reaches the screen through it; with the app closed the run fails with `Computer Use native pipe is unavailable`);
+- the Computer Use plugin is enabled in Codex (`doctor` warns when it is not).
+
+**Why no sandbox.** Under `codex exec`, the Computer Use plugin asks for approval per app, nobody can answer, and the request is rejected (`Computer Use was not approved to use <app>`). So `astra-cu` runs Codex with `--dangerously-bypass-approvals-and-sandbox`. That turns off the shell sandbox as well as approvals: the worker can run any command, write anywhere your user account can, and use the network, and it can operate any app on your desktop. To turn it off, set `{ "astra-cu": { "dangerouslyBypassApprovalsAndSandbox": false } }` in `~/.codex-delegate/roles.json`; computer use then stops working.
+
+**One worker at a time.** There is one desktop, so the runner holds a per-user lock, the directory `~/.codex-delegate/computer-use.lock/`, while an `astra-cu` worker runs, across all Claude sessions and worktrees. A second run exits at once with code 75 ("computer use busy") without starting Codex. The lock records the runner's and the Codex process's PIDs and is reclaimed automatically once both are dead. Residual risks:
+
+- if the runner is killed hard (for example from Task Manager), a grandchild process of the shell can outlive both recorded PIDs and keep driving the desktop while a new worker takes the lock;
+- each reclaimed lock is renamed to `computer-use.lock.stale-<hash>` rather than deleted, so these copies can accumulate in `~/.codex-delegate/`; delete them when no worker is running;
+- a lock left incomplete (the runner died before recording the Codex PID) counts as busy forever; delete `~/.codex-delegate/computer-use.lock/` by hand once you are sure no worker is running.
 
 ## Workflow
 
@@ -164,7 +182,7 @@ Workers never change git state. Commits, branches and merges are handled by the 
 ```
 bin/cli.mjs                 npx installer
 install-manifest.json       per-agent install set
-src/skills/                 authored skills (codex-research, codex-plan-review, codex-implement, codex-code-review)
+src/skills/                 authored skills (codex-research, codex-plan-review, codex-implement, codex-code-review, codex-computer-use)
 src/runner/                 codex-run.mjs and roles.json (copied into each skill above at build time)
 src/codex-skills.json       upstream skills the workers use (copied into skills/codex/)
 patches/                    changes against upstream (one per skill)
@@ -196,7 +214,8 @@ node scripts/build.mjs --ref main   # move to the latest upstream and regenerate
 
 - **git ownership errors in the Windows sandbox**: the sandbox runs as a separate OS user, so git rejects the repository as "dubious ownership". `codex-run.mjs` works around this by setting `safe.directory=*` for that process only.
 - **No network**: `sol` and `astra` run without network access and cannot read the issue tracker. The delegation skills therefore put the ticket and spec text directly into the prompt.
-- **Bash time limit**: foreground Bash commands time out after 10 minutes, so `luna`, `sol` and code review by `astra` run in the background.
+- **Computer use on Windows 10**: GitHub issues report screenshot time-outs and wrong click positions with Codex's Computer Use on Windows 10 (build 19045). Expect more failed attempts there.
+- **Bash time limit**: foreground Bash commands time out after 10 minutes, so `luna`, `sol`, `astra-cu` and code review by `astra` run in the background.
 
 ## License
 
