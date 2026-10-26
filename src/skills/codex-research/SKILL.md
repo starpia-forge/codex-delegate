@@ -13,7 +13,7 @@ Hand an external research question to the Codex research worker. Don't run the s
    - constraints: versions, platforms, languages, anything already ruled out;
    - what is already known, so the worker doesn't re-derive it.
 
-2. Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-research-<slug>/` with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write `prompt.md` there using the template below only after creation succeeds.
+2. Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-research-<slug>/` following Cleanup rule 1 below, then write `prompt.md` there using the template below.
 
 3. Run the worker in the background (Bash with `run_in_background: true`):
 
@@ -29,8 +29,8 @@ If the run fails (non-zero exit, empty result), keep the task directory, show th
 
 ## Cleanup
 
-1. Create each task directory fresh with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write files only after creation succeeds.
-2. Remove only the task directory created for this delegation, addressed by its exact path. Verify that the path is a direct child of `.scratch/codex/`.
+1. Create `.scratch/codex/` first if it is missing; it may already exist, so that create need not be exclusive. Then create each task directory inside it with an exclusive create that fails if the directory already exists. On collision, retry with another name (for example, a later timestamp). An error because `.scratch/codex/` is missing is not a collision. Write files only after the task directory's creation succeeds.
+2. Remove only the task directories you created for this task, each addressed by its exact path. Verify that each path is a direct child of `.scratch/codex/`.
 3. Use your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves.
 4. If removal fails (for example, a locked file or permission error), leave the delegation's outcome unchanged and report the path left behind so the user can delete it by hand.
 5. Keep a failed delegation's task directory until the user has chosen how to proceed and you no longer need it, then remove it. A retry that refers to it keeps it until the task ends.
