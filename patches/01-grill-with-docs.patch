@@ -1,0 +1,10 @@
+diff --git a/engineering/grill-with-docs/SKILL.md b/engineering/grill-with-docs/SKILL.md
+index 62b9efb..0cca24f 100644
+--- a/engineering/grill-with-docs/SKILL.md
++++ b/engineering/grill-with-docs/SKILL.md
+@@ -5,3 +5,5 @@ disable-model-invocation: true
+ ---
+ 
+ Call the Skill tool twice, for "grilling" and "domain-modeling".
++
++When a question can only be settled by facts from outside the repo (library or API behaviour, standards, versions, prior art), don't search the web yourself: call the Skill tool with "codex-research", and keep grilling on other branches while it runs. Feed its findings into the next relevant question.

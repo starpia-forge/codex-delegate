@@ -1,0 +1,20 @@
+diff --git a/engineering/implement-spec/SKILL.md b/engineering/implement-spec/SKILL.md
+index 1839237..969bdc8 100644
+--- a/engineering/implement-spec/SKILL.md
++++ b/engineering/implement-spec/SKILL.md
+@@ -20,13 +20,13 @@ Communication to and from subagents should be sparse. Communicate primarily thro
+ 
+ 1. Read the spec and tickets to understand the task graph.
+ 
+-2. (optional) Use an **exploration subagent** to conduct any exploration required by the tickets - relevant codebase files or external documentation. Ensure the exploration subagent can save files - it should save its markdown notes in a directory outside the repo, accessible by all future subagents. This lets **implementer subagents** focus on implementation rather than exploration.
++2. (optional) Use an **exploration subagent** to conduct any exploration required by the tickets - relevant codebase files or external documentation. Ensure the exploration subagent can save files - it should save its markdown notes in a directory outside the repo, accessible by all future subagents. This lets **implementer subagents** focus on implementation rather than exploration. For external documentation, the exploration subagent calls the Skill tool with `codex-research` instead of searching the web itself.
+ 
+ 3. Create the integration branch. If the issue tracker closes work through PRs, or the user asks for one, open a draft PR after the first merge in step 5 (a branch with no commits ahead of main can't open one), marked as closing the spec and tickets.
+ 
+ 4. Use **implementer subagents** to implement each ticket, each in its own worktree on its own branch. Each implementer subagent:
+    - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
+-   - calls the Skill tool with `tdd` to build the ticket;
++   - calls the Skill tool with `codex-implement`, using its worktree as the working directory, to have Codex build the ticket test-first, then commits the verified result to its branch;
+    - merges the integration branch tip into its own branch before reporting done
+ 
+ 5. Once an **implementer subagent** completes, merge its work to the integration branch with a **merger subagent**.

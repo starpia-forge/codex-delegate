@@ -1,0 +1,16 @@
+{
+  "agents": {
+    "claude-code": {
+      "name": "Claude Code (Leader)",
+      "userDir": ".claude/skills",
+      "projectDir": ".claude/skills",
+      "skills": ["claude/*", "shared/*"]
+    },
+    "codex": {
+      "name": "Codex (workers)",
+      "userDir": ".codex/skills",
+      "projectDir": ".agents/skills",
+      "skills": ["shared/*"]
+    }
+  }
+}

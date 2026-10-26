@@ -1,0 +1,23 @@
+{
+  "astra": {
+    "purpose": "Adversarial plan review",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "sandbox": "read-only",
+    "webSearch": false
+  },
+  "sol": {
+    "purpose": "Implementation",
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "sandbox": "workspace-write",
+    "webSearch": false
+  },
+  "luna": {
+    "purpose": "Web research",
+    "model": "gpt-6-luna",
+    "effort": "max",
+    "sandbox": "read-only",
+    "webSearch": true
+  }
+}

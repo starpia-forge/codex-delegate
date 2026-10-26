@@ -1,0 +1,26 @@
+{
+  "name": "codex-delegate",
+  "version": "0.1.0",
+  "description": "Installs Claude Code leader skills and Codex worker skills: mattpocock/skills patched to delegate research, plan review and implementation to Codex.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/starpia-forge/codex-delegate.git"
+  },
+  "type": "module",
+  "bin": {
+    "codex-delegate": "bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "skills",
+    "src/runner",
+    "install-manifest.json"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}
