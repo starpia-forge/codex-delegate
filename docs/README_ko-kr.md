@@ -33,6 +33,8 @@ npx github:starpia-forge/codex-delegate install             # 기본 브랜치 �
 npx github:starpia-forge/codex-delegate#v0.1.0 install      # 태그 고정
 ```
 
+Windows PowerShell에서 "이 시스템에서 스크립트를 실행할 수 없으므로" 오류로 `npx`가 실행되지 않으면 `npx.cmd`를 쓰거나, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`로 로컬 스크립트 실행을 한 번 허용합니다.
+
 명령 하나로 각 에이전트에 아래 구성이 설치됩니다. 구성은 [`install-manifest.json`](../install-manifest.json)에 정의되어 있습니다.
 
 | 에이전트 | 설치 위치 (user / project) | 설치되는 스킬 |

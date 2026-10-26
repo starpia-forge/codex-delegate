@@ -33,6 +33,8 @@ npx github:starpia-forge/codex-delegate install             # latest on the defa
 npx github:starpia-forge/codex-delegate#v0.1.0 install      # pinned to a tag
 ```
 
+On Windows, if PowerShell refuses to run `npx` because running scripts is disabled on this system, use `npx.cmd` instead, or allow local scripts once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
 One command installs the following set into each agent. The set is defined in [`install-manifest.json`](install-manifest.json).
 
 | Agent | Location (user / project) | Skills installed |
