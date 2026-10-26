@@ -37,8 +37,10 @@ One command installs the following set into each agent. The set is defined in [`
 
 | Agent | Location (user / project) | Skills installed |
 |---|---|---|
-| Claude Code (leader) | `~/.claude/skills` / `.claude/skills` | everything in `skills/claude/*` and `skills/shared/*` (31 skills) |
-| Codex (workers) | `~/.codex/skills` / `.agents/skills` | `tdd`, `codebase-design`, `research` |
+| Claude Code (leader) | `~/.claude/skills` / `.claude/skills` | everything in `skills/claude/*` (31 skills) |
+| Codex (workers) | `~/.codex/skills` / `.agents/skills` | everything in `skills/codex/*`: `tdd`, `codebase-design`, `research` |
+
+A skill both agents use, such as `tdd`, is installed as two separate copies. Each copy is written for its own agent's role, so the delegating and the delegated agent never read the same instructions.
 
 `doctor` runs automatically after installing. Restart Claude Code and Codex to pick up the new skills.
 
@@ -160,13 +162,15 @@ bin/cli.mjs                 npx installer
 install-manifest.json       per-agent install set
 src/skills/                 authored skills (codex-research, codex-plan-review, codex-implement, codex-code-review)
 src/runner/                 codex-run.mjs and roles.json (copied into each skill above at build time)
-src/worker-skills.json      upstream skills the workers use (sorted into skills/shared/)
+src/codex-skills.json       upstream skills the workers use (copied into skills/codex/)
 patches/                    changes against upstream (one per skill)
+  claude/                   applied to skills/claude/
+  codex/                    applied to skills/codex/
 upstream.json               pinned upstream commit
 scripts/build.mjs           generates skills/
 skills/                     build output; do not edit by hand
-  claude/                   mattpocock's skills (5 entry points and code-review patched) + src/skills; Claude Code only
-  shared/                   only the upstream skills workers need, unmodified; shared by Claude and Codex
+  claude/                   every mattpocock skill (5 entry points and code-review patched) + src/skills; Claude Code only
+  codex/                    only the upstream skills workers need, patched for the worker role; Codex only
 docs/                       translated documentation
 ```
 
@@ -180,8 +184,8 @@ node scripts/build.mjs --ref main   # move to the latest upstream and regenerate
 ```
 
 - **When a patch no longer applies**: the build fails and leaves `skills/` untouched. Update that patch against the new upstream and run again. Patch paths are relative to upstream's `skills/` directory, e.g. `a/engineering/<skill>/SKILL.md`.
-- **How skills are sorted**: only the upstream skills listed in `src/worker-skills.json` go to `shared/`; every other upstream skill goes to `claude/`. Worker skills must be unmodified upstream, so the build fails if any of them is patched.
-- **Adding a worker skill**: add its name to `src/worker-skills.json` and rebuild. It is then installed into Codex automatically, since the manifest installs `shared/*`.
+- **How skills are sorted**: every upstream skill goes to `claude/`. The upstream skills listed in `src/codex-skills.json` are also copied, separately, to `codex/`. Each copy is built from a clean upstream checkout with only its own `patches/<agent>/` applied, so a patch for one agent never changes the other agent's copy. The build fails if `patches/codex/` touches a skill not listed in `src/codex-skills.json`.
+- **Adding a worker skill**: add its name to `src/codex-skills.json` and rebuild. It is then installed into Codex automatically, since the manifest installs `codex/*`. If its instructions assume the leader's role (talking to the user, spawning agents, writing files), add a patch under `patches/codex/`.
 - **Releasing**: bump `version` in `package.json`, commit including `skills/`, and tag with the same version. The marker files record this version.
 
 ## Known limitations

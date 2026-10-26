@@ -53,7 +53,7 @@ function parseArgs(argv) {
   return opts;
 }
 
-// "claude/*" or "shared/tdd" -> [{ name, src }]
+// "claude/*" or "codex/tdd" -> [{ name, src }]
 function resolveSkills(patterns) {
   const skills = [];
   for (const pattern of patterns) {

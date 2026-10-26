@@ -37,8 +37,10 @@ npx github:starpia-forge/codex-delegate#v0.1.0 install      # 태그 고정
 
 | 에이전트 | 설치 위치 (user / project) | 설치되는 스킬 |
 |---|---|---|
-| Claude Code (Leader) | `~/.claude/skills` / `.claude/skills` | `skills/claude/*` 전부와 `skills/shared/*` 전부 (31개) |
-| Codex (워커) | `~/.codex/skills` / `.agents/skills` | `tdd`, `codebase-design`, `research` |
+| Claude Code (Leader) | `~/.claude/skills` / `.claude/skills` | `skills/claude/*` 전부 (31개) |
+| Codex (워커) | `~/.codex/skills` / `.agents/skills` | `skills/codex/*` 전부: `tdd`, `codebase-design`, `research` |
+
+`tdd`처럼 두 에이전트가 모두 쓰는 스킬은 별개의 사본 두 개로 설치됩니다. 각 사본은 해당 에이전트의 역할에 맞게 작성되므로, 위임하는 에이전트와 위임받는 에이전트가 같은 지침을 읽는 일이 없습니다.
 
 설치가 끝나면 `doctor`가 자동으로 실행됩니다. Claude Code와 Codex를 재시작해야 새 스킬이 반영됩니다.
 
@@ -160,13 +162,15 @@ bin/cli.mjs                 npx 설치 도구
 install-manifest.json       에이전트별 설치 구성
 src/skills/                 직접 작성한 스킬 (codex-research, codex-plan-review, codex-implement, codex-code-review)
 src/runner/                 codex-run.mjs와 roles.json (빌드 시 위 스킬 각각에 복사됨)
-src/worker-skills.json      워커가 쓰는 원본 스킬 목록 (skills/shared/로 분류됨)
+src/codex-skills.json       워커가 쓰는 원본 스킬 목록 (skills/codex/로 복사됨)
 patches/                    원본 대비 변경분 (스킬당 1개)
+  claude/                   skills/claude/에 적용
+  codex/                    skills/codex/에 적용
 upstream.json               고정된 원본 커밋
 scripts/build.mjs           skills/ 생성
 skills/                     빌드 산출물. 직접 수정하지 말 것
-  claude/                   mattpocock 기본 스킬(진입점 5개와 code-review는 패치본) + src/skills. Claude Code 전용
-  shared/                   워커에게 필요한 원본 스킬만, 수정 없이. Claude와 Codex 공용
+  claude/                   mattpocock 기본 스킬 전부(진입점 5개와 code-review는 패치본) + src/skills. Claude Code 전용
+  codex/                    워커에게 필요한 원본 스킬만, 워커 역할에 맞게 패치. Codex 전용
 docs/                       번역 문서
 ```
 
@@ -180,8 +184,8 @@ node scripts/build.mjs --ref main   # 원본을 최신으로 올리고 다시 �
 ```
 
 - **패치가 적용되지 않을 때**: `skills/`는 그대로 두고 실패합니다. 해당 패치를 새 원본에 맞게 고친 뒤 다시 실행합니다. 패치 경로는 `a/engineering/<skill>/SKILL.md`처럼 원본 `skills/` 디렉터리 기준입니다.
-- **스킬 분류 규칙**: `src/worker-skills.json`에 있는 원본 스킬만 `shared/`로 가고, 나머지 원본 스킬은 모두 `claude/`로 갑니다. 워커 스킬은 수정 없이 원본 그대로여야 하므로, 이 목록에 있는 스킬에 패치가 걸려 있으면 빌드가 실패합니다.
-- **워커 스킬 추가**: `src/worker-skills.json`에 이름을 넣고 다시 빌드하면 Codex 설치 대상에도 자동으로 포함됩니다. 매니페스트는 `shared/*`를 설치합니다.
+- **스킬 분류 규칙**: 원본 스킬은 모두 `claude/`로 갑니다. `src/codex-skills.json`에 있는 원본 스킬은 별도로 `codex/`에도 복사됩니다. 각 사본은 깨끗한 원본에 자기 `patches/<agent>/`만 적용해 만들므로, 한쪽 에이전트용 패치가 다른 쪽 사본을 바꾸는 일은 없습니다. `patches/codex/`가 `src/codex-skills.json`에 없는 스킬을 건드리면 빌드가 실패합니다.
+- **워커 스킬 추가**: `src/codex-skills.json`에 이름을 넣고 다시 빌드하면 Codex 설치 대상에도 자동으로 포함됩니다. 매니페스트는 `codex/*`를 설치합니다. 지침이 Leader 역할(사용자와 대화, 에이전트 생성, 파일 작성)을 전제한다면 `patches/codex/`에 패치를 추가합니다.
 - **릴리스 절차**: `package.json`의 `version`을 올리고, `skills/`를 포함해 커밋한 뒤 같은 버전으로 태그를 붙입니다. 표시 파일에 이 버전이 기록됩니다.
 
 ## 알려진 제약

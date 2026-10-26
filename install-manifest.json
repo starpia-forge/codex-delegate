@@ -4,13 +4,13 @@
       "name": "Claude Code (Leader)",
       "userDir": ".claude/skills",
       "projectDir": ".claude/skills",
-      "skills": ["claude/*", "shared/*"]
+      "skills": ["claude/*"]
     },
     "codex": {
       "name": "Codex (workers)",
       "userDir": ".codex/skills",
       "projectDir": ".agents/skills",
-      "skills": ["shared/*"]
+      "skills": ["codex/*"]
     }
   }
 }
