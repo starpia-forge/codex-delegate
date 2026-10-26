@@ -67,7 +67,7 @@ npx github:starpia-forge/codex-delegate doctor
 ### 대상 저장소 준비
 
 - 대상 저장소에서 `/setup-matt-pocock-skills`를 한 번 실행합니다.
-- `.gitignore`에 `.scratch/codex/`를 추가합니다. 위임 작업마다 이 디렉터리에 `prompt.md`, `result.md`, `result.md.log`가 남습니다.
+- `.gitignore`에 `.scratch/codex/`를 추가합니다. 성공한 위임 작업은 결과를 활용한 뒤 작업 디렉터리를 삭제하고, 실패한 작업은 사용자가 진행 방법을 선택할 때까지 진단을 위해 보관하며, 남은 디렉터리는 직접 삭제할 수 있습니다.
 
 ## 워커 설정
 

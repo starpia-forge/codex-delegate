@@ -67,7 +67,7 @@ npx github:starpia-forge/codex-delegate doctor
 ### Preparing a target repository
 
 - Run `/setup-matt-pocock-skills` once in the target repository.
-- Add `.scratch/codex/` to `.gitignore`. Each delegated task leaves `prompt.md`, `result.md` and `result.md.log` in this directory.
+- Add `.scratch/codex/` to `.gitignore`. Successful delegations remove their task directory after consuming the result; failed ones keep it for diagnosis until you choose how to proceed, and any leftovers can be deleted by hand.
 
 ## Worker configuration
 
