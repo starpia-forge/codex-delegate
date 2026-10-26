@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fakeCodex } from "./helpers/fake-codex.mjs";
 
 const runner = fileURLToPath(new URL("../src/runner/codex-run.mjs", import.meta.url));
 const consoleHelper = fileURLToPath(new URL("./windows-console.ps1", import.meta.url));
 
-function harness(t, overrides) {
+function harness(t, overrides, { probe = false, failCleanup = false, suppressClose = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "codex runner test "));
   const runs = [];
   t.after(async () => {
@@ -25,16 +26,7 @@ function harness(t, overrides) {
     }
     rmSync(root, { recursive: true, force: true });
   });
-  const home = join(root, "home");
-  const bin = join(root, "bin");
-  mkdirSync(home);
-  mkdirSync(bin);
-  if (overrides) {
-    mkdirSync(join(home, ".codex-delegate"));
-    writeFileSync(join(home, ".codex-delegate", "roles.json"), JSON.stringify(overrides));
-  }
-  const fake = join(bin, "fake-codex.cjs");
-  writeFileSync(fake, `
+  const { home, env } = fakeCodex(root, `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 let stdin = "";
@@ -45,7 +37,7 @@ process.stdin.on("end", () => {
     require("node:child_process").spawn(process.execPath, ["-e",
       'require("node:fs").writeFileSync(process.env.FAKE_CODEX_DESCENDANT, JSON.stringify({pid:process.pid}));setInterval(()=>{},1000)'], { stdio: "ignore" });
   }
-  fs.writeFileSync(process.env.FAKE_CODEX_RECORD, JSON.stringify({ args, stdin, pid: process.pid }));
+  fs.writeFileSync(process.env.FAKE_CODEX_RECORD, JSON.stringify({ args, stdin, pid: process.pid, launch: JSON.parse(process.env.FAKE_CODEX_LAUNCH || "null") }));
   const finish = () => {
     fs.writeFileSync(args[args.indexOf("-o") + 1], "Fake worker result");
     process.exit(Number(process.env.FAKE_CODEX_EXIT || 0));
@@ -57,26 +49,38 @@ process.stdin.on("end", () => {
   } else finish();
 });
 `);
-  if (process.platform === "win32") {
-    writeFileSync(join(bin, "codex.cmd"), `@echo off\r\n"${process.execPath}" "%~dp0fake-codex.cjs" %*\r\n`);
-  } else {
-    const executable = join(bin, "codex");
-    writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath.replace(/'/g, "'\\''")}' "$(dirname "$0")/fake-codex.cjs" "$@"\n`);
-    chmodSync(executable, 0o755);
+  if (overrides) {
+    mkdirSync(join(home, ".codex-delegate"));
+    writeFileSync(join(home, ".codex-delegate", "roles.json"), JSON.stringify(overrides));
   }
-  const env = { ...process.env };
-  // Windows environment keys are case-insensitive; keep exactly one PATH key.
-  const pathKey = Object.keys(env).find(key => key.toUpperCase() === "PATH");
-  const systemPath = env[pathKey] ?? "";
-  for (const key of Object.keys(env)) {
-    if (["PATH", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"].includes(key.toUpperCase())) delete env[key];
+  if (probe || failCleanup || suppressClose) {
+    const hook = join(root, "probe.cjs");
+    writeFileSync(hook, `
+const fs = require("node:fs");
+const cp = require("node:child_process");
+const originalSpawn = cp.spawn;
+cp.spawn = function(command, args, options) {
+  const opts = Array.isArray(args) ? options : args;
+  if (opts?.env) opts.env.FAKE_CODEX_LAUNCH = JSON.stringify({command, args, detached: !!opts.detached});
+  const child = originalSpawn.apply(this, arguments);
+  if (${suppressClose}) {
+    const emit = child.emit;
+    child.emit = function(event, ...args) { if (event !== "close") return emit.call(this, event, ...args); };
   }
-  Object.assign(env, {
-    PATH: `${bin}${delimiter}${systemPath}`,
-    HOME: home,
-    USERPROFILE: home,
-    FAKE_CODEX_RECORD: join(root, "record.json"),
-  });
+  return child;
+};
+const originalRm = fs.rmSync;
+fs.rmSync = function(path, options) {
+  if (${failCleanup} && String(path).includes("computer-use.lock")) {
+    originalRm(require("node:path").join(path, "child.json"), {force:true});
+    throw Object.assign(new Error("simulated sharing error"), {code:"EPERM"});
+  }
+  return originalRm.apply(this, arguments);
+};
+require("node:module").syncBuiltinESMExports();
+`);
+    env.NODE_OPTIONS = `--require "${hook.replaceAll("\\", "/")}"`;
+  }
   const prompt = join(root, "prompt.md");
   const out = join(root, "result.md");
   writeFileSync(prompt, "Report what you observe.\n");
@@ -276,6 +280,8 @@ for (const delay of [250, null]) {
       } else {
         assert.match(result.stderr, /could not release computer-use lock/);
         assert.ok(existsSync(lock));
+        const next = await h.start().done;
+        assert.equal(next.code, 0, next.stderr);
       }
     });
 }
@@ -353,11 +359,7 @@ test("interrupt terminates the worker tree before releasing the lock", async t =
   await until(() => existsSync(first.record) && existsSync(first.descendant));
   const workerPid = JSON.parse(readFileSync(first.record, "utf8")).pid;
   const descendantPid = JSON.parse(readFileSync(first.descendant, "utf8")).pid;
-  if (process.platform === "win32") {
-    const event = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", consoleHelper,
-      "-Mode", "break", "-ProcessId", readFileSync(first.pidFile, "utf8")], { stdio: "ignore", windowsHide: true, timeout: 15000 });
-    assert.equal(event.status, 0, event.stderr);
-  } else process.kill(first.child.pid, "SIGINT");
+  interrupt(first);
   await until(() => first.child.exitCode !== null || first.child.signalCode !== null);
   const result = await first.done;
   assert.equal(result.code, process.platform === "win32" ? 149 : 130, result.stderr);
@@ -401,4 +403,55 @@ test("a user override disables the astra-cu bypass and restores its sandbox", t 
   ]);
   assert.match(stdout, /role=astra-cu model=gpt-6-astra effort=medium sandbox=workspace-write/);
   assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
+});
+
+
+test("non-exclusive roles use the original attached spawn without a Windows host", async t => {
+  const h = harness(t, undefined, { probe: true });
+  const run = h.start("astra");
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  const { launch } = JSON.parse(readFileSync(run.record, "utf8"));
+  assert.equal(launch.detached, false);
+  assert.doesNotMatch(JSON.stringify(launch), /windows-codex/);
+  assert.match(launch.command, /^codex(?: |$)/);
+});
+
+
+test("partial cleanup of a released lock cannot block a following exclusive run", async t => {
+  const h = harness(t, undefined, { failCleanup: true });
+  const first = await h.start().done;
+  assert.equal(first.code, 0, first.stderr);
+  assert.match(first.stderr, /simulated sharing error/);
+  const next = await h.start().done;
+  assert.equal(next.code, 0, next.stderr);
+});
+
+
+function interrupt(run) {
+  if (process.platform === "win32") {
+    const event = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", consoleHelper,
+      "-Mode", "break", "-ProcessId", readFileSync(run.pidFile, "utf8")], { stdio: "ignore", windowsHide: true, timeout: 15000 });
+    assert.equal(event.status, 0, event.stderr);
+  } else process.kill(run.child.pid, "SIGINT");
+}
+
+test("interrupt completes when the child exits without closing its pipes", async t => {
+  const h = harness(t, undefined, { suppressClose: true });
+  const first = h.start("astra-cu", { wait: true, console: true });
+  await until(() => existsSync(first.record));
+  interrupt(first);
+  try {
+    await until(() => first.child.exitCode !== null || first.child.signalCode !== null);
+    const result = await first.done;
+    assert.equal(result.code, process.platform === "win32" ? 149 : 130, result.stderr);
+    delete h.env.NODE_OPTIONS;
+    assert.equal((await h.start().done).code, 0);
+  } finally {
+    // A regression must fail without leaving a runner hanging in test cleanup.
+    if (first.child.exitCode === null && first.child.signalCode === null) {
+      const pid = process.platform === "win32" ? Number(readFileSync(first.pidFile, "utf8")) : first.child.pid;
+      process.kill(pid, "SIGKILL");
+    }
+  }
 });

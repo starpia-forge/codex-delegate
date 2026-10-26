@@ -21,6 +21,8 @@ const USER_ROLES = join(homedir(), ".codex-delegate", "roles.json");
 
 const PRINT_LIMIT = 6000;
 const BUSY_EXIT_CODE = 75;
+const CHILD_EXIT_TIMEOUT_MS = 1000;
+const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143, SIGBREAK: 149, SIGHUP: 129 };
 const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
 const HOLDER = join(LOCK, "holder.json");
 const CHILD = join(LOCK, "child.json");
@@ -40,22 +42,29 @@ function readHolder() {
 }
 
 function removeLock() {
+  const tombstone = `${LOCK}.released-${randomUUID()}`;
   for (let attempt = 0; ; attempt++) {
     try {
-      rmSync(LOCK, { recursive: true, force: true });
-      return;
+      // Never unlink records in the live lock. If rename is blocked, leave the
+      // complete record available for stale reclamation after both PIDs die.
+      renameSync(LOCK, tombstone);
+      break;
     } catch (err) {
-      // Retry explicitly: native rmSync implementations do not all honor
-      // maxRetries for Windows sharing errors. Bound total waiting to 1.1s.
+      // Retry renameSync on Windows sharing errors; it has no built-in
+      // retry option. Bound total waiting to 1.1s.
       if (attempt < 10 && ["EPERM", "EACCES", "EBUSY", "ENOTEMPTY"].includes(err.code)) {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
         continue;
       }
       // Cleanup must not replace the worker's exit status. If readers outlast
-      // retries, leave the remaining record protected rather than force removal.
+      // retries, leave the complete record available for reclamation.
       console.error(`codex-run: could not release computer-use lock: ${err.message}`);
       return;
     }
+  }
+  // A partial tombstone cleanup cannot block the next owner.
+  try { rmSync(tombstone, { recursive: true, force: true }); } catch (err) {
+    console.error(`codex-run: could not clean released lock: ${err.message}`);
   }
 }
 
@@ -68,7 +77,7 @@ function stale(holder) {
     && [holder.runnerPid, holder.childPid].every(pid => Number.isSafeInteger(pid) && pid > 0 && !alive(pid));
 }
 
-function busy(holder) {
+function exitBusy(holder) {
   console.error(`codex-run: computer use busy: ${holder ? JSON.stringify(holder) : "incomplete holder record"}`);
   process.exit(BUSY_EXIT_CODE);
 }
@@ -79,16 +88,16 @@ function acquireLock(role, cwd) {
     try { mkdirSync(LOCK); break; } catch (err) {
       if (err.code !== "EEXIST") throw err;
       const holder = readHolder();
-      if (!stale(holder)) busy(holder);
+      if (!stale(holder)) exitBusy(holder);
       // Keep a nonempty tombstone for each reclaimed token. Directory rename
       // cannot replace it (on Windows or POSIX), so a delayed stale contender
       // cannot move a new owner's lock. No separate reclaim guard can get stuck.
-      const token = createHash("sha256").update(holder.token).digest("hex");
-      try { renameSync(LOCK, `${LOCK}.stale-${token}`); } catch (err) {
+      const tombstoneId = createHash("sha256").update(holder.token).digest("hex");
+      try { renameSync(LOCK, `${LOCK}.stale-${tombstoneId}`); } catch (err) {
         // A Windows reader may prevent moving the directory. Refuse safely;
         // never remove a lock in place or bypass the token's tombstone.
         if (!["ENOENT", "EEXIST", "ENOTEMPTY", "EPERM", "EACCES", "EBUSY"].includes(err.code)) throw err;
-        busy(readHolder());
+        exitBusy(readHolder());
       }
     }
   }
@@ -150,7 +159,7 @@ let child;
 let stopping = false;
 let closed = false;
 let canRelease = true;
-process.on("exit", () => { if (canRelease) lock?.release(); });
+if (config.exclusive) process.on("exit", () => { if (canRelease) lock.release(); });
 
 async function shutdown(code, message) {
   if (stopping) return;
@@ -169,7 +178,16 @@ async function shutdown(code, message) {
       } else {
         try { process.kill(-child.pid, "SIGKILL"); } catch (err) { if (err.code !== "ESRCH") throw err; }
       }
-      if (!closed) await new Promise(resolve => child.once("close", resolve));
+      // Pipe closure can depend on a process outside the worker tree. Wait for
+      // the process itself, with a bound even if its exit event never arrives.
+      if (child.exitCode === null && child.signalCode === null) {
+        await new Promise(resolve => {
+          const finish = () => { clearTimeout(timer); child.off("exit", finish); resolve(); };
+          const timer = setTimeout(finish, CHILD_EXIT_TIMEOUT_MS);
+          child.once("exit", finish);
+        });
+      }
+      if (alive(child.pid)) throw new Error("Codex host is still alive after termination");
     }
     canRelease = true;
   } catch (err) {
@@ -179,18 +197,21 @@ async function shutdown(code, message) {
   process.exit(code);
 }
 
-for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149], ["SIGHUP", 129]]) {
-  if (signal !== "SIGBREAK" || process.platform === "win32") process.on(signal, () => shutdown(code));
+if (config.exclusive) {
+  for (const [signal, code] of Object.entries(SIGNAL_EXIT_CODES)) {
+    if (signal !== "SIGBREAK" || process.platform === "win32") process.on(signal, () => shutdown(code));
+  }
+  process.on("uncaughtException", err => shutdown(2, err.message));
 }
-process.on("uncaughtException", err => shutdown(2, err.message));
 
+const bypass = config.dangerouslyBypassApprovalsAndSandbox;
+const sandboxArgs = bypass ? ["--dangerously-bypass-approvals-and-sandbox"] : ["-s", config.sandbox];
+const sandbox = bypass ? sandboxArgs[0] : `sandbox=${config.sandbox}`;
 const args = [
   "exec",
   "-m", config.model,
   "-c", `model_reasoning_effort=${config.effort}`,
-  ...(config.dangerouslyBypassApprovalsAndSandbox
-    ? ["--dangerously-bypass-approvals-and-sandbox"]
-    : ["-s", config.sandbox]),
+  ...sandboxArgs,
   "-C", cwd,
   "-o", out,
 ];
@@ -206,28 +227,34 @@ const env = {
   GIT_CONFIG_VALUE_0: "*",
 };
 
-const sandbox = config.dangerouslyBypassApprovalsAndSandbox
-  ? "--dangerously-bypass-approvals-and-sandbox"
-  : `sandbox=${config.sandbox}`;
 console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} ${sandbox}`);
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);
-child =
-  process.platform === "win32"
+child = !config.exclusive
+  ? (process.platform === "win32"
+    ? spawn(["codex", ...args.map(quote)].join(" "), { cwd, env, shell: true })
+    : spawn("codex", args, { cwd, env }))
+  : process.platform === "win32"
     ? spawn(process.execPath, [fileURLToPath(new URL("./windows-codex.mjs", import.meta.url)), ["codex", ...args.map(quote)].join(" ")], { cwd, env, detached: true, windowsHide: true })
     : spawn("codex", args, { cwd, env, detached: true });
-if (child.pid) {
+if (config.exclusive && child.pid) {
   canRelease = false;
   lock?.setChild(child.pid);
 }
 child.stdout.pipe(log, { end: false });
 child.stderr.pipe(log, { end: false });
 child.stdin.end(readFileSync(promptFile));
-child.stdin.on("error", err => { if (err.code !== "EPIPE") shutdown(2, err.message); });
-log.on("error", err => shutdown(2, err.message));
+if (config.exclusive) {
+  child.stdin.on("error", err => { if (err.code !== "EPIPE") shutdown(2, err.message); });
+  log.on("error", err => shutdown(2, err.message));
+}
 
-child.on("error", (err) => shutdown(2, `could not start codex (is it installed and on PATH?): ${err.message}`));
+child.on("error", err => {
+  const message = `could not start codex (is it installed and on PATH?): ${err.message}`;
+  if (config.exclusive) shutdown(2, message);
+  else fail(message);
+});
 child.on("close", (code) => {
   closed = true;
   log.end();
