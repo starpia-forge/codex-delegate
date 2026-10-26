@@ -6,6 +6,14 @@
     "sandbox": "read-only",
     "webSearch": false
   },
+  "astra-cu": {
+    "purpose": "Computer use",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "sandbox": "workspace-write",
+    "webSearch": false,
+    "dangerouslyBypassApprovalsAndSandbox": true
+  },
   "sol": {
     "purpose": "Implementation",
     "model": "gpt-6.1-sol",

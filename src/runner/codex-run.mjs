@@ -45,7 +45,7 @@ function quote(arg) {
 const { role, opts } = parseArgs(process.argv.slice(2));
 const roles = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "roles.json"), "utf8"));
 const overrides = existsSync(USER_ROLES) ? JSON.parse(readFileSync(USER_ROLES, "utf8")) : {};
-const config = roles[role] && { ...roles[role], ...overrides[role] };
+const config = roles[role] && { dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
 if (!config) fail(`unknown role "${role}" (expected one of: ${Object.keys(roles).join(", ")})`);
 if (!opts["prompt-file"]) fail("--prompt-file is required");
 
@@ -58,7 +58,9 @@ const args = [
   "exec",
   "-m", config.model,
   "-c", `model_reasoning_effort=${config.effort}`,
-  "-s", config.sandbox,
+  ...(config.dangerouslyBypassApprovalsAndSandbox
+    ? ["--dangerously-bypass-approvals-and-sandbox"]
+    : ["-s", config.sandbox]),
   "-C", cwd,
   "-o", out,
 ];
@@ -74,7 +76,10 @@ const env = {
   GIT_CONFIG_VALUE_0: "*",
 };
 
-console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} sandbox=${config.sandbox}`);
+const sandbox = config.dangerouslyBypassApprovalsAndSandbox
+  ? "--dangerously-bypass-approvals-and-sandbox"
+  : `sandbox=${config.sandbox}`;
+console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} ${sandbox}`);
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);
