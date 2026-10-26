@@ -19,3 +19,7 @@ _Avoid_: profile, persona
 **Computer use**:
 Operating a native desktop application through its screen: taking screenshots, clicking, typing. Driving a web browser is not computer use.
 _Avoid_: desktop automation, GUI automation
+
+**Task directory**:
+A temporary directory the leader creates for one delegation to a worker. It holds the brief and the worker's result, and is removed once its result has been consumed; a failed delegation's task directory is kept until the user decides what to do with the failure.
+_Avoid_: scratch dir, work folder
