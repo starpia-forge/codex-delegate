@@ -62,7 +62,7 @@ npx github:starpia-forge/codex-delegate doctor
 - **이름 충돌**: 같은 이름의 스킬이 이미 있고 이 도구가 설치한 것이 아니면(예: 원본 mattpocock-skills), **아무것도 바꾸지 않고 중단**합니다. 덮어쓰려면 `--force`를 붙입니다.
 - **Claude Code 내장 `/code-review`**: 설치한 `code-review` 스킬이 내장 스킬을 대체합니다. 내장 리뷰는 `/review`로 계속 쓸 수 있고, `/review`는 이 스킬을 실행하지 않습니다.
 - **개인이 프로젝트보다 우선**: 같은 이름의 스킬이 양쪽에 있으면 Claude Code는 개인 스킬(`~/.claude/skills`)을 씁니다. 프로젝트 범위로 설치했더라도, 이 도구가 설치하지 않은 같은 이름의 개인 스킬이 있으면 프로젝트 쪽이 가려집니다.
-- **`doctor` 점검 항목**: Node 버전, Codex 설치와 로그인 상태, 역할별 모델과 effort를 현재 Codex 계정에서 쓸 수 있는지, Claude Code에 원본 mattpocock-skills 플러그인이 중복 설치되어 있는지, 개인 스킬이 현재 프로젝트에 설치한 스킬을 가리는지.
+- **`doctor` 점검 항목**: Node 버전, Codex 설치와 로그인 상태, 역할별 모델과 effort를 현재 Codex 계정에서 쓸 수 있는지, Codex의 Computer Use 플러그인(`computer-use@openai-bundled`)이 활성화되어 있는지(비활성화되었거나 없으면 실패 없이 경고), Claude Code에 원본 mattpocock-skills 플러그인이 중복 설치되어 있는지, 개인 스킬이 현재 프로젝트에 설치한 스킬을 가리는지.
 
 ### 대상 저장소 준비
 
