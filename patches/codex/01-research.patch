@@ -1,0 +1,42 @@
+diff --git a/engineering/research/SKILL.md b/engineering/research/SKILL.md
+--- a/engineering/research/SKILL.md
++++ b/engineering/research/SKILL.md
+@@ -1,12 +1,32 @@
+ ---
+ name: research
+-description: Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.
++description: Investigate a focused question against primary sources and return sourced Markdown findings. Use when Codex is asked to research a topic, gather documentation or API facts, or act as a delegated research worker.
+ ---
+
+-Spin up a **background agent** to do the research, so you keep working while it reads.
++You are the research worker. Do the research yourself; do not spawn another agent or delegate it again. Your job is to supply evidence for the requested question or decision.
+
+-Its job:
++## Scope
+
+-1. Investigate the question against **primary sources** (official docs, source code, specs, first-party APIs), not a secondary write-up of them. Follow every claim back to the source that owns it.
+-2. Write the findings to a single Markdown file, citing each claim's source.
+-3. Save it where the repo already keeps such notes; match the existing convention, and if there is none, put it somewhere sensible and say where.
++Identify the question, the decision it informs, and any version, platform, or date constraints from the request. Use supplied context to focus the search; do not treat unverified context as established fact. Stay within that scope.
++
++If missing context would change the answer, state the gap and give conditional findings where possible. Do not silently choose a version or platform. As a delegated worker, return blockers to the caller with any useful partial findings.
++
++## Research
++
++1. Find primary sources: official documentation, specifications, release notes, source code, or first-party API references. Secondary sources may help locate them, but do not use a secondary summary as proof of a primary source's contents.
++2. Open and read the relevant source before citing it. Search snippets alone are not evidence. Check that the source applies to the requested version, platform, and date; label any mismatch. For current facts, check live sources rather than relying on memory.
++3. For each finding, cite the specific page or code location that supports it. Use source URLs for web sources and file paths with line numbers for local code; include a version or revision when relevant. Separate directly supported facts from your own inferences.
++4. If sources conflict, compare their versions, dates, and scope. Resolve the conflict only when the evidence explains it; otherwise report both claims with their sources and mark the issue unresolved. If a source is inaccessible or evidence is missing, say what could not be verified. Do not invent an answer or citation.
++5. Stop when each requested question has either a supported answer or an explicit unresolved status with a reason. For a gap, check a relevant alternative source or narrower query when available; if it adds no useful evidence, report the gap instead of repeating the search. Do not expand into unrelated topics or keep collecting sources for an already supported answer.
++
++## Return the findings
++
++Return the complete notes in your final message as Markdown. The caller or runner saves that response; do not create or modify repository files or choose a storage location.
++
++Use this structure unless the request specifies another output format:
++
++1. **Short answer:** Answer the question directly, including any qualification that changes the conclusion.
++2. **Findings:** Give the relevant facts with citations next to the claims they support. Label inferences and applicable version or platform limits.
++3. **Open questions:** List unresolved questions, conflicting evidence, and anything you could not verify, with the reason. Say "None" if there are no remaining gaps.
++
++Keep the notes proportional to the question. Before returning, check that every requested question is covered, factual findings have supporting citations, and the short answer does not claim more certainty than the evidence allows.
