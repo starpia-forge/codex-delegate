@@ -11,7 +11,7 @@ An **attempt** is one worker run. Every attempt gets its own new task directory 
 
 1. **Confirm irreversible actions.** If the task includes an action that is hard to undo (sending, deleting, submitting, purchasing, overwriting a file) that you chose yourself rather than the user asking for it, ask the user before delegating. When the user explicitly asked for that action, go ahead.
 
-2. **Write the brief.** Create a new task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-computer-use-<slug>/` and write `prompt.md` there using the template below. Phrase the completion criterion as what the screen must show, so a screenshot can settle it.
+2. **Write the brief.** Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-computer-use-<slug>/` with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write `prompt.md` there using the template below only after creation succeeds. Track every attempt's task directory for cleanup when the task ends. Phrase the completion criterion as what the screen must show, so a screenshot can settle it.
 
 3. **Warn the user.** Tell them a Codex worker is about to drive the desktop and they should leave the mouse and keyboard alone until you say it finished.
 
@@ -28,19 +28,27 @@ An **attempt** is one worker run. Every attempt gets its own new task directory 
    4. Otherwise go to step 6.
 
 6. **Verify.** Open `<task-dir>/final.png` yourself and compare it with the completion criterion, plus any other evidence the criterion names (for example, check that a saved file exists). The worker's report is a claim; the screenshot decides. A missing `final.png` in this attempt's directory fails verification, whatever the report says.
-   - Criterion met → tell the user it is done, with the screenshot path.
+   - Criterion met → if the user asked for the screenshot, first copy `final.png` to a location outside `.scratch/codex/` and give that path. Otherwise, do not give a screenshot path inside the task directory. Tell the user it is done, then remove every attempt directory of this task (first attempt, follow-up, and any reruns) following Cleanup below.
    - Criterion missed and the follow-up is unused → step 7.
-   - Criterion missed after the follow-up → stop. Report to the user: the criterion, what the screenshot shows, each step's status, the screenshot path. Don't run another attempt and don't drive the desktop yourself.
+   - Criterion missed after the follow-up → stop. Keep all the task's attempt directories. Report to the user: the criterion, what the screenshot shows, each step's status, the screenshot path in the kept task directory. Don't run another attempt and don't drive the desktop yourself. Remove all the task's attempt directories following Cleanup below once the user has chosen how to proceed and you no longer need them.
 
-7. **Follow-up.** Write a new task directory using the template, plus a `## Previous attempt` section: the previous task directory, its steps listed under done / not done / uncertain, and what the screenshot showed. Tell the worker to first confirm each uncertain step by observation only (screenshots, reading the screen, no clicks or typing that change anything), then continue from the current screen without repeating steps that are done. When the previous attempt has no report, every step of the brief is uncertain. Go back to step 3.
+7. **Follow-up.** Create a fresh task directory following Cleanup rule 1 below and write `prompt.md` using the template, plus a `## Previous attempt` section: the previous task directory, its steps listed under done / not done / uncertain, and what the screenshot showed. Keep the previous attempt's directory, which the follow-up refers to, until the task ends. Tell the worker to first confirm each uncertain step by observation only (screenshots, reading the screen, no clicks or typing that change anything), then continue from the current screen without repeating steps that are done. When the previous attempt has no report, every step of the brief is uncertain. Go back to step 3.
 
 ## Failure paths
 
-- **Busy** (exit 75, `codex-run: computer use busy: ...`): another computer-use worker holds the desktop, possibly from another Claude session. No worker ran and nothing happened, so this attempt costs nothing. Tell the user, and when they say the desktop is free, run the same brief again in a new task directory.
-- **Pipe unavailable**: the Codex desktop app isn't running. Ask the user to start it, wait for them to confirm, then pick the rerun:
-  - the report exists and marks no desktop action (launching an app, clicking, typing, pressing keys) done or uncertain → rerun the same brief in a new task directory. This rerun doesn't use up the follow-up. Reading docs or taking screenshots doesn't count as a desktop action.
+- **Busy** (exit 75, `codex-run: computer use busy: ...`): another computer-use worker holds the desktop, possibly from another Claude session. No worker ran and nothing happened, so this attempt costs nothing. Tell the user, and when they say the desktop is free, run the same brief again in a fresh task directory created following Cleanup rule 1 below. When the rerun starts, remove the busy attempt's directory following Cleanup below.
+- **Pipe unavailable**: the Codex desktop app isn't running. Ask the user to start it, wait for them to confirm, then pick the rerun. Keep this attempt's directory until the task ends: the choice below reads its report, and the follow-up may refer to it.
+  - the report exists and marks no desktop action (launching an app, clicking, typing, pressing keys) done or uncertain → rerun the same brief in a fresh task directory created following Cleanup rule 1 below. This rerun doesn't use up the follow-up. Reading docs or taking screenshots doesn't count as a desktop action.
   - anything else, including a missing report → the rerun is the follow-up (step 7). If the follow-up is already used, stop and report as in step 6.
-- **Other failures**: show the user the tail of `<task-dir>/result.md.log` and ask whether to retry (as the follow-up, step 7) or have you do the task yourself. If the follow-up is already used, the only choices are stopping or you doing it. If the log shows `Computer Use was not approved to use <app>`, the `astra-cu` bypass is turned off, likely by `"dangerouslyBypassApprovalsAndSandbox": false` in `~/.codex-delegate/roles.json`; say so, since a retry will fail the same way.
+- **Other failures**: keep all the task's attempt directories while showing the user the tail of `<task-dir>/result.md.log` and asking whether to retry (as the follow-up, step 7) or have you do the task yourself. If the follow-up is already used, the only choices are stopping or you doing it. Remove all the task's attempt directories following Cleanup below once the user has chosen how to proceed (retry finished, you do it, or stop) and you no longer need them. A retry as the follow-up keeps the previous attempt's directory until the task ends. If the log shows `Computer Use was not approved to use <app>`, the `astra-cu` bypass is turned off, likely by `"dangerouslyBypassApprovalsAndSandbox": false` in `~/.codex-delegate/roles.json`; say so, since a retry will fail the same way.
+
+## Cleanup
+
+1. Create each task directory fresh with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write files only after creation succeeds.
+2. Remove only the task directory created for this delegation, addressed by its exact path. Verify that the path is a direct child of `.scratch/codex/`.
+3. Use your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves.
+4. If removal fails (for example, a locked file or permission error), leave the delegation's outcome unchanged and report the path left behind so the user can delete it by hand.
+5. Keep a failed delegation's task directory until the user has chosen how to proceed and you no longer need it, then remove it. A retry that refers to it keeps it until the task ends.
 
 <prompt-template>
 
