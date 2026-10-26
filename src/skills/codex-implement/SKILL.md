@@ -7,7 +7,7 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
 
 ## Process
 
-1. Create a task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-implement-<slug>/` and write `prompt.md` there using the template below.
+1. Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-implement-<slug>/` with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write `prompt.md` there using the template below only after creation succeeds.
    - The worker's sandbox has no network, so it can't fetch issues: paste the ticket and the relevant parts of the spec, or point to local files.
    - Point to `GLOSSARY.md`, ADRs and `AGENTS.md` rather than pasting them.
 
@@ -24,11 +24,19 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
    - run typechecking and the relevant test files;
    - check each acceptance criterion against the diff.
 
-5. If something is wrong or missing, write a follow-up `prompt.md` in a new task directory. Include the failing output and what still needs doing, then run it again. After two follow-ups that don't converge, stop and show the user where it's stuck.
+5. If something is wrong or missing, keep earlier task directories and write a follow-up `prompt.md` in a new task directory created per Cleanup rule 1 below. Include the failing output and what still needs doing, then run it again. After two follow-ups that don't converge, stop, keep all of the ticket's task directories and show the user where it's stuck. Remove them following Cleanup below once the user has chosen and you no longer need them.
 
-6. Return to the calling skill, which handles code review and committing.
+6. With the ticket verified, remove every task directory created for this ticket (first run and follow-ups) following Cleanup below, then return to the calling skill, which handles code review and committing. Do not remove them after each run.
 
-If the run fails (non-zero exit, empty result), show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or implement it yourself.
+If the run fails (non-zero exit, empty result), keep all of the ticket's task directories, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or implement it yourself. Remove them following Cleanup below once the user has chosen and you no longer need them.
+
+## Cleanup
+
+1. Create each task directory fresh with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write files only after creation succeeds.
+2. Remove only the task directory created for this delegation, addressed by its exact path. Verify that the path is a direct child of `.scratch/codex/`.
+3. Use your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves.
+4. If removal fails (for example, a locked file or permission error), leave the delegation's outcome unchanged and report the path left behind so the user can delete it by hand.
+5. Keep a failed delegation's task directory until the user has chosen how to proceed and you no longer need it, then remove it. A retry that refers to it keeps it until the task ends.
 
 <prompt-template>
 
