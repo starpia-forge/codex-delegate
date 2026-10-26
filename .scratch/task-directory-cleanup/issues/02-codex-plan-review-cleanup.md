@@ -13,8 +13,9 @@ Spec: `.scratch/task-directory-cleanup/spec.md`
 - [x] Removal happens only after the revised draft lives outside the task directory (publish location or conversation).
 - [x] Shared cleanup rules present; failure path as above.
 - [x] Build regenerates the skill; `node --test` passes.
-- [ ] Dogfood: `/to-spec` on a small feature leaves the published, revised spec and no plan-review task directory.
+- [x] Dogfood: `/to-spec` on a small feature leaves the published, revised spec and no plan-review task directory.
 
 ## Comments
 
-- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass. The manual dogfood criterion is not yet run (needs the regenerated skills installed).
+- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass.
+- Dogfood 2026-10-26: plan-review on a small spec published the revised spec to `.scratch/subtract/spec.md` (with the accepted finding) and removed the review's task directory.

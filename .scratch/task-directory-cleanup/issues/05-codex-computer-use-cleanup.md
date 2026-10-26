@@ -12,8 +12,9 @@ Spec: `.scratch/task-directory-cleanup/spec.md`
 
 - [x] Removal points and retention exactly as above; shared cleanup rules present.
 - [x] Build regenerates the skill; `node --test` passes.
-- [ ] Dogfood: a Notepad task that needs one follow-up keeps both attempt directories until verified, then both are gone; with a screenshot requested, it is copied outside `.scratch/codex/` first and the report points there.
+- [x] Dogfood: a Notepad task that needs one follow-up keeps both attempt directories until verified, then both are gone; with a screenshot requested, it is copied outside `.scratch/codex/` first and the report points there.
 
 ## Comments
 
-- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass. The manual dogfood criterion is not yet run (needs the regenerated skills installed).
+- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass.
+- Dogfood 2026-10-26: Pipe unavailable (desktop app not running) kept attempt 1; after the app was started a rerun typed one line, a follow-up finished the second; the requested screenshot was copied outside `.scratch/codex/` and the report pointed there; all three attempt directories were removed after verification. The Busy path was not exercised (needs a second computer-use session).

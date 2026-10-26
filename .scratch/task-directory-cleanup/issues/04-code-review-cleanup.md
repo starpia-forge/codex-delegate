@@ -13,8 +13,9 @@ Spec: `.scratch/task-directory-cleanup/spec.md`
 - [x] `codex-code-review` hands its task directory path back when it returns; shared cleanup rules present.
 - [x] The `code-review` patch adds removal after aggregation and the failed-review behaviour; the patch applies cleanly to the pinned upstream.
 - [x] Build regenerates both skills; `node --test` passes.
-- [ ] Dogfood: `/code-review` once leaves no Codex review task directory; one forced Codex failure still yields the Claude findings, and the final report gives the kept directory's path and log tail.
+- [x] Dogfood: `/code-review` once leaves no Codex review task directory; one forced Codex failure still yields the Claude findings, and the final report gives the kept directory's path and log tail.
 
 ## Comments
 
-- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass. The manual dogfood criterion is not yet run (needs the regenerated skills installed).
+- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass.
+- Dogfood 2026-10-26: a successful /code-review removed its Codex task directory after aggregation; a codex-not-found run produced Claude-only findings, kept the directory, put its path and log tail in the final report, and removed it only when the user asked. Two concurrent reviews with the same slug got distinct directories.

@@ -14,8 +14,9 @@ Spec: `.scratch/task-directory-cleanup/spec.md`
 - [x] Shared cleanup rules present (fresh creation, safety rules, failed removal).
 - [x] Failure path keeps the directory and removes it after the user's decision.
 - [x] Build regenerates `skills/claude/codex-research/` with the change; `node --test` passes.
-- [ ] Dogfood: one successful run leaves no task directory; one forced failure keeps it until the decision; one run whose task directory cannot be removed (a file held open) still delivers the result and reports the exact leftover path. A neighbouring task directory and an issue file under `.scratch/<feature>/` survive every scenario (this applies to every ticket's dogfood).
+- [x] Dogfood: one successful run leaves no task directory; one forced failure keeps it until the decision; one run whose task directory cannot be removed (a file held open) still delivers the result and reports the exact leftover path. A neighbouring task directory and an issue file under `.scratch/<feature>/` survive every scenario (this applies to every ticket's dogfood).
 
 ## Comments
 
-- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass. The manual dogfood criterion is not yet run (needs the regenerated skills installed).
+- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass.
+- Dogfood 2026-10-26 (throwaway repo, project-scope install, fresh leader subagents): success run removed its task directory; codex-not-found failure kept it until the user chose, then removal was attempted; with result.md.log held open the delete failed, the answer was still delivered and the exact leftover path reported. Neighbour task directory and issue file survived every scenario.

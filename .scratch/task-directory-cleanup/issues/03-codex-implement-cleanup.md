@@ -14,8 +14,9 @@ Spec: `.scratch/task-directory-cleanup/spec.md`
 - [x] Non-converging follow-ups and run failures keep the directories until the user's decision.
 - [x] Shared cleanup rules present.
 - [x] Build regenerates the skill; `node --test` passes.
-- [ ] Dogfood: a ticket needing one follow-up keeps both directories until verified, then both are gone.
+- [x] Dogfood: a ticket needing one follow-up keeps both directories until verified, then both are gone.
 
 ## Comments
 
-- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass. The manual dogfood criterion is not yet run (needs the regenerated skills installed).
+- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass.
+- Dogfood 2026-10-26: a ticket whose first brief omitted a criterion kept the first task directory during the follow-up; both were removed together after verification, before the commit.
