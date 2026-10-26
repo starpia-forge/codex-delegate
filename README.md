@@ -98,8 +98,9 @@ Prerequisites:
 **One worker at a time.** There is one desktop, so the runner holds a per-user lock, the directory `~/.codex-delegate/computer-use.lock/`, while an `astra-cu` worker runs, across all Claude sessions and worktrees. A second run exits at once with code 75 ("computer use busy") without starting Codex. The lock records the runner's and the Codex process's PIDs and is reclaimed automatically once both are dead. Residual risks:
 
 - if the runner is killed hard (for example from Task Manager), a grandchild process of the shell can outlive both recorded PIDs and keep driving the desktop while a new worker takes the lock;
-- each reclaimed lock is renamed to `computer-use.lock.stale-<hash>` rather than deleted, so these copies can accumulate in `~/.codex-delegate/`; delete them when no worker is running;
-- a lock left incomplete (the runner died before recording the Codex PID) counts as busy forever; delete `~/.codex-delegate/computer-use.lock/` by hand once you are sure no worker is running.
+- each reclaimed lock is renamed to `computer-use.lock.stale-<hash>` rather than deleted, so these copies can accumulate in `~/.codex-delegate/` (a released lock that could not be fully deleted is left as `computer-use.lock.released-<id>`); delete them when no worker is running;
+- a lock left incomplete (the runner died before recording the Codex PID) counts as busy forever; delete `~/.codex-delegate/computer-use.lock/` by hand once you are sure no worker is running;
+- the operating system can reuse a dead worker's PID for an unrelated process, and the lock then stays busy until that process ends.
 
 ## Workflow
 
@@ -183,7 +184,8 @@ Workers never change git state. Commits, branches and merges are handled by the 
 bin/cli.mjs                 npx installer
 install-manifest.json       per-agent install set
 src/skills/                 authored skills (codex-research, codex-plan-review, codex-implement, codex-code-review, codex-computer-use)
-src/runner/                 codex-run.mjs and roles.json (copied into each skill above at build time)
+src/runner/                 codex-run.mjs, roles.json and the Windows helpers windows-codex.mjs and
+                            windows-stop-tree.ps1 (copied into each skill above at build time)
 src/codex-skills.json       upstream skills the workers use (copied into skills/codex/)
 patches/                    changes against upstream (one per skill)
   claude/                   applied to skills/claude/

@@ -98,8 +98,9 @@ npx github:starpia-forge/codex-delegate doctor
 **워커는 한 번에 하나.** 데스크톱은 하나이므로, `astra-cu` 워커가 실행되는 동안 runner가 사용자별 잠금 디렉터리 `~/.codex-delegate/computer-use.lock/`을 잡습니다. 모든 Claude 세션과 worktree에 공통으로 적용됩니다. 두 번째 실행은 Codex를 시작하지 않고 바로 종료 코드 75("computer use busy")로 끝납니다. 잠금에는 runner와 Codex 프로세스의 PID가 기록되고, 둘 다 종료되면 자동으로 회수됩니다. 남는 위험:
 
 - runner가 강제 종료되면(예: 작업 관리자에서) 셸의 손자 프로세스가 기록된 두 PID보다 오래 살아남아, 새 워커가 잠금을 잡은 뒤에도 데스크톱을 계속 조작할 수 있습니다.
-- 회수된 잠금은 삭제되지 않고 `computer-use.lock.stale-<hash>`로 이름이 바뀌므로 `~/.codex-delegate/`에 이런 사본이 쌓일 수 있습니다. 워커가 실행 중이 아닐 때 지우면 됩니다.
+- 회수된 잠금은 삭제되지 않고 `computer-use.lock.stale-<hash>`로 이름이 바뀌므로 `~/.codex-delegate/`에 이런 사본이 쌓일 수 있습니다(해제할 때 완전히 지우지 못한 잠금도 `computer-use.lock.released-<id>`로 남습니다). 워커가 실행 중이 아닐 때 지우면 됩니다.
 - 불완전한 잠금(runner가 Codex PID를 기록하기 전에 종료됨)은 계속 busy로 취급됩니다. 실행 중인 워커가 없는 것을 확인한 뒤 `~/.codex-delegate/computer-use.lock/`을 직접 지워야 합니다.
+- 운영체제가 종료된 워커의 PID를 관련 없는 프로세스에 다시 할당할 수 있으며, 그러면 그 프로세스가 끝날 때까지 잠금이 busy로 남습니다.
 
 ## 워크플로우
 
@@ -183,7 +184,8 @@ flowchart TD
 bin/cli.mjs                 npx 설치 도구
 install-manifest.json       에이전트별 설치 구성
 src/skills/                 직접 작성한 스킬 (codex-research, codex-plan-review, codex-implement, codex-code-review, codex-computer-use)
-src/runner/                 codex-run.mjs와 roles.json (빌드 시 위 스킬 각각에 복사됨)
+src/runner/                 codex-run.mjs, roles.json, Windows 보조 파일 windows-codex.mjs와
+                            windows-stop-tree.ps1 (빌드 시 위 스킬 각각에 복사됨)
 src/codex-skills.json       워커가 쓰는 원본 스킬 목록 (skills/codex/로 복사됨)
 patches/                    원본 대비 변경분 (스킬당 1개)
   claude/                   skills/claude/에 적용
