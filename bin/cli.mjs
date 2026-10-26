@@ -217,6 +217,18 @@ function doctor() {
     check("warn", "No duplicate mattpocock-skills plugin", "the mattpocock-skills Claude Code plugin is installed; uninstall it so /implement etc. resolve to the patched skills");
   }
 
+  // Claude Code resolves a name clash as personal over project, so a personal
+  // skill this tool didn't install hides the project copy that it did.
+  const claude = manifest.agents["claude-code"];
+  const projectDir = targetDir(claude, "project");
+  const userDir = targetDir(claude, "user");
+  if (projectDir !== userDir) {
+    const shadowed = installedSkills(projectDir)
+      .map((i) => i.name)
+      .filter((name) => existsSync(join(userDir, name)) && !readMarker(join(userDir, name)));
+    if (shadowed.length) check("warn", "No personal skills shadowing project install", `${userDir} has ${shadowed.join(", ")}, not installed by this tool; Claude Code uses those instead of the project copies`);
+  }
+
   const icon = { ok: "OK  ", warn: "WARN", fail: "FAIL" };
   console.log("doctor:");
   for (const r of results) console.log(`  [${icon[r.ok]}] ${r.label}${r.detail ? ` - ${r.detail}` : ""}`);

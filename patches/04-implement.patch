@@ -1,16 +1,21 @@
 diff --git a/engineering/implement/SKILL.md b/engineering/implement/SKILL.md
-index bd49e47..0b54954 100644
+index bd49e47..d54f970 100644
 --- a/engineering/implement/SKILL.md
 +++ b/engineering/implement/SKILL.md
-@@ -8,9 +8,9 @@ Implement the work described by the user in the spec or tickets.
+@@ -8,10 +8,12 @@ Implement the work described by the user in the spec or tickets.
  
  If the user passes a ticket reference, fetch it from the issue tracker and state its title before starting. If the reference is ambiguous, ask.
  
 -Call the Skill tool with "tdd" where possible, at pre-agreed seams.
-+Don't write the implementation yourself. Call the Skill tool with "codex-implement" to delegate it, passing the ticket or spec and the pre-agreed seams; Codex builds it test-first with "tdd". Delegate one ticket at a time.
++Before delegating anything, record the current commit (`git rev-parse HEAD`) as the review base.
  
 -Run typechecking regularly, single test files regularly, and the full test suite once at the end.
-+After each delegation, run typechecking and the relevant test files yourself. Run the full test suite once at the end.
++Don't write the implementation yourself. Call the Skill tool with "codex-implement" to delegate it, passing the ticket or spec and the pre-agreed seams; Codex builds it test-first with "tdd". Delegate one ticket at a time.
  
- Once done, call the Skill tool with "code-review" to review the work.
+-Once done, call the Skill tool with "code-review" to review the work.
++After each delegation, run typechecking and the relevant test files yourself, then commit the verified ticket to the current branch. Run the full test suite once at the end.
  
+-Commit your work to the current branch.
++Once done, call the Skill tool with "code-review" to review the work, passing the review base as the fixed point.
++
++Commit any fixes from the review to the current branch.

@@ -4,7 +4,7 @@
 
 ## Purpose and philosophy
 
-codex-delegate keeps [Matt Pocock's skill](https://github.com/mattpocock/skills) philosophy and puts each agent on the work it does best. It vendors the upstream skills as-is and patches only the five workflow entry points, so they delegate to Codex workers.
+codex-delegate keeps [Matt Pocock's skill](https://github.com/mattpocock/skills) philosophy and puts each agent on the work it does best. It vendors the upstream skills as-is and patches only the five workflow entry points and `code-review`, so they delegate to Codex workers.
 
 > An **unofficial** extension of mattpocock/skills. It is not affiliated with or endorsed by the original author.
 
@@ -14,7 +14,7 @@ codex-delegate keeps [Matt Pocock's skill](https://github.com/mattpocock/skills)
 | ------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | Claude (Opus 5.5)   | Understanding user intent, code analysis, design                  | Web search                                                       | **Leader**: interviews the user, writes specs and tickets, briefs workers, verifies their results |
 | Codex (GPT 6.1 Sol) | Implementation performance for the cost                           | Often misreads user intent; tends to mark work as done too early | **Implementer**: builds one ticket at a time, test-first                                          |
-| Codex (GPT 6 Astra) | Sharp critic and code reviewer; especially strong at computer use |                                                                  | **Adversarial reviewer**: attacks specs and ticket breakdowns before they are published           |
+| Codex (GPT 6 Astra) | Sharp critic and code reviewer; especially strong at computer use |                                                                  | **Adversarial reviewer**: attacks specs and ticket breakdowns before they are published, and reviews code alongside Claude |
 | Codex (GPT 6 Luna)  | Cost-effective; can use Codex's excellent web search tool         |                                                                  | **Researcher**: answers outside questions from cited sources, covering the leader's weak spot     |
 
 ### Principles
@@ -37,7 +37,7 @@ One command installs the following set into each agent. The set is defined in [`
 
 | Agent | Location (user / project) | Skills installed |
 |---|---|---|
-| Claude Code (leader) | `~/.claude/skills` / `.claude/skills` | everything in `skills/claude/*` and `skills/shared/*` (30 skills) |
+| Claude Code (leader) | `~/.claude/skills` / `.claude/skills` | everything in `skills/claude/*` and `skills/shared/*` (31 skills) |
 | Codex (workers) | `~/.codex/skills` / `.agents/skills` | `tdd`, `codebase-design`, `research` |
 
 `doctor` runs automatically after installing. Restart Claude Code and Codex to pick up the new skills.
@@ -54,7 +54,9 @@ npx github:starpia-forge/codex-delegate doctor
 - **Updating**: run `install` again. Skills dropped in the new version are removed automatically.
 - **Safety**: every installed skill gets a `.codex-delegate.json` marker file. `install`, `uninstall` and updates only touch skills that carry this marker.
 - **Name conflicts**: if a skill with the same name already exists and this tool did not install it (for example, the original mattpocock-skills), installation **stops without changing anything**. Add `--force` to overwrite.
-- **What `doctor` checks**: the Node version, whether Codex is installed and logged in, whether this Codex account offers each role's model and effort, and whether the original mattpocock-skills plugin is also installed in Claude Code.
+- **Claude Code's built-in `/code-review`**: the installed `code-review` skill replaces it. The built-in review stays available as `/review`, which never runs this skill.
+- **Personal over project**: when the same skill name exists in both, Claude Code uses the personal one (`~/.claude/skills`). After a project install, a personal skill with the same name that this tool didn't install hides the project copy.
+- **What `doctor` checks**: the Node version, whether Codex is installed and logged in, whether this Codex account offers each role's model and effort, whether the original mattpocock-skills plugin is also installed in Claude Code, and whether personal skills hide skills installed into the current project.
 
 ### Preparing a target repository
 
@@ -66,7 +68,7 @@ npx github:starpia-forge/codex-delegate doctor
 | Role | Model / effort | Sandbox | Used by |
 |---|---|---|---|
 | `luna` (research) | `gpt-6-luna` / max, web search | read-only | `codex-research` |
-| `astra` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review` |
+| `astra` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
 | `sol` (implementation) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
 
 Defaults live in [`src/runner/roles.json`](src/runner/roles.json). To change them for yourself, put only the fields you want to override in `~/.codex-delegate/roles.json`. This file survives reinstalls.
@@ -112,16 +114,24 @@ flowchart TD
         T2 --> T3 --> T4
     end
 
-    subgraph impl["/implement, per ticket"]
+    subgraph impl["/implement"]
         direction LR
         I1["Brief the worker"]
         Sol{{"Codex · GPT 6.1 Sol<br/>codex-implement"}}
         I2["Verify diff, typecheck,<br/>tests, acceptance criteria"]
-        I3["code-review<br/>and commit"]
+        I3["Commit the ticket"]
+        R1["code-review: Claude subagents<br/>Standards · Spec · Correctness"]
+        A3{{"Codex · GPT 6 Astra<br/>codex-code-review"}}
+        R2["Merge per axis, verify<br/>single-source findings"]
         I1 -. "ticket brief" .-> Sol
         Sol -. "code + report" .-> I2
         I2 -- "pass" --> I3
         I2 -. "fail: follow-up" .-> Sol
+        I3 -- "next ticket" --> I1
+        I3 -- "all tickets done" --> R1
+        I3 -. "same diff and briefs" .-> A3
+        R1 --> R2
+        A3 -. "findings" .-> R2
     end
 
     U(["User"]) --> grill
@@ -133,11 +143,13 @@ flowchart TD
     classDef claude fill:#f6dcc8,stroke:#c15f2c,color:#111
     classDef codex fill:#d6e6f5,stroke:#2f6aa3,color:#111
     class U,T3 user
-    class G1,P1,P2,P3,T1,T2,T4,I1,I2,I3 claude
-    class Luna,A1,A2,Sol codex
+    class G1,P1,P2,P3,T1,T2,T4,I1,I2,I3,R1,R2 claude
+    class Luna,A1,A2,A3,Sol codex
 ```
 
-`/implement-spec` follows the same `/implement` loop for every ticket, with one Claude subagent per ticket working in its own worktree; the leader merges each result into the integration branch.
+`/implement-spec` follows the same `/implement` loop for every ticket, with one Claude subagent per ticket working in its own worktree; the leader merges each result into the integration branch and runs one `code-review` over it at the end.
+
+`code-review` has every axis reviewed twice, independently: by a Claude subagent and by Codex, from the same diff and the same briefs. One model's blind spots are caught by the other. The leader merges the two sets of findings per axis, tags each with who found it, and checks any finding only one reviewer reported against the code before accepting it.
 
 Workers never change git state. Commits, branches and merges are handled by the leader or Claude subagents.
 
@@ -146,14 +158,14 @@ Workers never change git state. Commits, branches and merges are handled by the 
 ```
 bin/cli.mjs                 npx installer
 install-manifest.json       per-agent install set
-src/skills/                 authored skills (codex-research, codex-plan-review, codex-implement)
+src/skills/                 authored skills (codex-research, codex-plan-review, codex-implement, codex-code-review)
 src/runner/                 codex-run.mjs and roles.json (copied into each skill above at build time)
 src/worker-skills.json      upstream skills the workers use (sorted into skills/shared/)
 patches/                    changes against upstream (one per skill)
 upstream.json               pinned upstream commit
 scripts/build.mjs           generates skills/
 skills/                     build output; do not edit by hand
-  claude/                   mattpocock's skills (5 entry points patched) + src/skills; Claude Code only
+  claude/                   mattpocock's skills (5 entry points and code-review patched) + src/skills; Claude Code only
   shared/                   only the upstream skills workers need, unmodified; shared by Claude and Codex
 docs/                       translated documentation
 ```
@@ -176,7 +188,7 @@ node scripts/build.mjs --ref main   # move to the latest upstream and regenerate
 
 - **git ownership errors in the Windows sandbox**: the sandbox runs as a separate OS user, so git rejects the repository as "dubious ownership". `codex-run.mjs` works around this by setting `safe.directory=*` for that process only.
 - **No network**: `sol` and `astra` run without network access and cannot read the issue tracker. The delegation skills therefore put the ticket and spec text directly into the prompt.
-- **Bash time limit**: foreground Bash commands time out after 10 minutes, so `luna` and `sol` run in the background.
+- **Bash time limit**: foreground Bash commands time out after 10 minutes, so `luna`, `sol` and code review by `astra` run in the background.
 
 ## License
 

@@ -1,6 +1,6 @@
 {
   "astra": {
-    "purpose": "Adversarial plan review",
+    "purpose": "Adversarial plan review and code review",
     "model": "gpt-6-astra",
     "effort": "medium",
     "sandbox": "read-only",

@@ -8,10 +8,12 @@ Implement the work described by the user in the spec or tickets.
 
 If the user passes a ticket reference, fetch it from the issue tracker and state its title before starting. If the reference is ambiguous, ask.
 
+Before delegating anything, record the current commit (`git rev-parse HEAD`) as the review base.
+
 Don't write the implementation yourself. Call the Skill tool with "codex-implement" to delegate it, passing the ticket or spec and the pre-agreed seams; Codex builds it test-first with "tdd". Delegate one ticket at a time.
 
-After each delegation, run typechecking and the relevant test files yourself. Run the full test suite once at the end.
+After each delegation, run typechecking and the relevant test files yourself, then commit the verified ticket to the current branch. Run the full test suite once at the end.
 
-Once done, call the Skill tool with "code-review" to review the work.
+Once done, call the Skill tool with "code-review" to review the work, passing the review base as the fixed point.
 
-Commit your work to the current branch.
+Commit any fixes from the review to the current branch.

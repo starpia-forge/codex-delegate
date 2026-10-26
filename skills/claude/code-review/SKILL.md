@@ -1,14 +1,15 @@
 ---
 name: code-review
-description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along three axes: Standards (does the code follow this repo's documented coding standards?), Spec (does the code match what the originating issue/spec asked for?) and Correctness (does the code work?). Every axis is reviewed independently by both a Claude sub-agent and Codex, so one reviewer catches what the other misses; findings are merged per axis and reported side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
 ---
 
-Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
+Three-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 - **Standards**: does the code conform to this repo's documented coding standards?
 - **Spec**: does the code faithfully implement the originating issue / spec?
+- **Correctness**: does the code actually work, with no bugs, unhandled cases or hollow tests?
 
-Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings.
+Every axis is reviewed by **two independent reviewers**: a Claude sub-agent per axis, and Codex (GPT 6 Astra) covering all three axes in one run. All of them run in parallel so they don't pollute each other's context, then this skill merges their findings per axis.
 
 The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
 
@@ -29,7 +30,7 @@ Look for the originating spec, in this order:
 1. Issue references in the commit messages (`#123`, `Closes #45`, GitLab `!67`, etc.), fetched via the workflow in the tracker doc.
 2. A path the user passed as an argument.
 3. A spec file under `docs/`, `specs/`, or `.scratch/` matching the branch name or feature.
-4. If nothing is found, ask the user where the spec is. If they say there isn't one, the **Spec** sub-agent will skip and report "no spec available".
+4. If nothing is found, ask the user where the spec is. If they say there isn't one, both reviewers skip the **Spec** axis and the report says "no spec available".
 
 ### 3. Identify the standards sources
 
@@ -55,35 +56,54 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
 - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
-### 4. Spawn both sub-agents in parallel
+### 4. Run both reviewers in parallel
 
-Issue both sub-agent calls together, in the foreground, and aggregate the reports they return.
+Both reviewers get the same inputs and the same brief for each axis, so a finding only one of them reports reflects the reviewer, not the input. Neither sees the other's findings.
 
-**Standards sub-agent prompt** should include:
+**Axis briefs**, used verbatim by both reviewers:
 
-- The full diff command and commit list.
-- The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
-- The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
+- **Standards**: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
+- **Spec**: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+- **Correctness**: "Report defects the diff introduces: logic errors, unhandled edge cases and error paths, broken invariants, race conditions, resource leaks, security holes, and tests that pass without exercising the behaviour they claim to. For each, give the file/hunk, the input or state that triggers it, and what goes wrong. Skip style and spec conformance; the other axes cover them. Under 400 words."
 
-**Spec sub-agent prompt** should include:
+First, call the Skill tool with `codex-code-review`, passing the fixed point, the commit list, the spec, the standards-source files, the smell baseline and the axis briefs. It starts the Codex review in the background and returns.
 
-- The diff command and commit list.
-- The path or fetched contents of the spec.
-- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+Then issue the three Claude sub-agent calls together, in the foreground. Each sub-agent prompt includes the diff command, the commit list and its axis brief, plus:
 
-If the spec is missing, skip the Spec sub-agent and note this in the final report.
+- **Standards**: the list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
+- **Spec**: the path or fetched contents of the spec.
+- **Correctness**: the path or fetched contents of the spec, if there is one, for the intended behaviour.
+
+If the spec is missing, skip the Spec sub-agent.
+
+Wait for the Codex run to finish before aggregating. If it failed, report the Claude findings alone and say "Codex review unavailable" with the reason.
 
 ### 5. Aggregate
 
-Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
+Work one axis at a time. Within an axis:
 
-End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
+1. Merge the two reviewers' findings: a problem both reported becomes one finding.
+2. Tag each finding with its source: **both**, **Claude** or **Codex**.
+3. Verify every single-source finding against the code yourself: read the hunk and the code around it, then confirm or reject it. A finding the other reviewer missed is exactly what the second reviewer is for, so never drop one for being single-source; drop it only when the code shows it's wrong.
 
-## Why two axes
+Present the axes under `## Standards`, `## Spec` and `## Correctness` headings. Under each, list the confirmed findings with their source tags, then a short **Rejected** list with a one-line reason per finding. Do **not** merge or rerank findings across axes, because the axes are deliberately separate (see _Why separate axes_).
+
+End with a short summary:
+
+- per axis: total confirmed findings, and the worst issue _within that axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent;
+- coverage: confirmed findings found by both, by Claude only, and by Codex only.
+
+## Why separate axes
 
 A change can pass one axis and fail the other:
 
 - Code that follows every standard but implements the wrong thing → **Standards pass, Spec fail.**
 - Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
 
+Code can also do what the spec asks, in the house style, and still be broken: a missed edge case, a test that asserts nothing. That's **Correctness**, which neither of the other axes looks for.
+
 Reporting them separately stops one axis from masking the other.
+
+## Why two reviewers
+
+Any single reviewer has blind spots, and running the same model twice tends to repeat them. Claude and Codex are different models, so each catches some of what the other misses. That only works if the reviews stay independent, cover the same scope from the same inputs, and single-source findings are verified rather than discarded. The coverage line shows whether the second reviewer is earning its place.
