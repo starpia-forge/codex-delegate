@@ -13,7 +13,7 @@ Hand an external research question to the Codex research worker. Don't run the s
    - constraints: versions, platforms, languages, anything already ruled out;
    - what is already known, so the worker doesn't re-derive it.
 
-2. Create a task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-research-<slug>/` and write `prompt.md` there using the template below.
+2. Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-research-<slug>/` with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write `prompt.md` there using the template below only after creation succeeds.
 
 3. Run the worker in the background (Bash with `run_in_background: true`):
 
@@ -23,9 +23,17 @@ Hand an external research question to the Codex research worker. Don't run the s
 
    Carry on with other work, or other branches of the conversation, until you are notified that it finished.
 
-4. Read `<task-dir>/result.md`. Treat its findings as sourced claims, not settled truth: say which ones are well-supported and which are thin. Bring only the facts that matter for the current decision into the conversation, and point to the file for the rest.
+4. Read `<task-dir>/result.md`. Treat its findings as sourced claims, not settled truth: say which ones are well-supported and which are thin. Bring the facts needed for the current decision into the conversation, then remove the task directory following Cleanup below. If the caller needs durable notes (for example, an exploration subagent), copy what it needs to its own notes location before removal.
 
-If the run fails (non-zero exit, empty result), show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or research it yourself.
+If the run fails (non-zero exit, empty result), keep the task directory, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or research it yourself. Remove the directory following Cleanup below once the user has chosen and you no longer need it.
+
+## Cleanup
+
+1. Create each task directory fresh with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write files only after creation succeeds.
+2. Remove only the task directory created for this delegation, addressed by its exact path. Verify that the path is a direct child of `.scratch/codex/`.
+3. Use your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves.
+4. If removal fails (for example, a locked file or permission error), leave the delegation's outcome unchanged and report the path left behind so the user can delete it by hand.
+5. Keep a failed delegation's task directory until the user has chosen how to proceed and you no longer need it, then remove it. A retry that refers to it keeps it until the task ends.
 
 <prompt-template>
 
