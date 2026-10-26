@@ -62,7 +62,7 @@ npx github:starpia-forge/codex-delegate doctor
 - **Name conflicts**: if a skill with the same name already exists and this tool did not install it (for example, the original mattpocock-skills), installation **stops without changing anything**. Add `--force` to overwrite.
 - **Claude Code's built-in `/code-review`**: the installed `code-review` skill replaces it. The built-in review stays available as `/review`, which never runs this skill.
 - **Personal over project**: when the same skill name exists in both, Claude Code uses the personal one (`~/.claude/skills`). After a project install, a personal skill with the same name that this tool didn't install hides the project copy.
-- **What `doctor` checks**: the Node version, whether Codex is installed and logged in, whether this Codex account offers each role's model and effort, whether the original mattpocock-skills plugin is also installed in Claude Code, and whether personal skills hide skills installed into the current project.
+- **What `doctor` checks**: the Node version, whether Codex is installed and logged in, whether this Codex account offers each role's model and effort, whether the Computer Use plugin (`computer-use@openai-bundled`) is enabled in Codex (warns without failing if disabled or missing), whether the original mattpocock-skills plugin is also installed in Claude Code, and whether personal skills hide skills installed into the current project.
 
 ### Preparing a target repository
 
