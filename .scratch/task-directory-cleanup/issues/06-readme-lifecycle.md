@@ -4,8 +4,12 @@
 
 **Blocked by:** 01, 02, 03, 04, 05
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/task-directory-cleanup/spec.md`
 
-- [ ] Both READMEs updated consistently; the `.gitignore` recommendation stays.
+- [x] Both READMEs updated consistently; the `.gitignore` recommendation stays.
+
+## Comments
+
+- Implemented on `feat/task-directory-cleanup`; build and `node --test` pass.

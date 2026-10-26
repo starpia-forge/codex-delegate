@@ -1,6 +1,6 @@
 # Spec: Remove task directories once their result is consumed
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -29,7 +29,7 @@ Each task directory is removed by the skill that last consumes its result, as so
 15. As a leader running `codex-computer-use`, I want every attempt's task directory kept until the task ends, so that a follow-up can refer to the previous attempt's directory and screenshot.
 16. As a leader running `codex-computer-use`, I want to remove all of the task's attempt directories once I have verified the result and reported to the user, so that screenshots do not pile up in the repo.
 17. As a user who wants the screenshot of a computer-use task, I want the leader to copy it to a location outside `.scratch/codex/` before removal, so that I keep the evidence I asked for.
-18. As a leader whose computer-use attempt came back busy (exit 75), I want to remove that attempt's task directory when I rerun in a new one, since no worker ran in it.
+18. As a leader whose computer-use attempt came back busy (exit 75), I want to remove that attempt's task directory right away, since no worker ran in it.
 19. As a user, I want the leader to remove only the single task directory it created, by its exact path, so that a mistaken path can never delete my repo files.
 20. As a user, I want the leader never to use wildcards and never to remove `.scratch/codex/` or `.scratch/` themselves, so that concurrent sessions' task directories and the issue tracker are safe.
 21. As a user running several Claude sessions at once, I want each session to remove only its own task directories, so that a worker still running in another session keeps its files.
@@ -50,7 +50,7 @@ Each task directory is removed by the skill that last consumes its result, as so
   - `codex-plan-review`: after the draft has been revised and the user has answered any "needs the user" findings, before returning to the calling skill. The task directory's `draft.md` is a copy for the worker; the revised draft must live outside the task directory (where the caller will publish it, or in the conversation) before removal.
   - `codex-implement`: on returning to the calling skill with the ticket verified, all of that ticket's task directories (first run and follow-ups) are removed.
   - `codex-code-review`: on returning, it gives the calling skill its task directory path. `code-review` removes that directory after aggregating. If the Codex review failed, `code-review` keeps the directory, puts its path and the log tail in the final report, and removes it only when the user says so; otherwise the user deletes it by hand.
-  - `codex-computer-use`: all of the task's attempt directories are removed after verification succeeds and the user has been told; the success report no longer points the user at a screenshot path inside the task directory unless the leader copied the screenshot out at the user's request. A busy attempt's directory (no worker ran) is removed when the rerun is started.
+  - `codex-computer-use`: all of the task's attempt directories are removed after verification succeeds and the user has been told; the success report no longer points the user at a screenshot path inside the task directory unless the leader copied the screenshot out at the user's request. A busy attempt's directory (no worker ran) is removed right after the user is told, so it cannot leak if the user abandons the task; the rerun gets a new one.
 - Failure handling: any failure path that currently shows the user the log tail (non-zero exit, empty result, non-converging follow-ups, a computer-use task that stops without meeting its criterion) keeps the task directories. They are removed once the user has chosen how to proceed (retry, do it yourself, continue without, or stop) and the leader no longer needs them. A retry that refers to a previous attempt's directory (as computer-use follow-ups do) keeps it until the task ends.
 - Creating a task directory: create it with an exclusive create that fails if the directory already exists; on collision, retry with another name (for example, a later timestamp), and write files into it only after creation succeeds. A task directory is never shared between delegations.
 - Deletion mechanism: no helper script and no runner change. The skill instructions say to remove the directory with the shell's own recursive delete, without prescribing a command. Safety rules, stated in each affected skill:
