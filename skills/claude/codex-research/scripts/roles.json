@@ -12,7 +12,8 @@
     "effort": "medium",
     "sandbox": "workspace-write",
     "webSearch": false,
-    "dangerouslyBypassApprovalsAndSandbox": true
+    "dangerouslyBypassApprovalsAndSandbox": true,
+    "exclusive": true
   },
   "sol": {
     "purpose": "Implementation",

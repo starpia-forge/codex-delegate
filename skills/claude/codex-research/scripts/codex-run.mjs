@@ -8,10 +8,11 @@
 //
 // The prompt is piped to `codex exec` on stdin. Codex's final message is written
 // to --out (default: result.md next to the prompt file) and the full event log
-// to <out>.log. Exit code is Codex's exit code.
+// to <out>.log. Exit code is Codex's exit code, or 75 if computer use is busy.
 
-import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,97 @@ import { fileURLToPath } from "node:url";
 const USER_ROLES = join(homedir(), ".codex-delegate", "roles.json");
 
 const PRINT_LIMIT = 6000;
+const BUSY_EXIT_CODE = 75;
+const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
+const HOLDER = join(LOCK, "holder.json");
+const CHILD = join(LOCK, "child.json");
+
+function readHolder() {
+  let holder;
+  try { holder = JSON.parse(readFileSync(HOLDER, "utf8")); } catch { return null; }
+  if (!holder || typeof holder !== "object") return null;
+  // The holder is immutable. Publishing the child separately avoids replacing
+  // a file that a contender may have open (EPERM on Windows).
+  delete holder.childPid;
+  try {
+    const child = JSON.parse(readFileSync(CHILD, "utf8"));
+    if (child?.token === holder.token) holder.childPid = child.childPid;
+  } catch { /* A missing/invalid child record is incomplete, hence busy. */ }
+  return holder;
+}
+
+function removeLock() {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      rmSync(LOCK, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      // Retry explicitly: native rmSync implementations do not all honor
+      // maxRetries for Windows sharing errors. Bound total waiting to 1.1s.
+      if (attempt < 10 && ["EPERM", "EACCES", "EBUSY", "ENOTEMPTY"].includes(err.code)) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
+        continue;
+      }
+      // Cleanup must not replace the worker's exit status. If readers outlast
+      // retries, leave the remaining record protected rather than force removal.
+      console.error(`codex-run: could not release computer-use lock: ${err.message}`);
+      return;
+    }
+  }
+}
+
+function alive(pid) {
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code !== "ESRCH"; }
+}
+
+function stale(holder) {
+  return typeof holder?.token === "string" && holder.token.length > 0
+    && [holder.runnerPid, holder.childPid].every(pid => Number.isSafeInteger(pid) && pid > 0 && !alive(pid));
+}
+
+function busy(holder) {
+  console.error(`codex-run: computer use busy: ${holder ? JSON.stringify(holder) : "incomplete holder record"}`);
+  process.exit(BUSY_EXIT_CODE);
+}
+
+function acquireLock(role, cwd) {
+  mkdirSync(dirname(LOCK), { recursive: true });
+  for (;;) {
+    try { mkdirSync(LOCK); break; } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      const holder = readHolder();
+      if (!stale(holder)) busy(holder);
+      // Keep a nonempty tombstone for each reclaimed token. Directory rename
+      // cannot replace it (on Windows or POSIX), so a delayed stale contender
+      // cannot move a new owner's lock. No separate reclaim guard can get stuck.
+      const token = createHash("sha256").update(holder.token).digest("hex");
+      try { renameSync(LOCK, `${LOCK}.stale-${token}`); } catch (err) {
+        // A Windows reader may prevent moving the directory. Refuse safely;
+        // never remove a lock in place or bypass the token's tombstone.
+        if (!["ENOENT", "EEXIST", "ENOTEMPTY", "EPERM", "EACCES", "EBUSY"].includes(err.code)) throw err;
+        busy(readHolder());
+      }
+    }
+  }
+  const holder = { token: randomUUID(), runnerPid: process.pid, role, cwd, startedAt: new Date().toISOString() };
+  try { writeFileSync(HOLDER, JSON.stringify(holder)); } catch (err) {
+    // We just created this directory; an incomplete record cannot be reclaimed.
+    removeLock();
+    throw err;
+  }
+  return {
+    setChild(pid) {
+      if (readHolder()?.token !== holder.token) throw new Error("computer-use lock ownership lost");
+      const pending = join(LOCK, `${holder.token}.tmp`);
+      writeFileSync(pending, JSON.stringify({ token: holder.token, childPid: pid }), { flag: "wx" });
+      // This destination has never existed: readers cannot hold it open yet.
+      renameSync(pending, CHILD);
+    },
+    release() {
+      if (readHolder()?.token === holder.token) removeLock();
+    },
+  };
+}
 
 function fail(message) {
   console.error(`codex-run: ${message}`);
@@ -45,7 +137,7 @@ function quote(arg) {
 const { role, opts } = parseArgs(process.argv.slice(2));
 const roles = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "roles.json"), "utf8"));
 const overrides = existsSync(USER_ROLES) ? JSON.parse(readFileSync(USER_ROLES, "utf8")) : {};
-const config = roles[role] && { dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
+const config = roles[role] && { exclusive: false, dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
 if (!config) fail(`unknown role "${role}" (expected one of: ${Object.keys(roles).join(", ")})`);
 if (!opts["prompt-file"]) fail("--prompt-file is required");
 
@@ -53,6 +145,44 @@ const promptFile = resolve(opts["prompt-file"]);
 if (!existsSync(promptFile)) fail(`prompt file not found: ${promptFile}`);
 const out = resolve(opts.out ?? join(dirname(promptFile), "result.md"));
 const cwd = resolve(opts.cwd ?? process.cwd());
+const lock = config.exclusive ? acquireLock(role, cwd) : null;
+let child;
+let stopping = false;
+let closed = false;
+let canRelease = true;
+process.on("exit", () => { if (canRelease) lock?.release(); });
+
+async function shutdown(code, message) {
+  if (stopping) return;
+  stopping = true;
+  if (message) console.error(`codex-run: ${message}`);
+  try {
+    if (child?.pid && !closed) {
+      if (process.platform === "win32") {
+        const killed = spawnSync("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore", windowsHide: true, timeout: 10000 });
+        if (killed.status !== 0) {
+          const fallback = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            fileURLToPath(new URL("./windows-stop-tree.ps1", import.meta.url)), "-RootProcessId", String(child.pid)],
+          { encoding: "utf8", windowsHide: true, timeout: 20000 });
+          if (fallback.status !== 0) throw new Error(fallback.stderr || "could not terminate Codex process tree");
+        }
+      } else {
+        try { process.kill(-child.pid, "SIGKILL"); } catch (err) { if (err.code !== "ESRCH") throw err; }
+      }
+      if (!closed) await new Promise(resolve => child.once("close", resolve));
+    }
+    canRelease = true;
+  } catch (err) {
+    // Keep the recorded live child protected if termination could not be proved.
+    console.error(`codex-run: ${err.message}; retaining computer-use lock`);
+  }
+  process.exit(code);
+}
+
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149], ["SIGHUP", 129]]) {
+  if (signal !== "SIGBREAK" || process.platform === "win32") process.on(signal, () => shutdown(code));
+}
+process.on("uncaughtException", err => shutdown(2, err.message));
 
 const args = [
   "exec",
@@ -83,17 +213,26 @@ console.log(`codex-run: role=${role} model=${config.model} effort=${config.effor
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);
-const child =
+child =
   process.platform === "win32"
-    ? spawn(["codex", ...args.map(quote)].join(" "), { cwd, env, shell: true })
-    : spawn("codex", args, { cwd, env });
+    ? spawn(process.execPath, [fileURLToPath(new URL("./windows-codex.mjs", import.meta.url)), ["codex", ...args.map(quote)].join(" ")], { cwd, env, detached: true, windowsHide: true })
+    : spawn("codex", args, { cwd, env, detached: true });
+if (child.pid) {
+  canRelease = false;
+  lock?.setChild(child.pid);
+}
 child.stdout.pipe(log, { end: false });
 child.stderr.pipe(log, { end: false });
 child.stdin.end(readFileSync(promptFile));
+child.stdin.on("error", err => { if (err.code !== "EPIPE") shutdown(2, err.message); });
+log.on("error", err => shutdown(2, err.message));
 
-child.on("error", (err) => fail(`could not start codex (is it installed and on PATH?): ${err.message}`));
+child.on("error", (err) => shutdown(2, `could not start codex (is it installed and on PATH?): ${err.message}`));
 child.on("close", (code) => {
+  closed = true;
   log.end();
+  if (stopping) return;
+  canRelease = true;
   console.log(`codex-run: exit=${code} result=${out} log=${out}.log`);
   if (existsSync(out)) {
     const result = readFileSync(out, "utf8");
