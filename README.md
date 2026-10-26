@@ -30,7 +30,7 @@ Requirements: Node.js 18.18 or later, git, and the Codex CLI (`npm i -g @openai/
 
 ```
 npx github:starpia-forge/codex-delegate install             # latest on the default branch
-npx github:starpia-forge/codex-delegate#v0.1.0 install      # pinned to a tag
+npx github:starpia-forge/codex-delegate#v0.2.0 install      # pinned to a tag
 ```
 
 On Windows, if PowerShell refuses to run `npx` because running scripts is disabled on this system, use `npx.cmd` instead, or allow local scripts once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
