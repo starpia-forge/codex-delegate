@@ -66,7 +66,7 @@ Both reviewers get the same inputs and the same brief for each axis, so a findin
 - **Spec**: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
 - **Correctness**: "Report defects the diff introduces: logic errors, unhandled edge cases and error paths, broken invariants, race conditions, resource leaks, security holes, and tests that pass without exercising the behaviour they claim to. For each, give the file/hunk, the input or state that triggers it, and what goes wrong. Skip style and spec conformance; the other axes cover them. Under 400 words."
 
-First, call the Skill tool with `codex-code-review`, passing the fixed point, the commit list, the spec, the standards-source files, the smell baseline and the axis briefs. It starts the Codex review in the background and returns.
+First, call the Skill tool with `codex-code-review`, passing the fixed point, the commit list, the spec, the standards-source files, the smell baseline and the axis briefs. It starts the Codex review in the background and returns the task directory path; note it.
 
 Then issue the three Claude sub-agent calls together, in the foreground. Each sub-agent prompt includes the diff command, the commit list and its axis brief, plus:
 
@@ -76,7 +76,7 @@ Then issue the three Claude sub-agent calls together, in the foreground. Each su
 
 If the spec is missing, skip the Spec sub-agent.
 
-Wait for the Codex run to finish before aggregating. If it failed, report the Claude findings alone and say "Codex review unavailable" with the reason.
+Wait for the Codex run to finish before aggregating. If it failed, keep the task directory, report the Claude findings alone and say "Codex review unavailable" with the reason, the task directory path and the tail of `<task-dir>/result.md.log` in the final report.
 
 ### 5. Aggregate
 
@@ -85,6 +85,8 @@ Work one axis at a time. Within an axis:
 1. Merge the two reviewers' findings: a problem both reported becomes one finding.
 2. Tag each finding with its source: **both**, **Claude** or **Codex**.
 3. Verify every single-source finding against the code yourself: read the hunk and the code around it, then confirm or reject it. A finding the other reviewer missed is exactly what the second reviewer is for, so never drop one for being single-source; drop it only when the code shows it's wrong.
+
+After aggregating, remove only this delegation's Codex review task directory by its exact path, verified to be a direct child of `.scratch/codex/`, using your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves. If removal fails, the review outcome stands; report the leftover path so the user can delete it by hand. If the Codex review failed, keep the directory and include its path and log tail in the final report; remove it using the same rules only when the user says so and you no longer need it, otherwise the user deletes it by hand.
 
 Present the axes under `## Standards`, `## Spec` and `## Correctness` headings. Under each, list the confirmed findings with their source tags, then a short **Rejected** list with a one-line reason per finding. Do **not** merge or rerank findings across axes, because the axes are deliberately separate (see _Why separate axes_).
 

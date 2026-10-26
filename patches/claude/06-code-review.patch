@@ -1,5 +1,5 @@
 diff --git a/engineering/code-review/SKILL.md b/engineering/code-review/SKILL.md
-index 373a4f2..68c0c75 100644
+index 373a4f2..4857f5a 100644
 --- a/engineering/code-review/SKILL.md
 +++ b/engineering/code-review/SKILL.md
 @@ -1,14 +1,15 @@
@@ -30,7 +30,7 @@ index 373a4f2..68c0c75 100644
  
  ### 3. Identify the standards sources
  
-@@ -55,35 +56,54 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
+@@ -55,35 +56,56 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
  - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
  - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
  
@@ -51,7 +51,7 @@ index 373a4f2..68c0c75 100644
 +- **Correctness**: "Report defects the diff introduces: logic errors, unhandled edge cases and error paths, broken invariants, race conditions, resource leaks, security holes, and tests that pass without exercising the behaviour they claim to. For each, give the file/hunk, the input or state that triggers it, and what goes wrong. Skip style and spec conformance; the other axes cover them. Under 400 words."
  
 -**Spec sub-agent prompt** should include:
-+First, call the Skill tool with `codex-code-review`, passing the fixed point, the commit list, the spec, the standards-source files, the smell baseline and the axis briefs. It starts the Codex review in the background and returns.
++First, call the Skill tool with `codex-code-review`, passing the fixed point, the commit list, the spec, the standards-source files, the smell baseline and the axis briefs. It starts the Codex review in the background and returns the task directory path; note it.
  
 -- The diff command and commit list.
 -- The path or fetched contents of the spec.
@@ -65,7 +65,7 @@ index 373a4f2..68c0c75 100644
 +
 +If the spec is missing, skip the Spec sub-agent.
 +
-+Wait for the Codex run to finish before aggregating. If it failed, report the Claude findings alone and say "Codex review unavailable" with the reason.
++Wait for the Codex run to finish before aggregating. If it failed, keep the task directory, report the Claude findings alone and say "Codex review unavailable" with the reason, the task directory path and the tail of `<task-dir>/result.md.log` in the final report.
  
  ### 5. Aggregate
  
@@ -75,6 +75,8 @@ index 373a4f2..68c0c75 100644
 +1. Merge the two reviewers' findings: a problem both reported becomes one finding.
 +2. Tag each finding with its source: **both**, **Claude** or **Codex**.
 +3. Verify every single-source finding against the code yourself: read the hunk and the code around it, then confirm or reject it. A finding the other reviewer missed is exactly what the second reviewer is for, so never drop one for being single-source; drop it only when the code shows it's wrong.
++
++After aggregating, remove only this delegation's Codex review task directory by its exact path, verified to be a direct child of `.scratch/codex/`, using your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves. If removal fails, the review outcome stands; report the leftover path so the user can delete it by hand. If the Codex review failed, keep the directory and include its path and log tail in the final report; remove it using the same rules only when the user says so and you no longer need it, otherwise the user deletes it by hand.
 +
 +Present the axes under `## Standards`, `## Spec` and `## Correctness` headings. Under each, list the confirmed findings with their source tags, then a short **Rejected** list with a one-line reason per finding. Do **not** merge or rerank findings across axes, because the axes are deliberately separate (see _Why separate axes_).
  
