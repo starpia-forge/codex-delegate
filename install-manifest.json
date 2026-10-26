@@ -2,13 +2,17 @@
   "agents": {
     "claude-code": {
       "name": "Claude Code (Leader)",
-      "userDir": ".claude/skills",
+      "home": ".claude",
+      "homeEnv": "CLAUDE_CONFIG_DIR",
+      "userDir": "skills",
       "projectDir": ".claude/skills",
       "skills": ["claude/*"]
     },
     "codex": {
       "name": "Codex (workers)",
-      "userDir": ".codex/skills",
+      "home": ".codex",
+      "homeEnv": "CODEX_HOME",
+      "userDir": "skills",
       "projectDir": ".agents/skills",
       "skills": ["codex/*"]
     }

@@ -37,8 +37,10 @@ npx github:starpia-forge/codex-delegate#v0.1.0 install      # 태그 고정
 
 | 에이전트 | 설치 위치 (user / project) | 설치되는 스킬 |
 |---|---|---|
-| Claude Code (Leader) | `~/.claude/skills` / `.claude/skills` | `skills/claude/*` 전부 (31개) |
-| Codex (워커) | `~/.codex/skills` / `.agents/skills` | `skills/codex/*` 전부: `tdd`, `codebase-design`, `research` |
+| Claude Code (Leader) | `~/.claude/skills`¹ / `.claude/skills` | `skills/claude/*` 전부 (31개) |
+| Codex (워커) | `~/.codex/skills`¹ / `.agents/skills` | `skills/codex/*` 전부: `tdd`, `codebase-design`, `research` |
+
+¹ `CLAUDE_CONFIG_DIR`나 `CODEX_HOME`이 설정되어 있으면 user 범위 스킬은 각 에이전트가 스킬을 찾는 위치인 `$CLAUDE_CONFIG_DIR/skills`, `$CODEX_HOME/skills`에 설치됩니다.
 
 `tdd`처럼 두 에이전트가 모두 쓰는 스킬은 별개의 사본 두 개로 설치됩니다. 각 사본은 해당 에이전트의 역할에 맞게 작성되므로, 위임하는 에이전트와 위임받는 에이전트가 같은 지침을 읽는 일이 없습니다.
 

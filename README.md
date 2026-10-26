@@ -37,8 +37,10 @@ One command installs the following set into each agent. The set is defined in [`
 
 | Agent | Location (user / project) | Skills installed |
 |---|---|---|
-| Claude Code (leader) | `~/.claude/skills` / `.claude/skills` | everything in `skills/claude/*` (31 skills) |
-| Codex (workers) | `~/.codex/skills` / `.agents/skills` | everything in `skills/codex/*`: `tdd`, `codebase-design`, `research` |
+| Claude Code (leader) | `~/.claude/skills`¹ / `.claude/skills` | everything in `skills/claude/*` (31 skills) |
+| Codex (workers) | `~/.codex/skills`¹ / `.agents/skills` | everything in `skills/codex/*`: `tdd`, `codebase-design`, `research` |
+
+¹ When `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set, user-scope skills go to `$CLAUDE_CONFIG_DIR/skills` or `$CODEX_HOME/skills` instead, matching where each agent looks for them.
 
 A skill both agents use, such as `tdd`, is installed as two separate copies. Each copy is written for its own agent's role, so the delegating and the delegated agent never read the same instructions.
 

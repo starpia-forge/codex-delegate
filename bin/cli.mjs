@@ -69,8 +69,14 @@ function resolveSkills(patterns) {
   return skills;
 }
 
+// The agent's config directory: its home env var (CODEX_HOME, CLAUDE_CONFIG_DIR)
+// when set, else ~/<home>. userDir is relative to it.
+function agentHome(agent) {
+  return process.env[agent.homeEnv] || join(homedir(), agent.home);
+}
+
 function targetDir(agent, scope) {
-  return scope === "user" ? join(homedir(), agent.userDir) : join(process.cwd(), agent.projectDir);
+  return scope === "user" ? join(agentHome(agent), agent.userDir) : join(process.cwd(), agent.projectDir);
 }
 
 function readMarker(skillDir) {
@@ -192,7 +198,7 @@ function doctor() {
       check("fail", "Role overrides", `${USER_ROLES}: ${err.message}`);
     }
   }
-  const cachePath = join(homedir(), ".codex", "models_cache.json");
+  const cachePath = join(agentHome(manifest.agents.codex), "models_cache.json");
   let models = null;
   try {
     const cache = JSON.parse(readFileSync(cachePath, "utf8"));
@@ -212,7 +218,7 @@ function doctor() {
   }
 
   // Another copy of mattpocock-skills in Claude Code would shadow the patched workflow skills.
-  const pluginsFile = join(homedir(), ".claude", "plugins", "installed_plugins.json");
+  const pluginsFile = join(agentHome(manifest.agents["claude-code"]), "plugins", "installed_plugins.json");
   if (existsSync(pluginsFile) && /mattpocock-skills/.test(readFileSync(pluginsFile, "utf8"))) {
     check("warn", "No duplicate mattpocock-skills plugin", "the mattpocock-skills Claude Code plugin is installed; uninstall it so /implement etc. resolve to the patched skills");
   }
