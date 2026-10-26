@@ -7,7 +7,7 @@ Have the Codex review worker attack a draft before anyone builds on it. You stay
 
 ## Process
 
-1. Create a task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-plan-review-<slug>/`. Save the draft there as `draft.md`, exactly as it would be published.
+1. Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-plan-review-<slug>/` with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Save the draft there as `draft.md`, exactly as it would be published, only after creation succeeds.
 
 2. Write `prompt.md` in the same directory using the template below. The worker runs at the repo root and can read the codebase, `GLOSSARY.md` and ADRs on its own, so point to them rather than pasting them.
 
@@ -26,9 +26,17 @@ Have the Codex review worker attack a draft before anyone builds on it. You stay
 
 5. Show the user a short table: finding, severity, disposition. Ask about the "needs the user" ones and wait for answers before continuing.
 
-6. Return to the step of the calling skill that comes after the review.
+6. Revise the draft to incorporate the user's answers. Ensure the revised draft lives outside the task directory (at its publish location or in the conversation), not only in `<task-dir>/draft.md`. Then remove the task directory following Cleanup below and return to the step of the calling skill that comes after the review.
 
-If the run fails (non-zero exit, empty result), show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or continue without the review.
+If the run fails (non-zero exit, empty result), keep the task directory, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or continue without the review. Remove the directory following Cleanup below once the user has chosen and you no longer need it.
+
+## Cleanup
+
+1. Create each task directory fresh with an exclusive create that fails if it already exists. On collision, retry with another name (for example, a later timestamp). Write files only after creation succeeds.
+2. Remove only the task directory created for this delegation, addressed by its exact path. Verify that the path is a direct child of `.scratch/codex/`.
+3. Use your shell's recursive delete. Never use wildcards; never remove `.scratch/codex/` or `.scratch/` themselves.
+4. If removal fails (for example, a locked file or permission error), leave the delegation's outcome unchanged and report the path left behind so the user can delete it by hand.
+5. Keep a failed delegation's task directory until the user has chosen how to proceed and you no longer need it, then remove it. A retry that refers to it keeps it until the task ends.
 
 <prompt-template>
 
