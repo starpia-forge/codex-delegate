@@ -38,7 +38,7 @@ An **attempt** is one worker run. Every attempt gets its own new task directory 
 
 - **Busy** (exit 75, `codex-run: computer use busy: ...`): another computer-use worker holds the desktop, possibly from another Claude session. No worker ran and nothing happened, so this attempt costs nothing. Tell the user, and when they say the desktop is free, run the same brief again in a new task directory.
 - **Pipe unavailable**: the Codex desktop app isn't running. Ask the user to start it, wait for them to confirm, then pick the rerun:
-  - the report exists and marks no step done or uncertain → rerun the same brief in a new task directory. This rerun doesn't use up the follow-up.
+  - the report exists and marks no desktop action (launching an app, clicking, typing, pressing keys) done or uncertain → rerun the same brief in a new task directory. This rerun doesn't use up the follow-up. Reading docs or taking screenshots doesn't count as a desktop action.
   - anything else, including a missing report → the rerun is the follow-up (step 7). If the follow-up is already used, stop and report as in step 6.
 - **Other failures**: show the user the tail of `<task-dir>/result.md.log` and ask whether to retry (as the follow-up, step 7) or have you do the task yourself. If the follow-up is already used, the only choices are stopping or you doing it. If the log shows `Computer Use was not approved to use <app>`, the `astra-cu` bypass is turned off, likely by `"dangerouslyBypassApprovalsAndSandbox": false` in `~/.codex-delegate/roles.json`; say so, since a retry will fail the same way.
 

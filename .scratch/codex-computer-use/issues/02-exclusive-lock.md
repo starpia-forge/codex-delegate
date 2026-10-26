@@ -6,16 +6,20 @@ Spec: `.scratch/codex-computer-use/spec.md`
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Default `astra-cu` has `exclusive: true`; the field defaults to false for every other role.
-- [ ] A second `astra-cu` run during a first (fake `codex` that waits) exits with the busy code, names the holder, does not invoke `codex`, and creates no log or result file.
-- [ ] Two exclusive roles share the lock: an `astra-cu` run and another role made exclusive through an isolated override, in separate working directories with the same isolated home, never run together.
-- [ ] Simultaneous acquisition from several processes on an absent lock: exactly one proceeds.
-- [ ] Simultaneous reclamation of a stale lock (all recorded PIDs dead): exactly one proceeds; no runner deletes another's fresh lock.
-- [ ] A lock with an incomplete record is treated as busy.
-- [ ] Killing the runner while the fake worker stays alive: a new exclusive run is refused until the worker has stopped.
-- [ ] Interrupting the runner terminates the fake worker and releases the lock.
-- [ ] The lock is released when Codex exits non-zero, and when spawning genuinely fails (triggered by an invalid `--cwd`); a following exclusive run succeeds in both cases.
-- [ ] A non-exclusive role (`astra`) runs while the lock is held.
-- [ ] `npm test` passes on Windows.
+- [x] Default `astra-cu` has `exclusive: true`; the field defaults to false for every other role.
+- [x] A second `astra-cu` run during a first (fake `codex` that waits) exits with the busy code, names the holder, does not invoke `codex`, and creates no log or result file.
+- [x] Two exclusive roles share the lock: an `astra-cu` run and another role made exclusive through an isolated override, in separate working directories with the same isolated home, never run together.
+- [x] Simultaneous acquisition from several processes on an absent lock: exactly one proceeds.
+- [x] Simultaneous reclamation of a stale lock (all recorded PIDs dead): exactly one proceeds; no runner deletes another's fresh lock.
+- [x] A lock with an incomplete record is treated as busy.
+- [x] Killing the runner while the fake worker stays alive: a new exclusive run is refused until the worker has stopped.
+- [x] Interrupting the runner terminates the fake worker and releases the lock.
+- [x] The lock is released when Codex exits non-zero, and when spawning genuinely fails (triggered by an invalid `--cwd`); a following exclusive run succeeds in both cases.
+- [x] A non-exclusive role (`astra`) runs while the lock is held.
+- [x] `npm test` passes on Windows.
+
+## Comments
+
+Resolved on branch `feat/codex-computer-use` (review base 973b340). Manual acceptance (ticket 04) passed on 2026-10-26: Notepad task, app-closed rerun, app killed mid-task treated as the follow-up.

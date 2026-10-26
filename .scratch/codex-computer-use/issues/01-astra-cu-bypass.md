@@ -6,11 +6,15 @@ Spec: `.scratch/codex-computer-use/spec.md`
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Default roles include `astra-cu`: model `gpt-6-astra`, effort `medium`, purpose "Computer use", no web search, `dangerouslyBypassApprovalsAndSandbox: true`. The field defaults to false for every other role.
-- [ ] With that field true in the merged config, the Codex arguments contain `--dangerously-bypass-approvals-and-sandbox` and no `-s`; the runner's start-up line shows the bypass instead of the sandbox.
-- [ ] `astra`, `sol` and `luna` produce the same Codex arguments as before this change (regression test, web search only for `luna`).
-- [ ] An isolated user override file setting the field to false for `astra-cu` brings `-s <sandbox>` back.
-- [ ] Every test isolates the home directory; the real `~/.codex-delegate/` is never read or written.
-- [ ] `npm test` passes on Windows.
+- [x] Default roles include `astra-cu`: model `gpt-6-astra`, effort `medium`, purpose "Computer use", no web search, `dangerouslyBypassApprovalsAndSandbox: true`. The field defaults to false for every other role.
+- [x] With that field true in the merged config, the Codex arguments contain `--dangerously-bypass-approvals-and-sandbox` and no `-s`; the runner's start-up line shows the bypass instead of the sandbox.
+- [x] `astra`, `sol` and `luna` produce the same Codex arguments as before this change (regression test, web search only for `luna`).
+- [x] An isolated user override file setting the field to false for `astra-cu` brings `-s <sandbox>` back.
+- [x] Every test isolates the home directory; the real `~/.codex-delegate/` is never read or written.
+- [x] `npm test` passes on Windows.
+
+## Comments
+
+Resolved on branch `feat/codex-computer-use` (review base 973b340). Manual acceptance (ticket 04) passed on 2026-10-26: Notepad task, app-closed rerun, app killed mid-task treated as the follow-up.

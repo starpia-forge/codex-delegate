@@ -6,10 +6,14 @@ Spec: `.scratch/codex-computer-use/spec.md`
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The skill exists in the authored skills and in the build output with the runner bundled; `install --dry-run` lists it.
-- [ ] The skill text covers every process step, failure path and brief-template section listed above.
-- [ ] Both READMEs updated as listed.
-- [ ] Leader walkthrough with representative artifacts gives the right next step for: a report with done and uncertain steps that misses the criterion; a missing report; a missing `final.png`; a follow-up that still misses (stop and report); a busy exit.
-- [ ] Manual acceptance with the user: the Notepad "type hello, don't save" task succeeds with a verified `final.png`; with the Codex desktop app closed, the pipe-unavailable path is followed and the rerun is free; with the app closed partway through a task, the rerun is treated as the follow-up.
+- [x] The skill exists in the authored skills and in the build output with the runner bundled; `install --dry-run` lists it.
+- [x] The skill text covers every process step, failure path and brief-template section listed above.
+- [x] Both READMEs updated as listed.
+- [x] Leader walkthrough with representative artifacts gives the right next step for: a report with done and uncertain steps that misses the criterion; a missing report; a missing `final.png`; a follow-up that still misses (stop and report); a busy exit.
+- [x] Manual acceptance with the user: the Notepad "type hello, don't save" task succeeds with a verified `final.png`; with the Codex desktop app closed, the pipe-unavailable path is followed and the rerun is free; with the app closed partway through a task, the rerun is treated as the follow-up.
+
+## Comments
+
+Resolved on branch `feat/codex-computer-use` (review base 973b340). Manual acceptance (ticket 04) passed on 2026-10-26: Notepad task, app-closed rerun, app killed mid-task treated as the follow-up.

@@ -1,6 +1,6 @@
 # Spec: Delegate computer use to Codex (`codex-computer-use`)
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -62,7 +62,7 @@ Verified on this machine (Windows 10 19045, codex-cli 0.164.0, Codex desktop app
   - Process: confirm irreversible self-initiated actions with the user → create a new task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-computer-use-<slug>/` and write `prompt.md` → tell the user not to touch the PC → run the runner with role `astra-cu`, `--prompt-file <task-dir>/prompt.md --cwd <task-dir>`, in the background, one at a time → check that this attempt produced both `final.png` and `result.md` (missing → failure) → open the screenshot and compare with the completion criterion → at most one follow-up → otherwise report.
   - Follow-up: a new task directory; the brief lists the previous attempt's steps by status, tells the worker to first confirm uncertain steps by observation only (no actions), then continue from the current screen without repeating done steps.
   - Busy (runner's lock exit): tell the user another computer-use worker is running; don't retry on your own.
-  - Pipe unavailable: ask the user to start the Codex desktop app. If the report exists and shows no step done or uncertain, rerun the same brief in a new task directory (not counted as a follow-up); otherwise (including a missing report) the rerun is the follow-up.
+  - Pipe unavailable: ask the user to start the Codex desktop app. If the report exists and shows no desktop action (launching, clicking, typing, key presses) done or uncertain, rerun the same brief in a new task directory (not counted as a follow-up); otherwise (including a missing report) the rerun is the follow-up.
   - Other failures: show the log tail, ask whether to do it directly.
   - Brief template sections: goal and why; target app and starting state; completion criterion (what the screen must show, plus any task-specific evidence such as a saved file path); instructions (use the `computer-use:computer-use` skill; save the final screenshot as `final.png` in the current directory); final message (each step marked done / not done / uncertain, screenshot absolute path, where it got stuck, errors verbatim). No list of forbidden actions: the worker judges (decided with the user).
 - **No Codex-side skill**: the worker relies on the plugin's own `computer-use:computer-use` skill. The Codex skill list is unchanged.

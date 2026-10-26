@@ -6,10 +6,14 @@ Spec: `.scratch/codex-computer-use/spec.md`
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Tests isolate `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and the home directory, provide a fake `codex` (version, logged-in status) and a models-cache fixture covering every role, and cover: plugin enabled, disabled, section absent, file missing.
-- [ ] Each case prints the expected OK or WARN line for the computer-use check and exits 0.
-- [ ] The `astra-cu` role line appears in `doctor` output.
-- [ ] Both READMEs' "What `doctor` checks" lists the computer-use plugin check.
-- [ ] `npm test` passes on Windows.
+- [x] Tests isolate `CODEX_HOME`, `CLAUDE_CONFIG_DIR` and the home directory, provide a fake `codex` (version, logged-in status) and a models-cache fixture covering every role, and cover: plugin enabled, disabled, section absent, file missing.
+- [x] Each case prints the expected OK or WARN line for the computer-use check and exits 0.
+- [x] The `astra-cu` role line appears in `doctor` output.
+- [x] Both READMEs' "What `doctor` checks" lists the computer-use plugin check.
+- [x] `npm test` passes on Windows.
+
+## Comments
+
+Resolved on branch `feat/codex-computer-use` (review base 973b340). Manual acceptance (ticket 04) passed on 2026-10-26: Notepad task, app-closed rerun, app killed mid-task treated as the follow-up.
