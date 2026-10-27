@@ -30,7 +30,7 @@ codex-delegate는 [Matt Pocock의 스킬](https://github.com/mattpocock/skills) 
 
 ```
 npx github:starpia-forge/codex-delegate install             # 기본 브랜치 최신
-npx github:starpia-forge/codex-delegate#v0.2.0 install      # 태그 고정
+npx github:starpia-forge/codex-delegate#v0.3.0 install      # 태그 고정
 ```
 
 Windows PowerShell에서 "이 시스템에서 스크립트를 실행할 수 없으므로" 오류로 `npx`가 실행되지 않으면 `npx.cmd`를 쓰거나, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`로 로컬 스크립트 실행을 한 번 허용합니다.

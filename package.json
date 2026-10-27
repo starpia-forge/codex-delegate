@@ -1,6 +1,6 @@
 {
   "name": "codex-delegate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Installs Claude Code leader skills and Codex worker skills: mattpocock/skills patched to delegate research, plan review and implementation to Codex.",
   "license": "MIT",
   "repository": {
