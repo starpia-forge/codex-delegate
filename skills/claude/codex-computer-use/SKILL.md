@@ -18,7 +18,7 @@ An **attempt** is one worker run. Every attempt gets its own new task directory 
 4. **Run the worker** in the background (Bash with `run_in_background: true`), one at a time, and wait for the notification:
 
    ```
-   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" astra-cu --prompt-file <task-dir>/prompt.md --cwd <task-dir>
+   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" computer-user --prompt-file <task-dir>/prompt.md --cwd <task-dir>
    ```
 
 5. **Classify the outcome**, checking in this order and taking the first that matches:
@@ -40,7 +40,7 @@ An **attempt** is one worker run. Every attempt gets its own new task directory 
 - **Pipe unavailable**: the Codex desktop app isn't running. Ask the user to start it, wait for them to confirm, then pick the rerun. Keep this attempt's directory until the task ends: the choice below reads its report, and the follow-up may refer to it.
   - the report exists and marks no desktop action (launching an app, clicking, typing, pressing keys) done or uncertain → rerun the same brief in a fresh task directory created following Cleanup rule 1 below. This rerun doesn't use up the follow-up. Reading docs or taking screenshots doesn't count as a desktop action.
   - anything else, including a missing report → the rerun is the follow-up (step 7). If the follow-up is already used, stop and report as in step 6.
-- **Other failures**: keep all the task's attempt directories while showing the user the tail of `<task-dir>/result.md.log` and asking whether to retry (as the follow-up, step 7) or have you do the task yourself. If the follow-up is already used, the only choices are stopping or you doing it. Once the user has chosen how to proceed (retry finished, you do it, or stop) and you no longer need them, copy any screenshot the user wants to a location outside `.scratch/codex/` first, then remove all the task's attempt directories following Cleanup below. A retry as the follow-up keeps the previous attempt's directory until the task ends. If the log shows `Computer Use was not approved to use <app>`, the `astra-cu` bypass is turned off, likely by `"dangerouslyBypassApprovalsAndSandbox": false` in `~/.codex-delegate/roles.json`; say so, since a retry will fail the same way.
+- **Other failures**: keep all the task's attempt directories while showing the user the tail of `<task-dir>/result.md.log` and asking whether to retry (as the follow-up, step 7) or have you do the task yourself. If the follow-up is already used, the only choices are stopping or you doing it. Once the user has chosen how to proceed (retry finished, you do it, or stop) and you no longer need them, copy any screenshot the user wants to a location outside `.scratch/codex/` first, then remove all the task's attempt directories following Cleanup below. A retry as the follow-up keeps the previous attempt's directory until the task ends. If the log shows `Computer Use was not approved to use <app>`, the `computer-user` bypass is turned off, likely by `"dangerouslyBypassApprovalsAndSandbox": false` in `~/.codex-delegate/roles.json`; say so, since a retry will fail the same way.
 
 ## Cleanup
 

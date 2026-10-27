@@ -146,6 +146,9 @@ function quote(arg) {
 const { role, opts } = parseArgs(process.argv.slice(2));
 const roles = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "roles.json"), "utf8"));
 const overrides = existsSync(USER_ROLES) ? JSON.parse(readFileSync(USER_ROLES, "utf8")) : {};
+// An ignored override could silently drop a setting such as the bypass opt-out.
+const unknown = Object.keys(overrides).filter((name) => !Object.hasOwn(roles, name));
+if (unknown.length) fail(`unknown role ${unknown.map((name) => `"${name}"`).join(", ")} in ${USER_ROLES} (expected one of: ${Object.keys(roles).join(", ")})`);
 const config = roles[role] && { exclusive: false, dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
 if (!config) fail(`unknown role "${role}" (expected one of: ${Object.keys(roles).join(", ")})`);
 if (!opts["prompt-file"]) fail("--prompt-file is required");

@@ -16,7 +16,7 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
 3. Run the worker in the background (Bash with `run_in_background: true`) and wait for the notification:
 
    ```
-   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" sol --prompt-file <task-dir>/prompt.md --cwd <working-dir>
+   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" implementer --prompt-file <task-dir>/prompt.md --cwd <working-dir>
    ```
 
 4. Verify the work yourself. Don't trust the report alone:

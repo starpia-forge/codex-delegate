@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,16 +9,20 @@ import { fakeCodex } from "./helpers/fake-codex.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 
-function runDoctor(t, config) {
+function runDoctor(t, config, { overrides, status = 0 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "codex doctor test "));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const { codexHome, env } = fakeCodex(root, `
+  const { home, codexHome, env } = fakeCodex(root, `
 const args = process.argv.slice(2);
 if (args.length === 1 && args[0] === "--version") console.log("codex-cli 0.164.0");
 else if (args.join(" ") === "login status") console.error("Logged in using ChatGPT");
 else process.exitCode = 1;
 `);
   if (config !== undefined) writeFileSync(join(codexHome, "config.toml"), config);
+  if (overrides) {
+    mkdirSync(join(home, ".codex-delegate"));
+    writeFileSync(join(home, ".codex-delegate", "roles.json"), JSON.stringify(overrides));
+  }
   writeFileSync(join(codexHome, "models_cache.json"), JSON.stringify({ models: [
     { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
     { slug: "gpt-6.1-sol", supported_reasoning_levels: [{ effort: "high" }] },
@@ -28,8 +32,8 @@ else process.exitCode = 1;
     cwd: root, env, encoding: "utf8", timeout: 15000,
   });
   assert.ifError(result.error);
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /^  \[OK  \] Role astra-cu: gpt-6-astra \/ medium$/m);
+  assert.equal(result.status, status, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /^  \[OK  \] Role computer-user: gpt-6-astra \/ medium$/m);
   return result.stdout;
 }
 
@@ -51,6 +55,11 @@ test("doctor warns without failing when the Computer Use plugin section is absen
 test("doctor warns without failing when config.toml is missing", t => {
   const stdout = runDoctor(t);
   assert.match(stdout, /^  \[WARN\] Computer Use plugin enabled(?: - .*)?$/m);
+});
+
+test("doctor fails when role overrides name an unknown role", t => {
+  const stdout = runDoctor(t, undefined, { overrides: { sol: { effort: "high" } }, status: 1 });
+  assert.match(stdout, /^  \[FAIL\] Role overrides - .*roles\.json: unknown role "sol" \(expected one of: critic, computer-user, implementer, researcher\)/m);
 });
 
 

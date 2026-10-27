@@ -13,7 +13,7 @@ A single non-interactive Codex run that carries out one delegated task and repor
 _Avoid_: subagent, executor
 
 **Role**:
-A named worker configuration (model, effort, sandbox, tools), such as `luna`, `astra` or `sol`.
+A named worker configuration (model, effort, sandbox, tools), such as `researcher`, `critic`, `implementer` or `computer-user`. A role is named for the job it does, not for the model it runs.
 _Avoid_: profile, persona
 
 **Computer use**:

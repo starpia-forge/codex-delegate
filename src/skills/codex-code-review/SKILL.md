@@ -17,7 +17,7 @@ Have the Codex review worker review the same diff as the Claude reviewers, indep
 3. Start the worker in the background (Bash with `run_in_background: true`):
 
    ```
-   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" astra --prompt-file <task-dir>/prompt.md
+   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" critic --prompt-file <task-dir>/prompt.md
    ```
 
 4. Return to the calling skill without waiting, handing it the task directory path. When the notification arrives, read `<task-dir>/result.md`.

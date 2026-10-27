@@ -18,7 +18,7 @@ Hand an external research question to the Codex research worker. Don't run the s
 3. Run the worker in the background (Bash with `run_in_background: true`):
 
    ```
-   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" luna --prompt-file <task-dir>/prompt.md
+   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" researcher --prompt-file <task-dir>/prompt.md
    ```
 
    Carry on with other work, or other branches of the conversation, until you are notified that it finished.

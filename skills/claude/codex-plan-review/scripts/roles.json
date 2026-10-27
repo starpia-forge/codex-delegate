@@ -1,12 +1,12 @@
 {
-  "astra": {
+  "critic": {
     "purpose": "Adversarial plan review and code review",
     "model": "gpt-6-astra",
     "effort": "medium",
     "sandbox": "read-only",
     "webSearch": false
   },
-  "astra-cu": {
+  "computer-user": {
     "purpose": "Computer use",
     "model": "gpt-6-astra",
     "effort": "medium",
@@ -15,14 +15,14 @@
     "dangerouslyBypassApprovalsAndSandbox": true,
     "exclusive": true
   },
-  "sol": {
+  "implementer": {
     "purpose": "Implementation",
     "model": "gpt-6.1-sol",
     "effort": "high",
     "sandbox": "workspace-write",
     "webSearch": false
   },
-  "luna": {
+  "researcher": {
     "purpose": "Web research",
     "model": "gpt-6-luna",
     "effort": "max",

@@ -84,7 +84,7 @@ require("node:module").syncBuiltinESMExports();
   const prompt = join(root, "prompt.md");
   const out = join(root, "result.md");
   writeFileSync(prompt, "Report what you observe.\n");
-  function start(role = "astra-cu", { wait = false, cwd, exit = 0, console: ownConsole = false, tree = false } = {}) {
+  function start(role = "computer-user", { wait = false, cwd, exit = 0, console: ownConsole = false, tree = false } = {}) {
     const dir = join(root, `run-${runs.length}`);
     mkdirSync(dir);
     const record = join(dir, "record.json");
@@ -144,12 +144,12 @@ function runRole(t, role, overrides) {
 
 test("exclusive worker refuses a second run before invoking Codex or creating output", async t => {
   const h = harness(t);
-  const first = h.start("astra-cu", { wait: true });
+  const first = h.start("computer-user", { wait: true });
   await until(() => existsSync(first.record));
   const second = h.start();
   const result = await second.done;
   assert.equal(result.code, 75, result.stderr);
-  assert.match(result.stderr, /busy.*astra-cu/);
+  assert.match(result.stderr, /busy.*computer-user/);
   assert.ok(result.stderr.includes(String(first.child.pid)));
   for (const path of [second.record, second.out, `${second.out}.log`]) assert.equal(existsSync(path), false);
   first.finish();
@@ -158,18 +158,18 @@ test("exclusive worker refuses a second run before invoking Codex or creating ou
 });
 
 test("exclusive roles share one home lock across working directories; other roles can run", async t => {
-  const h = harness(t, { sol: { exclusive: true } });
-  const first = h.start("astra-cu", { wait: true });
+  const h = harness(t, { implementer: { exclusive: true } });
+  const first = h.start("computer-user", { wait: true });
   await until(() => existsSync(first.record));
-  assert.equal((await h.start("sol").done).code, 75);
-  for (const role of ["astra", "luna"]) assert.equal((await h.start(role).done).code, 0);
+  assert.equal((await h.start("implementer").done).code, 75);
+  for (const role of ["critic", "researcher"]) assert.equal((await h.start(role).done).code, 0);
   first.finish();
   await first.done;
-  assert.equal((await h.start("sol").done).code, 0);
+  assert.equal((await h.start("implementer").done).code, 0);
 });
 
 async function contend(h) {
-  const runs = Array.from({ length: 8 }, () => h.start("astra-cu", { wait: true }));
+  const runs = Array.from({ length: 8 }, () => h.start("computer-user", { wait: true }));
   await until(() => runs.filter(run => existsSync(run.record)).length > 0);
   // Keep the winner alive until every contender has either started or exited.
   await until(() => runs.every(run => existsSync(run.record) || run.child.exitCode !== null));
@@ -193,7 +193,7 @@ test("simultaneous acquisition permits exactly one exclusive worker", async t =>
 
 test("child PID is published separately without changing the holder record", async t => {
   const h = harness(t);
-  const first = h.start("astra-cu", { wait: true });
+  const first = h.start("computer-user", { wait: true });
   await until(() => existsSync(first.record));
   const lock = join(h.home, ".codex-delegate", "computer-use.lock");
   const holder = JSON.parse(readFileSync(join(lock, "holder.json"), "utf8"));
@@ -216,7 +216,7 @@ test("simultaneous stale reclamation permits exactly one worker and preserves it
   const lock = join(h.home, ".codex-delegate", "computer-use.lock");
   mkdirSync(lock, { recursive: true });
   writeFileSync(join(lock, "holder.json"), JSON.stringify({
-    token: "dead-holder", runnerPid: dead.pid, role: "astra-cu",
+    token: "dead-holder", runnerPid: dead.pid, role: "computer-user",
   }));
   writeFileSync(join(lock, "child.json"), JSON.stringify({ token: "dead-holder", childPid: dead.pid }));
   await contend(h);
@@ -248,7 +248,7 @@ for (const delay of [250, null]) {
   test(`Windows release preserves the worker exit status with an open reader (${delay === null ? "held until runner exits" : `${delay}ms`})`,
     { skip: process.platform !== "win32" }, async t => {
       const h = harness(t);
-      const first = h.start("astra-cu", { wait: true, exit: 9 });
+      const first = h.start("computer-user", { wait: true, exit: 9 });
       await until(() => existsSync(first.record));
       const lock = join(h.home, ".codex-delegate", "computer-use.lock");
       const ready = join(h.root, "reader-ready");
@@ -311,7 +311,7 @@ for (const [name, record] of [
 
 test("a hard-killed runner's live worker keeps the desktop busy until it stops", async t => {
   const h = harness(t);
-  const first = h.start("astra-cu", { wait: true });
+  const first = h.start("computer-user", { wait: true });
   await until(() => existsSync(first.record));
   const workerPid = JSON.parse(readFileSync(first.record, "utf8")).pid;
   const holder = JSON.parse(readFileSync(join(h.home, ".codex-delegate", "computer-use.lock", "child.json"), "utf8"));
@@ -330,9 +330,9 @@ test("a hard-killed runner's live worker keeps the desktop busy until it stops",
 
 test("Codex failure and genuine spawn failure release the exclusive lock", async t => {
   const h = harness(t);
-  assert.equal((await h.start("astra-cu", { exit: 9 }).done).code, 9);
+  assert.equal((await h.start("computer-user", { exit: 9 }).done).code, 9);
   assert.equal((await h.start().done).code, 0);
-  const failed = h.start("astra-cu", { cwd: join(h.root, "does-not-exist") });
+  const failed = h.start("computer-user", { cwd: join(h.root, "does-not-exist") });
   const result = await failed.done;
   assert.equal(result.code, 2, result.stderr);
   assert.match(result.stderr, /could not start codex/);
@@ -342,7 +342,7 @@ test("Codex failure and genuine spawn failure release the exclusive lock", async
 
 test("a finishing runner never releases a replacement holder's lock", async t => {
   const h = harness(t);
-  const first = h.start("astra-cu", { wait: true });
+  const first = h.start("computer-user", { wait: true });
   await until(() => existsSync(first.record));
   const holder = join(h.home, ".codex-delegate", "computer-use.lock", "holder.json");
   const replacement = JSON.stringify({ token: "replacement", runnerPid: process.pid, childPid: process.pid });
@@ -355,7 +355,7 @@ test("a finishing runner never releases a replacement holder's lock", async t =>
 
 test("interrupt terminates the worker tree before releasing the lock", async t => {
   const h = harness(t);
-  const first = h.start("astra-cu", { wait: true, console: true, tree: true });
+  const first = h.start("computer-user", { wait: true, console: true, tree: true });
   await until(() => existsSync(first.record) && existsSync(first.descendant));
   const workerPid = JSON.parse(readFileSync(first.record, "utf8")).pid;
   const descendantPid = JSON.parse(readFileSync(first.descendant, "utf8")).pid;
@@ -368,20 +368,20 @@ test("interrupt terminates the worker tree before releasing the lock", async t =
   assert.equal((await h.start().done).code, 0);
 });
 
-test("astra-cu bypasses approvals and sandbox for computer use", t => {
-  const { args, stdout, cwd, out } = runRole(t, "astra-cu");
+test("computer-user bypasses approvals and sandbox for computer use", t => {
+  const { args, stdout, cwd, out } = runRole(t, "computer-user");
   assert.deepEqual(args, [
     "exec", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium",
     "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
   ]);
-  assert.match(stdout, /role=astra-cu model=gpt-6-astra effort=medium .*--dangerously-bypass-approvals-and-sandbox/);
+  assert.match(stdout, /role=computer-user model=gpt-6-astra effort=medium .*--dangerously-bypass-approvals-and-sandbox/);
   assert.doesNotMatch(stdout, /sandbox=workspace-write/);
 });
 
 for (const { role, model, effort, sandbox, extra } of [
-  { role: "astra", model: "gpt-6-astra", effort: "medium", sandbox: "read-only", extra: [] },
-  { role: "sol", model: "gpt-6.1-sol", effort: "high", sandbox: "workspace-write", extra: [] },
-  { role: "luna", model: "gpt-6-luna", effort: "max", sandbox: "read-only", extra: ["-c", "web_search=live"] },
+  { role: "critic", model: "gpt-6-astra", effort: "medium", sandbox: "read-only", extra: [] },
+  { role: "implementer", model: "gpt-6.1-sol", effort: "high", sandbox: "workspace-write", extra: [] },
+  { role: "researcher", model: "gpt-6-luna", effort: "max", sandbox: "read-only", extra: ["-c", "web_search=live"] },
 ]) {
   test(`${role} keeps its existing sandbox and Codex arguments`, t => {
     const { args, stdout, cwd, out } = runRole(t, role);
@@ -393,22 +393,33 @@ for (const { role, model, effort, sandbox, extra } of [
   });
 }
 
-test("a user override disables the astra-cu bypass and restores its sandbox", t => {
-  const { args, stdout, cwd, out } = runRole(t, "astra-cu", {
-    "astra-cu": { dangerouslyBypassApprovalsAndSandbox: false },
+test("a user override disables the computer-user bypass and restores its sandbox", t => {
+  const { args, stdout, cwd, out } = runRole(t, "computer-user", {
+    "computer-user": { dangerouslyBypassApprovalsAndSandbox: false },
   });
   assert.deepEqual(args, [
     "exec", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium",
     "-s", "workspace-write", "-C", cwd, "-o", out, "-",
   ]);
-  assert.match(stdout, /role=astra-cu model=gpt-6-astra effort=medium sandbox=workspace-write/);
+  assert.match(stdout, /role=computer-user model=gpt-6-astra effort=medium sandbox=workspace-write/);
   assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
+});
+
+test("an override naming an unknown role refuses to start Codex for any role", t => {
+  const { root, env, prompt } = harness(t, { "astra-cu": { dangerouslyBypassApprovalsAndSandbox: false } });
+  const result = spawnSync(process.execPath, [runner, "researcher", "--prompt-file", prompt, "--cwd", root], {
+    cwd: root, env, encoding: "utf8", timeout: 15000,
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /unknown role "astra-cu" in .*roles\.json \(expected one of: critic, computer-user, implementer, researcher\)/);
+  assert.equal(existsSync(env.FAKE_CODEX_RECORD), false);
 });
 
 
 test("non-exclusive roles use the original attached spawn without a Windows host", async t => {
   const h = harness(t, undefined, { probe: true });
-  const run = h.start("astra");
+  const run = h.start("critic");
   const result = await run.done;
   assert.equal(result.code, 0, result.stderr);
   const { launch } = JSON.parse(readFileSync(run.record, "utf8"));
@@ -438,7 +449,7 @@ function interrupt(run) {
 
 test("interrupt completes when the child exits without closing its pipes", async t => {
   const h = harness(t, undefined, { suppressClose: true });
-  const first = h.start("astra-cu", { wait: true, console: true });
+  const first = h.start("computer-user", { wait: true, console: true });
   await until(() => existsSync(first.record));
   interrupt(first);
   try {

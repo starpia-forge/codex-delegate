@@ -73,18 +73,31 @@ npx github:starpia-forge/codex-delegate doctor
 
 | Role | Model / effort | Sandbox | Used by |
 |---|---|---|---|
-| `luna` (research) | `gpt-6-luna` / max, web search | read-only | `codex-research` |
-| `astra` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
-| `sol` (implementation) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
-| `astra-cu` (computer use) | `gpt-6-astra` / medium | none: approvals and sandbox bypassed | `codex-computer-use` |
+| `researcher` (research) | `gpt-6-luna` / max, web search | read-only | `codex-research` |
+| `critic` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
+| `implementer` (implementation) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
+| `computer-user` (computer use) | `gpt-6-astra` / medium | none: approvals and sandbox bypassed | `codex-computer-use` |
 
 Defaults live in [`src/runner/roles.json`](src/runner/roles.json). To change them for yourself, put only the fields you want to override in `~/.codex-delegate/roles.json`. This file survives reinstalls.
 
 ```json
-{ "sol": { "model": "gpt-6-sol", "effort": "high" } }
+{ "implementer": { "model": "gpt-6-sol", "effort": "high" } }
 ```
 
-### Computer use (`astra-cu`)
+A key that names no role is an error: the runner refuses to start any worker and `doctor` fails until you fix it.
+
+### Upgrading from 0.2.x
+
+Roles are now named for their job instead of their model. Rename the keys in `~/.codex-delegate/roles.json`:
+
+| 0.2.x | Now |
+|---|---|
+| `luna` | `researcher` |
+| `astra` | `critic` |
+| `sol` | `implementer` |
+| `astra-cu` | `computer-user` |
+
+### Computer use (`computer-user`)
 
 `codex-computer-use` hands desktop-app work (a click through a Windows app, typing into a dialog, checking what an app shows) to a Codex worker. Websites are out of scope; they stay with browser tools. The worker saves a final screenshot, `final.png`, and the leader checks it against the completion criterion before calling the task done.
 
@@ -93,9 +106,9 @@ Prerequisites:
 - the Codex desktop app is installed, and it is **running** while the skill runs (the worker reaches the screen through it; with the app closed the run fails with `Computer Use native pipe is unavailable`);
 - the Computer Use plugin is enabled in Codex (`doctor` warns when it is not).
 
-**Why no sandbox.** Under `codex exec`, the Computer Use plugin asks for approval per app, nobody can answer, and the request is rejected (`Computer Use was not approved to use <app>`). So `astra-cu` runs Codex with `--dangerously-bypass-approvals-and-sandbox`. That turns off the shell sandbox as well as approvals: the worker can run any command, write anywhere your user account can, and use the network, and it can operate any app on your desktop. To turn it off, set `{ "astra-cu": { "dangerouslyBypassApprovalsAndSandbox": false } }` in `~/.codex-delegate/roles.json`; computer use then stops working.
+**Why no sandbox.** Under `codex exec`, the Computer Use plugin asks for approval per app, nobody can answer, and the request is rejected (`Computer Use was not approved to use <app>`). So `computer-user` runs Codex with `--dangerously-bypass-approvals-and-sandbox`. That turns off the shell sandbox as well as approvals: the worker can run any command, write anywhere your user account can, and use the network, and it can operate any app on your desktop. To turn it off, set `{ "computer-user": { "dangerouslyBypassApprovalsAndSandbox": false } }` in `~/.codex-delegate/roles.json`; computer use then stops working.
 
-**One worker at a time.** There is one desktop, so the runner holds a per-user lock, the directory `~/.codex-delegate/computer-use.lock/`, while an `astra-cu` worker runs, across all Claude sessions and worktrees. A second run exits at once with code 75 ("computer use busy") without starting Codex. The lock records the runner's and the Codex process's PIDs and is reclaimed automatically once both are dead. Residual risks:
+**One worker at a time.** There is one desktop, so the runner holds a per-user lock, the directory `~/.codex-delegate/computer-use.lock/`, while a `computer-user` worker runs, across all Claude sessions and worktrees. A second run exits at once with code 75 ("computer use busy") without starting Codex. The lock records the runner's and the Codex process's PIDs and is reclaimed automatically once both are dead. Residual risks:
 
 - if the runner is killed hard (for example from Task Manager), a grandchild process of the shell can outlive both recorded PIDs and keep driving the desktop while a new worker takes the lock;
 - each reclaimed lock is renamed to `computer-use.lock.stale-<hash>` rather than deleted, so these copies can accumulate in `~/.codex-delegate/` (a released lock that could not be fully deleted is left as `computer-use.lock.released-<id>`); delete them when no worker is running;
@@ -215,9 +228,9 @@ node scripts/build.mjs --ref main   # move to the latest upstream and regenerate
 ## Known limitations
 
 - **git ownership errors in the Windows sandbox**: the sandbox runs as a separate OS user, so git rejects the repository as "dubious ownership". `codex-run.mjs` works around this by setting `safe.directory=*` for that process only.
-- **No network**: `sol` and `astra` run without network access and cannot read the issue tracker. The delegation skills therefore put the ticket and spec text directly into the prompt.
+- **No network**: `implementer` and `critic` run without network access and cannot read the issue tracker. The delegation skills therefore put the ticket and spec text directly into the prompt.
 - **Computer use on Windows 10**: GitHub issues report screenshot time-outs and wrong click positions with Codex's Computer Use on Windows 10 (build 19045). Expect more failed attempts there.
-- **Bash time limit**: foreground Bash commands time out after 10 minutes, so `luna`, `sol`, `astra-cu` and code review by `astra` run in the background.
+- **Bash time limit**: foreground Bash commands time out after 10 minutes, so `researcher`, `implementer`, `computer-user` and code review by `critic` run in the background.
 
 ## License
 

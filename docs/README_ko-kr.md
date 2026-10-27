@@ -73,18 +73,31 @@ npx github:starpia-forge/codex-delegate doctor
 
 | 역할 | 모델 / effort | sandbox | 사용하는 스킬 |
 |---|---|---|---|
-| `luna` (조사) | `gpt-6-luna` / max, 웹 검색 | read-only | `codex-research` |
-| `astra` (공격적 검토) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
-| `sol` (구현) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
-| `astra-cu` (computer use) | `gpt-6-astra` / medium | 없음: 승인과 sandbox 우회 | `codex-computer-use` |
+| `researcher` (조사) | `gpt-6-luna` / max, 웹 검색 | read-only | `codex-research` |
+| `critic` (공격적 검토) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
+| `implementer` (구현) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
+| `computer-user` (computer use) | `gpt-6-astra` / medium | 없음: 승인과 sandbox 우회 | `codex-computer-use` |
 
 기본값은 [`src/runner/roles.json`](../src/runner/roles.json)에 있습니다. 사용자별로 바꾸려면 `~/.codex-delegate/roles.json`에 바꿀 필드만 적습니다. 이 파일은 재설치해도 유지됩니다.
 
 ```json
-{ "sol": { "model": "gpt-6-sol", "effort": "high" } }
+{ "implementer": { "model": "gpt-6-sol", "effort": "high" } }
 ```
 
-### Computer use (`astra-cu`)
+없는 역할을 가리키는 키는 오류입니다. 고칠 때까지 runner는 어떤 워커도 시작하지 않고 `doctor`는 실패합니다.
+
+### 0.2.x에서 업그레이드
+
+역할 이름이 모델 이름 대신 하는 일을 나타내도록 바뀌었습니다. `~/.codex-delegate/roles.json`의 키를 바꿉니다.
+
+| 0.2.x | 현재 |
+|---|---|
+| `luna` | `researcher` |
+| `astra` | `critic` |
+| `sol` | `implementer` |
+| `astra-cu` | `computer-user` |
+
+### Computer use (`computer-user`)
 
 `codex-computer-use`는 데스크톱 앱 작업(Windows 앱 클릭, 대화상자에 입력, 앱 화면 확인)을 Codex 워커에게 맡깁니다. 웹사이트는 대상이 아니며 브라우저 도구가 계속 맡습니다. 워커는 마지막 스크린샷 `final.png`를 저장하고, Leader는 이 스크린샷을 완료 기준과 대조한 뒤에야 작업을 완료로 봅니다.
 
@@ -93,9 +106,9 @@ npx github:starpia-forge/codex-delegate doctor
 - Codex 데스크톱 앱이 설치되어 있고, 스킬이 실행되는 동안 **켜져 있어야** 합니다(워커가 이 앱을 통해 화면에 접근합니다. 앱이 꺼져 있으면 `Computer Use native pipe is unavailable`로 실패합니다).
 - Codex에서 Computer Use 플러그인이 활성화되어 있어야 합니다(꺼져 있으면 `doctor`가 경고합니다).
 
-**sandbox가 없는 이유.** `codex exec`에서는 Computer Use 플러그인이 앱마다 승인을 요청하는데, 응답할 사람이 없어 요청이 거부됩니다(`Computer Use was not approved to use <app>`). 그래서 `astra-cu`는 Codex를 `--dangerously-bypass-approvals-and-sandbox`로 실행합니다. 이 옵션은 승인뿐 아니라 셸 sandbox도 끕니다. 워커는 어떤 명령이든 실행하고, 사용자 계정이 쓸 수 있는 곳 어디에나 쓰고, 네트워크를 쓸 수 있으며, 데스크톱의 어떤 앱이든 조작할 수 있습니다. 끄려면 `~/.codex-delegate/roles.json`에 `{ "astra-cu": { "dangerouslyBypassApprovalsAndSandbox": false } }`를 넣습니다. 그러면 computer use는 동작하지 않습니다.
+**sandbox가 없는 이유.** `codex exec`에서는 Computer Use 플러그인이 앱마다 승인을 요청하는데, 응답할 사람이 없어 요청이 거부됩니다(`Computer Use was not approved to use <app>`). 그래서 `computer-user`는 Codex를 `--dangerously-bypass-approvals-and-sandbox`로 실행합니다. 이 옵션은 승인뿐 아니라 셸 sandbox도 끕니다. 워커는 어떤 명령이든 실행하고, 사용자 계정이 쓸 수 있는 곳 어디에나 쓰고, 네트워크를 쓸 수 있으며, 데스크톱의 어떤 앱이든 조작할 수 있습니다. 끄려면 `~/.codex-delegate/roles.json`에 `{ "computer-user": { "dangerouslyBypassApprovalsAndSandbox": false } }`를 넣습니다. 그러면 computer use는 동작하지 않습니다.
 
-**워커는 한 번에 하나.** 데스크톱은 하나이므로, `astra-cu` 워커가 실행되는 동안 runner가 사용자별 잠금 디렉터리 `~/.codex-delegate/computer-use.lock/`을 잡습니다. 모든 Claude 세션과 worktree에 공통으로 적용됩니다. 두 번째 실행은 Codex를 시작하지 않고 바로 종료 코드 75("computer use busy")로 끝납니다. 잠금에는 runner와 Codex 프로세스의 PID가 기록되고, 둘 다 종료되면 자동으로 회수됩니다. 남는 위험:
+**워커는 한 번에 하나.** 데스크톱은 하나이므로, `computer-user` 워커가 실행되는 동안 runner가 사용자별 잠금 디렉터리 `~/.codex-delegate/computer-use.lock/`을 잡습니다. 모든 Claude 세션과 worktree에 공통으로 적용됩니다. 두 번째 실행은 Codex를 시작하지 않고 바로 종료 코드 75("computer use busy")로 끝납니다. 잠금에는 runner와 Codex 프로세스의 PID가 기록되고, 둘 다 종료되면 자동으로 회수됩니다. 남는 위험:
 
 - runner가 강제 종료되면(예: 작업 관리자에서) 셸의 손자 프로세스가 기록된 두 PID보다 오래 살아남아, 새 워커가 잠금을 잡은 뒤에도 데스크톱을 계속 조작할 수 있습니다.
 - 회수된 잠금은 삭제되지 않고 `computer-use.lock.stale-<hash>`로 이름이 바뀌므로 `~/.codex-delegate/`에 이런 사본이 쌓일 수 있습니다(해제할 때 완전히 지우지 못한 잠금도 `computer-use.lock.released-<id>`로 남습니다). 워커가 실행 중이 아닐 때 지우면 됩니다.
@@ -215,9 +228,9 @@ node scripts/build.mjs --ref main   # 원본을 최신으로 올리고 다시 �
 ## 알려진 제약
 
 - **Windows sandbox의 git 소유권 오류**: sandbox가 별도 OS 사용자로 실행되어 git이 "dubious ownership"으로 저장소를 거부합니다. `codex-run.mjs`가 해당 프로세스에만 `safe.directory=*`를 넣어 우회합니다.
-- **네트워크 차단**: `sol`과 `astra`는 네트워크가 막혀 있어서 이슈 트래커를 직접 읽지 못합니다. 그래서 위임 스킬이 티켓과 spec 본문을 프롬프트에 직접 담습니다.
+- **네트워크 차단**: `implementer`와 `critic`은 네트워크가 막혀 있어서 이슈 트래커를 직접 읽지 못합니다. 그래서 위임 스킬이 티켓과 spec 본문을 프롬프트에 직접 담습니다.
 - **Windows 10의 computer use**: Windows 10(빌드 19045)에서 Codex Computer Use의 스크린샷 시간 초과와 클릭 위치 오류가 GitHub 이슈로 보고되어 있습니다. 이 환경에서는 실패하는 시도가 더 많을 수 있습니다.
-- **Bash 시간 제한**: Bash의 foreground 시간 제한은 10분입니다. 그래서 `luna`, `sol`, `astra-cu`, 그리고 `astra`의 코드 리뷰는 백그라운드로 실행합니다.
+- **Bash 시간 제한**: Bash의 foreground 시간 제한은 10분입니다. 그래서 `researcher`, `implementer`, `computer-user`, 그리고 `critic`의 코드 리뷰는 백그라운드로 실행합니다.
 
 ## 라이선스
 

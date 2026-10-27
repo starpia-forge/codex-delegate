@@ -222,7 +222,9 @@ function doctor() {
   if (existsSync(USER_ROLES)) {
     try {
       overrides = JSON.parse(readFileSync(USER_ROLES, "utf8"));
-      check("ok", "Role overrides", USER_ROLES);
+      const unknown = Object.keys(overrides).filter((name) => !Object.hasOwn(roles, name));
+      if (unknown.length) check("fail", "Role overrides", `${USER_ROLES}: unknown role ${unknown.map((name) => `"${name}"`).join(", ")} (expected one of: ${Object.keys(roles).join(", ")}); the runner refuses to start until it is fixed`);
+      else check("ok", "Role overrides", USER_ROLES);
     } catch (err) {
       check("fail", "Role overrides", `${USER_ROLES}: ${err.message}`);
     }

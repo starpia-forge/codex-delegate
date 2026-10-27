@@ -14,7 +14,7 @@ Have the Codex review worker attack a draft before anyone builds on it. You stay
 3. Run the worker (Bash, `timeout: 600000`):
 
    ```
-   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" astra --prompt-file <task-dir>/prompt.md
+   node "${CLAUDE_SKILL_DIR}/scripts/codex-run.mjs" critic --prompt-file <task-dir>/prompt.md
    ```
 
    For a large draft, run it with `run_in_background: true` instead and wait for the notification. Don't publish anything until it has finished.
