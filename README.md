@@ -75,7 +75,7 @@ npx github:starpia-forge/codex-delegate doctor
 |---|---|---|---|
 | `luna` (research) | `gpt-6-luna` / max, web search | read-only | `codex-research` |
 | `astra` (adversarial review) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
-| `sol` (implementation) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
+| `sol` (implementation) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
 | `astra-cu` (computer use) | `gpt-6-astra` / medium | none: approvals and sandbox bypassed | `codex-computer-use` |
 
 Defaults live in [`src/runner/roles.json`](src/runner/roles.json). To change them for yourself, put only the fields you want to override in `~/.codex-delegate/roles.json`. This file survives reinstalls.

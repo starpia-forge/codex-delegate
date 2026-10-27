@@ -75,7 +75,7 @@ npx github:starpia-forge/codex-delegate doctor
 |---|---|---|---|
 | `luna` (조사) | `gpt-6-luna` / max, 웹 검색 | read-only | `codex-research` |
 | `astra` (공격적 검토) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
-| `sol` (구현) | `gpt-6.1-sol` / medium | workspace-write | `codex-implement` |
+| `sol` (구현) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
 | `astra-cu` (computer use) | `gpt-6-astra` / medium | 없음: 승인과 sandbox 우회 | `codex-computer-use` |
 
 기본값은 [`src/runner/roles.json`](../src/runner/roles.json)에 있습니다. 사용자별로 바꾸려면 `~/.codex-delegate/roles.json`에 바꿀 필드만 적습니다. 이 파일은 재설치해도 유지됩니다.

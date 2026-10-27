@@ -380,7 +380,7 @@ test("astra-cu bypasses approvals and sandbox for computer use", t => {
 
 for (const { role, model, effort, sandbox, extra } of [
   { role: "astra", model: "gpt-6-astra", effort: "medium", sandbox: "read-only", extra: [] },
-  { role: "sol", model: "gpt-6.1-sol", effort: "medium", sandbox: "workspace-write", extra: [] },
+  { role: "sol", model: "gpt-6.1-sol", effort: "high", sandbox: "workspace-write", extra: [] },
   { role: "luna", model: "gpt-6-luna", effort: "max", sandbox: "read-only", extra: ["-c", "web_search=live"] },
 ]) {
   test(`${role} keeps its existing sandbox and Codex arguments`, t => {
