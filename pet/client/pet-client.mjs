@@ -18,11 +18,11 @@ async function deliver(event) {
   try {
     const token = readToken();
     if (!token) return;
-    if (updating()) { enqueue(event); return; }
+    if (updating()) { enqueueDuringUpdate(event); return; }
     const deadline = Date.now() + 250;
     const status = await health(token, deadline);
     if (status === "unavailable") return;
-    if (updating()) { enqueue(event); return; }
+    if (updating()) { enqueueDuringUpdate(event); return; }
     if (status === "ready" && !pending()) {
       try {
         const response = await post(event, token, deadline);
@@ -32,6 +32,13 @@ async function deliver(event) {
     enqueue(event);
     startHelper();
   } catch { /* Pets must never affect a producer. No logging or retries. */ }
+}
+
+function enqueueDuringUpdate(event) {
+  enqueue(event);
+  // The installer may have cleared the flag and scanned an empty spool while
+  // this producer was publishing. In that case the producer must resume it.
+  if (!updating()) startHelper();
 }
 
 export async function sendLeader({ type, team, session, at = Date.now() }) {

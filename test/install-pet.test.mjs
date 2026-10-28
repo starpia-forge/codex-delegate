@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,70 @@ import { bundleFiles, release, unusedPetPort } from "./helpers/pet-release.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 const events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "Notification", "Stop", "StopFailure", "PostToolUse"];
+
+async function lockScenario(f, boundary, action = "throw new Error('original apply failure')", extraEnv = {}) {
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const root = ${JSON.stringify(f.petRoot)};
+    fs.mkdirSync(root, { recursive: true });
+    ${boundary}
+    syncBuiltinESMExports();
+    const { withInstallerLock } = await import(${JSON.stringify(new URL("../bin/pet.mjs", import.meta.url).href)});
+    try { await withInstallerLock(async () => { ${action} }); }
+    catch (error) { console.log(error.message); }
+  `], { env: { ...f.env, ...extraEnv }, windowsHide: true });
+  let output = "";
+  child.stdout.on("data", data => output += data);
+  child.stderr.on("data", data => output += data);
+  assert.equal(await new Promise(resolve => child.on("close", resolve)), 0, output);
+  return output;
+}
+
+test("installer cleanup preserves the apply error when its lock has disappeared", async t => {
+  const f = await fixture(t);
+  const output = await lockScenario(f, "", "fs.rmSync(root + '/install.lock'); throw new Error('original apply failure')");
+  assert.match(output, /original apply failure/);
+  assert.doesNotMatch(output, /ENOENT/);
+});
+
+test("an inaccessible installer process is treated as busy", async t => {
+  const f = await fixture(t);
+  const output = await lockScenario(f, `
+    fs.writeFileSync(root + '/install.claim', JSON.stringify({ pid: 12345 }));
+    process.kill = () => { throw Object.assign(new Error('access denied'), { code: 'EPERM' }); };
+  `);
+  assert.match(output, /Another installer holds the install lock/);
+  assert.doesNotMatch(output, /access denied/);
+});
+
+test("stale claim recovery never removes a replacement live claim", async t => {
+  const f = await fixture(t);
+  const output = await lockScenario(f, `
+    const claim = root + '/install.claim';
+    const stale = JSON.stringify({ pid: 12345, id: 'stale' });
+    const fresh = JSON.stringify({ pid: process.pid, id: 'fresh' });
+    fs.writeFileSync(claim, stale);
+    const read = fs.readFileSync;
+    let raced = false;
+    fs.readFileSync = function(path, ...args) {
+      const value = read(path, ...args);
+      if (String(path).endsWith('install.claim') && !raced) {
+        raced = true;
+        fs.writeFileSync(claim, fresh);
+      }
+      return value;
+    };
+    const kill = process.kill;
+    process.kill = (pid, signal) => {
+      if (pid === 12345) throw Object.assign(new Error('dead'), { code: 'ESRCH' });
+      return kill(pid, signal);
+    };
+  `, "console.log('APPLIED')");
+  assert.doesNotMatch(output, /APPLIED/);
+  assert.match(output, /Another installer/);
+  assert.equal(JSON.parse(readFileSync(join(f.petRoot, "install.claim"))).id, "fresh");
+});
 
 async function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "install pet test "));
@@ -48,13 +112,14 @@ function snapshot(dir) {
   ]));
 }
 
-async function appStub(t, f, { ignoreQuit = false, foreign = false } = {}) {
+async function appStub(t, f, { ignoreQuit = false, foreign = false, silent = false, executable = process.execPath } = {}) {
   const log = join(f.root, "app-quit.json");
-  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+  const child = spawn(executable, ["--input-type=module", "-e", `
     import { createServer } from "node:http";
     import { existsSync, readFileSync, writeFileSync } from "node:fs";
     const state = ${JSON.stringify(join(f.petRoot, "pet-state"))};
     const server = createServer((req, res) => {
+      if (${silent}) return;
       if (req.headers["x-codex-delegate-pet-token"] !== readFileSync(state + "/token", "utf8").trim()) {
         res.writeHead(401); return res.end();
       }
@@ -75,6 +140,35 @@ async function appStub(t, f, { ignoreQuit = false, foreign = false } = {}) {
   });
   return { child, exited, log, env: { CODEX_DELEGATE_PET_PORT: String(port), CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS: "150" } };
 }
+
+for (const verified of [false, true]) test(`a silent port holder ${verified ? "with a verified pet PID is force-stopped" : "with an unrelated PID blocks the swap"}`, async t => {
+  const f = await fixture(t);
+  await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const executable = join(f.petRoot, "pet", "codex-delegate-pet.exe");
+  if (verified) copyFileSync(process.execPath, executable);
+  const app = await appStub(t, f, { silent: true, executable: verified ? executable : process.execPath });
+  writeFileSync(join(f.petRoot, "pet-state", "app-process.json"), JSON.stringify({ pid: app.child.pid }));
+  const before = snapshot(join(f.petRoot, "pet"));
+  if (verified) {
+    // Exercise the public installer plan's pause step. The sandbox prevents a
+    // child installer deleting a copied runtime executable, even after exit.
+    const output = await lockScenario(f, "", `
+      const { preparePet } = await import(${JSON.stringify(new URL("../bin/pet.mjs", import.meta.url).href)});
+      const plan = await preparePet({ root: ${JSON.stringify(fileURLToPath(new URL("../", import.meta.url)))}, pkg: { name: 'codex-delegate', version: 'test' } });
+      try { await plan.steps[0].apply(); console.log('STOPPED'); } finally { plan.cleanup(); }
+    `, app.env);
+    assert.match(output, /STOPPED/);
+    assert.throws(() => process.kill(app.child.pid, 0), { code: "ESRCH" });
+    await app.exited;
+  } else {
+    const result = await f.run(["install"], app.env);
+    assert.equal(result.code, 1, result.output);
+    assert.match(result.output, /process cannot be verified/);
+    assert.deepEqual(snapshot(join(f.petRoot, "pet")), before);
+    assert.equal(process.kill(app.child.pid, 0), true);
+  }
+});
 
 for (const args of [
   ["install", "--scope", "project"],
@@ -135,6 +229,31 @@ for (const args of [["install"], ["install", "--without-pet"], ["uninstall"]]) {
     });
   }
 }
+
+for (const waitMs of [250, 21_000]) test(`installer waits ${waitMs} ms for active delivery after flagging, before stopping or swapping the app`, { timeout: 35_000 }, async t => {
+  const f = await fixture(t);
+  await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const app = await appStub(t, f);
+  const state = join(f.petRoot, "pet-state");
+  mkdirSync(join(state, "spool"));
+  const lock = join(state, "spool", "delivery.lock");
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, id: "in-flight-helper" }));
+  const before = snapshot(join(f.petRoot, "pet"));
+  const running = f.run(["install"], app.env);
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(join(state, "updating")) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(existsSync(join(state, "updating")), true);
+    await new Promise(resolve => setTimeout(resolve, waitMs));
+    assert.equal(existsSync(join(state, "updating")), true, "installer gave up before the helper's startup bound plus margin");
+    assert.equal(existsSync(app.log), false, "stop raced an in-flight helper");
+    assert.deepEqual(snapshot(join(f.petRoot, "pet")), before);
+  } finally { rmSync(lock, { force: true }); await running; }
+  const result = await running;
+  assert.equal(result.code, 0, result.output);
+  assert.equal(existsSync(app.log), true);
+});
 
 test("a concurrent installer is refused while the first installer waits for the app to stop", { timeout: 15_000 }, async t => {
   const f = await fixture(t);
@@ -245,8 +364,13 @@ for (const args of [["install"], ["uninstall"]]) {
     await release(t, f);
     assert.equal((await f.run(["install", "--with-pet"])).code, 0);
     const app = await appStub(t, f, { foreign: true });
+    const bundleBefore = snapshot(join(f.petRoot, "pet"));
+    const settingsBefore = readFileSync(f.settingsPath);
     const result = await f.run(args, app.env);
-    assert.equal(result.code, 0, result.output);
+    assert.equal(result.code, 1, result.output);
+    assert.match(result.output, /cannot safely.*replace|cannot safely.*remove/i);
+    assert.deepEqual(snapshot(join(f.petRoot, "pet")), bundleBefore);
+    assert.deepEqual(readFileSync(f.settingsPath), settingsBefore);
     assert.equal(existsSync(app.log), false);
     assert.equal(process.kill(app.child.pid, 0), true);
   });
@@ -309,6 +433,54 @@ for (const [args, extraEnv, reason] of [
     assert.deepEqual(snapshot(f.root), before);
   });
 }
+
+test("uninstall reports settings preflight failure without help or changes", async t => {
+  const f = await fixture(t);
+  await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  writeFileSync(f.settingsPath, "{");
+  const before = snapshot(f.root);
+  const result = await f.run(["uninstall"]);
+  assert.equal(result.code, 1, result.output);
+  assert.match(result.output, /Cannot parse Claude Code settings.*\nNothing was changed\./);
+  assert.doesNotMatch(result.output, /Usage:/i);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test("an identical user hook stays unowned through install, reinstall, and removal", async t => {
+  const f = await fixture(t);
+  await release(t, f);
+  const command = `node "${join(f.petRoot, "pet", "hook", "leader-hook.mjs")}"`;
+  const user = { matcher: "user", hooks: [{ type: "command", command, timeout: 77 }] };
+  writeFileSync(f.settingsPath, JSON.stringify({ hooks: { Stop: [user] } }));
+  for (const args of [["install", "--with-pet"], ["install"]]) {
+    const result = await f.run(args);
+    assert.equal(result.code, 0, result.output);
+    assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)).hooks.Stop, [user]);
+    const marker = JSON.parse(readFileSync(join(f.petRoot, "pet-state", ".codex-delegate.json")));
+    assert.equal(marker.hooks.Stop, undefined);
+  }
+  const removed = await f.run(["uninstall"]);
+  assert.equal(removed.code, 0, removed.output);
+  assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)).hooks.Stop, [user]);
+});
+
+test("BOM settings install and remove successfully, preserving a byte-exact backup", async t => {
+  const f = await fixture(t);
+  await release(t, f);
+  const original = '\uFEFF{ "theme": "dark" }\n';
+  writeFileSync(f.settingsPath, original);
+  const installed = await f.run(["install", "--with-pet"]);
+  assert.equal(installed.code, 0, installed.output);
+  const backup = readdirSync(f.claudeHome).find(name => name.startsWith("settings.json.codex-delegate-backup-"));
+  assert.equal(readFileSync(join(f.claudeHome, backup), "utf8"), original);
+  const settings = readFileSync(f.settingsPath, "utf8");
+  assert.equal(JSON.parse(settings).theme, "dark");
+  writeFileSync(f.settingsPath, '\uFEFF' + settings);
+  const removed = await f.run(["uninstall"]);
+  assert.equal(removed.code, 0, removed.output);
+  assert.equal(JSON.parse(readFileSync(f.settingsPath)).theme, "dark");
+});
 
 test("fresh install downloads the pin, installs bundle and state, and registers all leader hooks with a backup", async t => {
   const f = await fixture(t);

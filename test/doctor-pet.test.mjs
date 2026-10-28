@@ -235,6 +235,31 @@ for (const [description, fields, sheet, problem] of [
   });
 }
 
+test("doctor reports an invalid pet pin as FAIL and continues its checks", async t => {
+  const f = await installedFixture(t);
+  writeFileSync(f.pinPath, "{");
+  const result = await f.run();
+  assert.equal(result.code, 1, result.output);
+  assert.match(result.stdout, /\[FAIL\] Pet bundle - .*pin/i);
+  assert.match(result.stdout, /Pet hooks/);
+  assert.match(result.stdout, /Pet port/);
+  assert.doesNotMatch(result.output, /Usage:/);
+});
+
+test("doctor warns per slot when the spritesheet is a directory", async t => {
+  const f = await installedFixture(t);
+  writeFileSync(join(f.petRoot, "pet.json"), JSON.stringify({ pets: { leader: "custom", critic: "custom" } }));
+  const dir = join(f.codexHome, "pets", "custom");
+  mkdirSync(join(dir, "sheet.png"), { recursive: true });
+  writeFileSync(join(dir, "pet.json"), JSON.stringify(manifest));
+  const result = await f.run();
+  assert.equal(result.code, 0, result.output);
+  for (const slot of ["leader", "critic"]) {
+    assert.ok(result.stdout.split("\n").some(line => line.includes(`[WARN] Pet packages (${slot})`) && line.includes("bundled default")), result.output);
+  }
+  assert.match(result.stdout, /Pet port/);
+});
+
 test("doctor accepts a valid package from CODEX_HOME", async t => {
   const f = await installedFixture(t);
   writeFileSync(join(f.petRoot, "pet.json"), JSON.stringify({ pets: { leader: "custom" } }));

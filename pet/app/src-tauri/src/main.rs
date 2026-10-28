@@ -75,8 +75,19 @@ fn main() {
         .unwrap_or(DEFAULT_PORT);
     // Bind before opening the window; a second instance exits on a port conflict.
     let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) else { std::process::exit(0) };
+    // Publish only after binding, so a losing second instance cannot overwrite
+    // the running app's PID. The installer also verifies its executable path.
+    let state = state.unwrap();
+    let process_file = state.join("app-process.json");
+    let process_temp = state.join(format!("app-process-{}.tmp", std::process::id()));
+    if let Err(error) = std::fs::write(&process_temp, json!({ "pid": std::process::id() }).to_string())
+        .and_then(|_| std::fs::rename(&process_temp, &process_file))
+    {
+        eprintln!("cannot publish pet process id: {error}");
+        let _ = std::fs::remove_file(&process_temp);
+    }
     let ready: Ready = Arc::new(AtomicBool::new(false));
-    let sessions: LeaderSessions = Arc::new(Mutex::new(Sessions::new(state.unwrap())));
+    let sessions: LeaderSessions = Arc::new(Mutex::new(Sessions::new(state)));
     let last_event = Arc::new(Mutex::new(Instant::now()));
     let event_app: EventApp = Arc::new(Mutex::new(None));
     // Serve authenticated 503 health before WebView/window creation, so a

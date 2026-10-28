@@ -74,16 +74,18 @@ async function deliver(token, fd) {
     if (updating() || launched) return false;
     const command = process.env.CODEX_DELEGATE_PET_TEST_COMMAND
       ? JSON.parse(process.env.CODEX_DELEGATE_PET_TEST_COMMAND) : [join(bundle, "codex-delegate-pet.exe")];
+    if (updating()) return false;
     const app = spawn(command[0], command.slice(1), { detached: true, windowsHide: true, stdio: "ignore" });
     launched = true;
     app.on("error", () => {});
     app.unref();
   }
   while (status !== "ready") {
-    if (updating() || Date.now() >= deadline) return false;
+    // A spawned app can still hold its executable before binding. Let the
+    // installer wait on our lock until it can see the app, or startup times out.
+    if (Date.now() >= deadline || (updating() && !(launched && status === "absent"))) return false;
     refresh(fd);
     await sleep(50);
-    if (updating()) return false;
     status = await health(token, Math.min(deadline, Date.now() + 250));
     // Once we launched an app (or saw its starting identity), the socket can
     // be bound before its HTTP/renderer setup finishes. Keep the same bound;

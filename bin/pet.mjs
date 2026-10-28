@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { request } from "node:http";
 import { dirname, join, resolve } from "node:path";
@@ -18,11 +19,29 @@ function writeJson(path, value) {
   } finally { rmSync(temp, { force: true }); }
 }
 
+function removeOwned(path, ownership) {
+  try { if (readFileSync(path, "utf8") === ownership) rmSync(path); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+}
+
+function resumeDelivery(state) {
+  try {
+    const helper = join(petRoot(), "pet", "client", "pet-delivery.mjs");
+    if (existsSync(join(state, "updating")) || !existsSync(helper)
+      || !readdirSync(join(state, "spool")).some(name => name.endsWith(".json"))) return;
+    const child = spawn(process.execPath, [helper], { detached: true, windowsHide: true, stdio: "ignore" });
+    child.on("error", () => {});
+    child.unref();
+  } catch { /* Delivery is best effort and must not mask an installer error. */ }
+}
+
 export async function withInstallerLock(action, { recoverPet = false } = {}) {
   const parentExisted = existsSync(petRoot());
   mkdirSync(petRoot(), { recursive: true });
   const lock = join(petRoot(), "install.lock");
-  const claim = join(petRoot(), "install.claim");
+  // Each contender publishes a unique claim and keeps it until completion.
+  // Dead claims can never be replaced at the same pathname by a new owner.
+  const claim = join(petRoot(), `install.claim-${randomUUID()}`);
   const ownership = JSON.stringify({ pid: process.pid, id: randomUUID() });
   let acquired = false;
   let claimed = false;
@@ -33,20 +52,32 @@ export async function withInstallerLock(action, { recoverPet = false } = {}) {
     return Number.isSafeInteger(holder?.pid) && holder.pid > 0 && !alive(holder.pid);
   };
   try {
-    // Serialize stale-lock reclamation as well as acquisition. A contender
-    // must never unlink a new lock published by a fellow stale-lock contender.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        writeFileSync(claim, ownership, { flag: "wx", mode: 0o600 });
-        claimed = true;
-        break;
-      } catch (error) {
-        if (error.code !== "EEXIST") throw error;
-        if (!deadHolder(claim)) throw busy();
-        rmSync(claim);
+    writeFileSync(claim, ownership, { flag: "wx", mode: 0o600 });
+    claimed = true;
+    for (const name of readdirSync(petRoot()).filter(name => name.startsWith("install.claim-"))) {
+      const other = join(petRoot(), name);
+      if (other === claim) continue;
+      if (!existsSync(other)) continue;
+      if (!deadHolder(other)) {
+        if (!existsSync(other)) continue;
+        throw busy();
       }
+      rmSync(other, { force: true });
     }
-    if (!claimed) throw busy();
+    // Only one live claimant can reach reclamation. Handle the legacy fixed
+    // claim by moving it first and verifying what we actually took ownership of.
+    const legacy = join(petRoot(), "install.claim");
+    if (existsSync(legacy)) {
+      const expected = readFileSync(legacy, "utf8");
+      if (!deadHolder(legacy)) throw busy();
+      const retired = `${legacy}.retired-${randomUUID()}`;
+      renameSync(legacy, retired);
+      if (readFileSync(retired, "utf8") !== expected) {
+        try { linkSync(retired, legacy); } finally { rmSync(retired, { force: true }); }
+        throw busy();
+      }
+      rmSync(retired);
+    }
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         writeFileSync(lock, ownership, { flag: "wx", mode: 0o600 });
@@ -59,8 +90,6 @@ export async function withInstallerLock(action, { recoverPet = false } = {}) {
       }
     }
     if (!acquired) throw busy();
-    rmSync(claim);
-    claimed = false;
     // Only the holder may clear a flag left by a previous interrupted apply.
     if (recoverPet) {
       const flag = join(petRoot(), "pet-state", "updating");
@@ -73,8 +102,9 @@ export async function withInstallerLock(action, { recoverPet = false } = {}) {
     }
     return await action();
   } finally {
-    if (claimed && readFileSync(claim, "utf8") === ownership) rmSync(claim);
-    if (acquired && readFileSync(lock, "utf8") === ownership) rmSync(lock);
+    if (claimed) removeOwned(claim, ownership);
+    if (acquired) removeOwned(lock, ownership);
+    if (acquired && recoverPet) resumeDelivery(join(petRoot(), "pet-state"));
     if (!parentExisted && existsSync(petRoot()) && readdirSync(petRoot()).length === 0) rmdirSync(petRoot());
   }
 }
@@ -103,12 +133,13 @@ function readSettings(path) {
   catch (error) { if (error.code === "ENOENT") return null; throw error; }
 }
 
+const parseSettings = bytes => JSON.parse(bytes.toString("utf8").replace(/^\uFEFF/, ""));
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function alive(pid) {
   try { process.kill(pid, 0); return true; }
-  catch (error) { if (error.code === "ESRCH") return false; throw error; }
+  catch (error) { if (error.code === "ESRCH") return false; if (error.code === "EPERM") return true; throw error; }
 }
 
 function exchangePet(path, { token, timeout, method = "GET" }) {
@@ -151,15 +182,33 @@ export async function petHealth({ token, timeout = 1000 } = {}) {
 async function stopPet(state) {
   let token;
   try { token = readFileSync(join(state, "token"), "utf8").trim(); }
-  catch (error) { if (error.code === "ENOENT") return; throw error; }
-  if (!token) return;
+  catch (error) { if (error.code !== "ENOENT") throw error; token = ""; }
   const timeout = Math.max(50, Number(process.env.CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS) || 1500);
   const result = await petHealth({ token, timeout });
-  if (result.status !== "pet") return;
-  const { health } = result;
-  const pid = health.pid;
+  if (result.status === "absent") return;
+  let pid = result.health?.pid;
+  if (result.status === "unavailable") {
+    try {
+      ({ pid } = JSON.parse(readFileSync(join(state, "app-process.json"), "utf8")));
+      if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) throw new Error("invalid pid");
+      const exe = process.platform === "win32"
+        ? spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+          `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (Get-Process -Id ${pid} -ErrorAction Stop).Path`],
+          { encoding: "utf8", windowsHide: true, timeout: 3000 }).stdout?.trim()
+        : realpathSync(`/proc/${pid}/exe`);
+      const normalize = path => {
+        const resolved = realpathSync(path).replace(/^\\\\\?\\/, "");
+        return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+      };
+      if (!exe || normalize(exe) !== normalize(join(petRoot(), "pet", "codex-delegate-pet.exe"))) throw new Error("executable mismatch");
+    } catch {
+      throw new Error("Pet port is held but health is unavailable and its process cannot be verified; cannot safely replace or remove the running app. Close the pet app or resolve the port conflict and retry");
+    }
+  }
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) throw new Error("Pet health has no safe process id; cannot safely replace or remove the running app");
-  try { await exchangePet("/quit", { token, timeout, method: "POST" }); } catch { /* A quitting app may close the socket. */ }
+  if (result.status === "pet") {
+    try { await exchangePet("/quit", { token, timeout, method: "POST" }); } catch { /* A quitting app may close the socket. */ }
+  }
   const deadline = Date.now() + timeout;
   while (alive(pid) && Date.now() < deadline) await delay(25);
   if (alive(pid)) {
@@ -180,11 +229,28 @@ function pausePet(steps, state) {
     flagged = true;
     refresh = setInterval(() => writeFileSync(flag, "updating\n"), 30_000);
     refresh.unref();
+    // A helper may already have passed its flag check. It holds this lock
+    // through spawn/startup/delivery, so wait for it before probing/stopping.
+    const lock = join(state, "spool", "delivery.lock");
+    // Cover the helper's entire health wait (20 s by default), plus time to
+    // finish its last probe and release the lock.
+    const deadline = Date.now() + Number(process.env.CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS ?? 20000) + 5000;
+    while (existsSync(lock)) {
+      try {
+        const holder = JSON.parse(readFileSync(lock, "utf8"));
+        if (Number.isSafeInteger(holder.pid) && holder.pid > 0 && !alive(holder.pid)) break;
+      } catch (error) { if (error.code === "ENOENT") break; }
+      if (Date.now() >= deadline) throw new Error("Pet delivery helper did not stop for update; bundle was not changed. Retry after delivery finishes");
+      await delay(25);
+    }
     await stopPet(state);
   } });
   return () => {
     clearInterval(refresh);
-    if (flagged) rmSync(flag, { force: true });
+    if (flagged) {
+      rmSync(flag, { force: true });
+      resumeDelivery(state);
+    }
   };
 }
 
@@ -201,7 +267,7 @@ export function preparePetRemoval({ dryRun = false } = {}) {
   const original = readSettings(settingsPath);
   let settings;
   try {
-    settings = original === null ? {} : JSON.parse(original.toString("utf8"));
+    settings = original === null ? {} : parseSettings(original);
     if (!object(settings) || (settings.hooks !== undefined && !object(settings.hooks))) throw new Error("expected settings and hooks objects");
     for (const event of new Set([...Object.keys(marker.hooks ?? {}), ...Object.keys(marker.pendingHooks ?? {})])) {
       const owned = [marker.hooks?.[event], marker.pendingHooks?.[event]].filter(value => typeof value === "string");
@@ -221,7 +287,7 @@ export function preparePetRemoval({ dryRun = false } = {}) {
   const add = (label, apply) => steps.push({ label, apply, status: "not applied" });
   const backupPath = original === null ? null : `${settingsPath}.codex-delegate-backup-${Date.now()}-${randomUUID()}`;
   let backupWritten = false;
-  const changed = original !== null && JSON.stringify(settings) !== JSON.stringify(JSON.parse(original));
+  const changed = original !== null && JSON.stringify(settings) !== JSON.stringify(parseSettings(original));
   if (changed) add(`write Claude Code settings ${settingsPath} (remove owned pet hooks)`, () => {
     const check = () => {
       const current = readSettings(settingsPath);
@@ -300,7 +366,7 @@ export async function preparePet({ root, pkg, dryRun = false }) {
   const backupPath = original === null ? null : backupName();
   let settings;
   try {
-    settings = original === null ? {} : JSON.parse(original.toString("utf8"));
+    settings = original === null ? {} : parseSettings(original);
     if (!object(settings)) throw new Error("expected an object");
     if (settings.hooks !== undefined && !object(settings.hooks)) throw new Error("hooks must be an object");
     for (const event of EVENTS) {
@@ -308,16 +374,21 @@ export async function preparePet({ root, pkg, dryRun = false }) {
     }
   } catch (error) { throw new Error(`Cannot parse Claude Code settings ${settingsPath}: ${error.message}`); }
   const command = `node "${join(bundle, "hook", "leader-hook.mjs")}"`;
-  const hooks = Object.fromEntries(EVENTS.map(event => [event, command]));
+  const hooks = {};
   settings.hooks ??= {};
   for (const event of EVENTS) {
     settings.hooks[event] ??= [];
+    const owned = [existing?.hooks?.[event], existing?.pendingHooks?.[event]].filter(value => typeof value === "string");
+    const leaves = settings.hooks[event].flatMap(group => Array.isArray(group?.hooks) ? group.hooks : []);
+    // An identical command without recorded ownership belongs to the user.
+    if (!leaves.some(entry => owned.includes(entry?.command)) && leaves.some(entry => entry?.command === command)) continue;
+    hooks[event] = command;
     const leaf = { type: "command", command, timeout: 10, ...(event === "PostToolUse" ? { async: true } : {}) };
     let replaced = false;
     settings.hooks[event] = settings.hooks[event].flatMap(group => {
       if (!Array.isArray(group?.hooks)) return [group];
       const hooks = group.hooks.flatMap(entry => {
-        if (typeof entry?.command === "string" && (entry.command === command || entry.command === existing?.hooks?.[event] || entry.command === existing?.pendingHooks?.[event])) {
+        if (typeof entry?.command === "string" && owned.includes(entry.command)) {
           if (replaced) return [];
           replaced = true;
           return [{ ...leaf }];

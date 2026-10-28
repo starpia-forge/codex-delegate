@@ -213,8 +213,15 @@ async function applySteps(steps, pet, operation) {
 }
 
 async function uninstall(opts) {
-  const pet = opts.scope === "user" && opts.agents.includes("claude-code")
-    ? preparePetRemoval({ dryRun: opts.dryRun }) : undefined;
+  let pet;
+  try {
+    pet = opts.scope === "user" && opts.agents.includes("claude-code")
+      ? preparePetRemoval({ dryRun: opts.dryRun }) : undefined;
+  } catch (error) {
+    console.error(`codex-delegate: ${error.message}\nNothing was changed.`);
+    process.exitCode = 1;
+    return;
+  }
   const steps = [];
   for (const id of opts.agents) {
     const agent = manifest.agents[id];

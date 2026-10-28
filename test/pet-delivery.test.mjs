@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
+import { bundleFiles, release } from "./helpers/pet-release.mjs";
+import { zip } from "./helpers/zip.mjs";
 
 const clients = fileURLToPath(new URL("../pet/client", import.meta.url));
 const token = "delivery-test-token";
@@ -33,7 +35,7 @@ async function harness(t, overrides = {}) {
   await new Promise(resolve => server.close(resolve));
   const stub = join(root, "stub.mjs");
   writeFileSync(stub, `
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createStage } from ${JSON.stringify(new URL("../pet/app/ui/stage.mjs", import.meta.url).href)};
 const root = process.env.HOME;
@@ -50,7 +52,9 @@ const server = createServer((req, res) => {
   if (req.url === '/health') {
     if (Date.now() < silentUntil) return;
     res.statusCode = Date.now() < healthyAt ? 503 : 200;
-    res.end(JSON.stringify({ app: 'codex-delegate-pet', protocol: 1, version: '0.1.0' }));
+    res.end(JSON.stringify({ app: 'codex-delegate-pet', protocol: 1, version: '0.1.0', pid: process.pid }));
+  } else if (req.url === '/quit') {
+    res.end('{}', () => process.exit(0));
   } else if (req.url === '/event') {
     let body = '';
     req.on('data', chunk => body += chunk);
@@ -71,6 +75,10 @@ const server = createServer((req, res) => {
   } else { res.writeHead(404).end(); }
 });
 
+if (process.env.STUB_BIND_GATE) {
+  writeFileSync(root + '/.codex-delegate/pet-state/updating', 'updating');
+  while (!existsSync(process.env.STUB_BIND_GATE)) await new Promise(resolve => setTimeout(resolve, 10));
+}
 server.listen(Number(process.env.CODEX_DELEGATE_PET_PORT), '127.0.0.1');
 setTimeout(() => process.exit(), 15000).unref();
 `);
@@ -123,7 +131,85 @@ test("an absent app starts in the background and receives an authenticated event
   assert.equal((await fetch(url)).status, 401);
   assert.equal((await fetch(url, { headers: { "X-Codex-Delegate-Pet-Token": "wrong" } })).status, 401);
   assert.deepEqual(await (await fetch(url, { headers: { "X-Codex-Delegate-Pet-Token": token } })).json(),
-    { app: "codex-delegate-pet", protocol: 1, version: "0.1.0" });
+    { app: "codex-delegate-pet", protocol: 1, version: "0.1.0", pid: Number(h.lines("starts")[0]) });
+});
+
+test("a helper rechecks updating immediately before spawning the configured app", async t => {
+  const h = await harness(t);
+  const preload = join(h.root, "update-before-spawn.mjs");
+  writeFileSync(preload, `
+    import { writeFileSync } from 'node:fs';
+    const parse = JSON.parse;
+    JSON.parse = function(value, ...args) {
+      const result = parse(value, ...args);
+      if (value === process.env.CODEX_DELEGATE_PET_TEST_COMMAND) {
+        writeFileSync(${JSON.stringify(join(h.state, "updating"))}, 'updating');
+      }
+      return result;
+    };
+  `);
+  h.env.NODE_OPTIONS = `--import=${pathToFileURL(preload).href}`;
+  await h.produce();
+  await until(() => existsSync(join(h.state, "updating")), "helper did not reach launch configuration");
+  await until(() => !existsSync(join(h.state, "spool", "delivery.lock")), "helper did not release delivery");
+  await sleep(150);
+  assert.deepEqual(h.lines("starts"), []);
+  assert.equal(h.spooled().length, 1);
+});
+
+for (const delay of ["0", "60000"]) test(`updating holds and refreshes delivery until a launched app binds without posting (health delay=${delay})`, async t => {
+  const h = await harness(t, { STUB_DELAY: delay });
+  h.env.STUB_BIND_GATE = join(h.root, "allow-bind");
+  await h.produce();
+  await until(() => existsSync(join(h.state, "updating")), "app did not reach its bind gate");
+  const lock = join(h.state, "spool", "delivery.lock");
+  assert.equal(existsSync(lock), true, "helper released delivery before the app bound");
+  const old = new Date(Date.now() - 1000);
+  utimesSync(lock, old, old);
+  await sleep(200);
+  assert.equal(existsSync(lock), true, "updating released delivery while the app was still absent");
+  assert.ok(statSync(lock).mtimeMs > old.getTime(), "helper did not refresh delivery while waiting for bind");
+  writeFileSync(h.env.STUB_BIND_GATE, "bind");
+  await until(() => !existsSync(lock), "helper did not release delivery after the app bound");
+  const response = await fetch(`http://127.0.0.1:${h.port}/health`, { headers: { "X-Codex-Delegate-Pet-Token": token } });
+  assert.equal(response.status, delay === "0" ? 200 : 503);
+  assert.deepEqual(h.events(), [], "helper posted while updating");
+  assert.equal(h.spooled().length, 1);
+  assert.equal(h.lines("starts").length, 1);
+});
+
+test("updating releases delivery at the health deadline if the launched app never binds", async t => {
+  const h = await harness(t, { CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS: "1200" });
+  h.env.STUB_BIND_GATE = join(h.root, "allow-bind");
+  const started = performance.now();
+  await h.produce();
+  await until(() => existsSync(join(h.state, "updating")), "app did not reach its bind gate");
+  await until(() => !existsSync(join(h.state, "spool", "delivery.lock")), "helper exceeded its health deadline");
+  assert.ok(performance.now() - started >= 1200, "helper released delivery before its health deadline");
+  assert.deepEqual(h.events(), []);
+  assert.equal(h.spooled().length, 1);
+  assert.equal(h.lines("starts").length, 1);
+});
+
+test("a producer resumes delivery when the installer clears updating during enqueue", async t => {
+  const h = await harness(t, { STUB_DELAY: "20" });
+  const flag = join(h.state, "updating");
+  writeFileSync(flag, "updating");
+  const preload = join(h.root, "clear-during-enqueue.mjs");
+  writeFileSync(preload, `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const rename = fs.renameSync;
+    fs.renameSync = function(from, to) {
+      const result = rename(from, to);
+      if (String(to).endsWith('.json')) fs.rmSync(${JSON.stringify(flag)}, { force: true });
+      return result;
+    };
+    syncBuiltinESMExports();
+  `);
+  h.env.NODE_OPTIONS = `--import=${pathToFileURL(preload).href}`;
+  await h.produce();
+  await until(() => h.events().length === 1, "event published after the installer's scan was stranded");
 });
 
 for (const listening of [false, true]) test(`a fresh updating flag spools without launch or delivery (listening=${listening})`, async t => {
@@ -260,7 +346,7 @@ test("without a token the installed producer is silent and does nothing", async 
   assert.deepEqual(h.lines("starts"), []);
 });
 
-test("an update begun during startup stops the helper until a later event retries", async t => {
+test("the installer resumes queued delivery after an update without another producer event", async t => {
   const h = await harness(t, { STUB_DELAY: "700" });
   await h.produce();
   await until(() => h.lines("starts").length === 1, "helper never launched");
@@ -269,10 +355,22 @@ test("an update begun during startup stops the helper until a later event retrie
   await sleep(800);
   assert.deepEqual(h.events(), []);
   assert.equal(h.spooled().length, 1);
-  rmSync(join(h.state, "updating"));
-  await h.produce();
-  await until(() => h.events().length === 2, "later event did not retry queued delivery");
-  assert.equal(h.lines("starts").length, 1);
+  const files = { ...bundleFiles };
+  for (const name of readdirSync(clients)) files[`client/${name}`] = readFileSync(join(clients, name));
+  await release(t, h, { bytes: zip(files) });
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    import { preparePet, withInstallerLock } from ${JSON.stringify(new URL("../bin/pet.mjs", import.meta.url).href)};
+    await withInstallerLock(async () => {
+      const plan = await preparePet({ root: ${JSON.stringify(fileURLToPath(new URL("../", import.meta.url)))}, pkg: { name: 'codex-delegate', version: 'test' } });
+      try { for (const step of plan.steps) await step.apply(); } finally { plan.cleanup(); }
+    }, { recoverPet: true });
+  `], { env: h.env, windowsHide: true });
+  let stderr = "";
+  child.stderr.on("data", chunk => stderr += chunk);
+  child.stdout.resume();
+  assert.equal(await new Promise(resolve => child.on("close", resolve)), 0, stderr);
+  await until(() => h.events().length === 1, "installer stranded the queued event");
+  assert.equal(h.lines("starts").length, 2);
 });
 
 test("health startup has a bound and leaves undelivered events for a later retry", async t => {

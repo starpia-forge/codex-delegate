@@ -42,11 +42,14 @@ function hasWebView2() {
 export async function checkPet(root, check) {
   const marker = readPetMarker();
   if (!marker) return;
-  const pin = readPetPin(root);
+  let pin;
+  try { pin = readPetPin(root); }
+  catch (error) { check("fail", "Pet bundle", `cannot read pet pin: ${error.message}`); }
   const bundle = join(homedir(), ".codex-delegate", "pet");
   const missing = [bundle, join(bundle, "codex-delegate-pet.exe")].find(path => !existsSync(path));
-  const matches = marker.bundle?.tag === pin.tag && marker.bundle?.sha256 === pin.sha256;
-  if (missing) check("fail", "Pet bundle", `missing ${missing}; run codex-delegate install --with-pet`);
+  const matches = pin && marker.bundle?.tag === pin.tag && marker.bundle?.sha256 === pin.sha256;
+  if (!pin) { /* The pin failure is reported above; continue other checks. */ }
+  else if (missing) check("fail", "Pet bundle", `missing ${missing}; run codex-delegate install --with-pet`);
   else check(matches ? "ok" : "warn", "Pet bundle", matches ? pin.version
     : `installed ${marker.bundle?.version ?? "unknown"} (${marker.bundle?.tag ?? "unknown"}), expected ${pin.version} (${pin.tag}); run codex-delegate install --with-pet`);
 
@@ -77,7 +80,12 @@ export async function checkPet(root, check) {
   const resolved = await resolvePets({ home: homedir(), codexHome: process.env.CODEX_HOME,
     readFile: async path => {
       try { return await readFile(path); }
-      catch (error) { if (error.code === "ENOENT") return null; throw error; }
+      catch (error) {
+        if (error.code === "ENOENT") return null;
+        // Unreadable files are invalid packages/configuration too. Let the
+        // resolver report the affected slots and their bundled fallback.
+        return Buffer.alloc(0);
+      }
     },
   });
   const configIssues = resolved.issues.filter(issue => Object.hasOwn(configProblems, issue.code));
