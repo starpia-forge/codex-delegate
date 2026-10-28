@@ -1,10 +1,14 @@
+// The shell supplies wall time; this module has no I/O.
+import { applyOverflow } from "./layout.mjs";
 import { createScenes } from "./scenes.mjs";
 
-// The shell supplies wall time; this module has no I/O.
 export function createStage({ now }) {
+  let fitLimit = 16;
   const teams = new Map();
   const sequences = new Map();
   const workerTimes = new Map();
+  const workerAppearance = new Map();
+  let nextAppearance = 0;
   const ended = new Set();
   // Kept after removal so late events cannot resurrect a closed team.
   const leaders = new Map();
@@ -13,6 +17,9 @@ export function createStage({ now }) {
     return teams.get(key);
   }
   return {
+    setFitLimit(n) {
+      fitLimit = Math.max(0, Math.min(16, Math.floor(n)));
+    },
     apply(event) {
       if (event.source === "leader") {
         const previous = leaders.get(event.team);
@@ -54,12 +61,16 @@ export function createStage({ now }) {
       if (event.type === "end") {
         ended.add(event.worker);
         const team = teamFor(key);
-        if (!team.workers.has(event.worker)) team.workers.set(event.worker, { worker: event.worker, role: event.role,
-          label: event.label, state: "running", lastSeen: now() });
+        if (!team.workers.has(event.worker)) {
+          workerAppearance.set(event.worker, nextAppearance++);
+          team.workers.set(event.worker, { worker: event.worker, role: event.role,
+            label: event.label, state: "running", lastSeen: now() });
+        }
         team.scenes.end(event.worker, [...team.workers.keys()].indexOf(event.worker) + 1, !!team.leader, event.outcome);
         return;
       }
       const team = teamFor(key);
+      if (!team.workers.has(event.worker)) workerAppearance.set(event.worker, nextAppearance++);
       team.workers.set(event.worker, { worker: event.worker, role: event.role,
         label: event.label, state: "running", lastSeen: now() });
       if (event.type === "start") team.scenes.start(event.worker, [...team.workers.keys()].indexOf(event.worker) + 1, !!team.leader);
@@ -78,10 +89,10 @@ export function createStage({ now }) {
       }
     },
     snapshot() {
-      return { teams: [...teams].map(([key, team]) => ({ key,
+      return applyOverflow([...teams].map(([key, team]) => ({ key,
         leader: team.leader ? { ...team.leader, ...team.scenes.leader(team.leader.state) } : null,
         workers: [...team.workers.values()].map((worker, index) => ({ ...worker,
-          ...team.scenes.worker(worker.worker, index + 1) })) })) };
+          ...team.scenes.worker(worker.worker, index + 1) })) })), fitLimit, workerAppearance);
     },
   };
 }
