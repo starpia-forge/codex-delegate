@@ -14,8 +14,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const USER_ROLES = join(homedir(), ".codex-delegate", "roles.json");
 
@@ -26,6 +26,34 @@ const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143, SIGBREAK: 149, SIGHUP: 12
 const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
 const HOLDER = join(LOCK, "holder.json");
 const CHILD = join(LOCK, "child.json");
+
+// Loading and delivery are optional, silent, and bounded even for a broken
+// installed client. Serialize events so a short run cannot overtake its start.
+function reportPet(child, role, label) {
+  const path = join(homedir(), ".codex-delegate", "pet", "client", "pet-client.mjs");
+  if (!existsSync(path)) return async () => {};
+  let ready = import(pathToFileURL(path).href)
+    .then(module => module.createWorker({ role, label })).catch(() => null);
+  let heartbeat;
+  const send = (type, outcome) => {
+    ready = ready.then(async client => {
+      try { await client?.send(type, outcome); } catch { /* Optional client. */ }
+      return client;
+    });
+    return ready;
+  };
+  child.once("spawn", () => {
+    send("start");
+    heartbeat = setInterval(() => send("heartbeat"), 10000);
+    heartbeat.unref();
+  });
+  return async outcome => {
+    clearInterval(heartbeat);
+    let timer;
+    await Promise.race([send("end", outcome), new Promise(resolve => { timer = setTimeout(resolve, 350); })]);
+    clearTimeout(timer);
+  };
+}
 
 function readHolder() {
   let holder;
@@ -162,6 +190,7 @@ let child;
 let stopping = false;
 let closed = false;
 let canRelease = true;
+let finishPet = async () => {};
 if (config.exclusive) process.on("exit", () => { if (canRelease) lock.release(); });
 
 async function shutdown(code, message) {
@@ -197,6 +226,7 @@ async function shutdown(code, message) {
     // Keep the recorded live child protected if termination could not be proved.
     console.error(`codex-run: ${err.message}; retaining computer-use lock`);
   }
+  await finishPet("failed");
   process.exit(code);
 }
 
@@ -241,6 +271,7 @@ child = !config.exclusive
   : process.platform === "win32"
     ? spawn(process.execPath, [fileURLToPath(new URL("./windows-codex.mjs", import.meta.url)), ["codex", ...args.map(quote)].join(" ")], { cwd, env, detached: true, windowsHide: true })
     : spawn("codex", args, { cwd, env, detached: true });
+finishPet = reportPet(child, role, basename(dirname(promptFile)));
 if (config.exclusive && child.pid) {
   canRelease = false;
   lock?.setChild(child.pid);
@@ -258,7 +289,7 @@ child.on("error", err => {
   if (config.exclusive) shutdown(2, message);
   else fail(message);
 });
-child.on("close", (code) => {
+child.on("close", async (code) => {
   closed = true;
   log.end();
   if (stopping) return;
@@ -271,5 +302,6 @@ child.on("close", (code) => {
   } else {
     console.log(`codex-run: no result written - check ${out}.log`);
   }
+  await finishPet(code === 0 ? "success" : "failed");
   process.exit(code ?? 1);
 });

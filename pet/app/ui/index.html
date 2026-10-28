@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Codex Delegate Pets</title>
+  <style>
+    html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
+      pointer-events: none; font: 12px/1.3 "Segoe UI", sans-serif; }
+    #stage { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 16px; padding: 0 8px 4px; }
+    .team { display: flex; gap: 4px; align-items: flex-end; }
+    .pet { width: 140px; display: flex; flex-direction: column; align-items: center; }
+    canvas { width: 115.2px; height: 124.8px; }
+    .tag { max-width: 130px; overflow: hidden; text-overflow: ellipsis; color: white;
+      background: rgba(20,20,30,.65); padding: 2px 5px; border-radius: 8px; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <div id="stage" aria-live="polite"></div>
+  <script type="module" src="./renderer.mjs"></script>
+</body>
+</html>
