@@ -114,6 +114,7 @@ function draw(time) {
 }
 
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); render(); });
+await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); render(); });
 await window.__TAURI__.core.invoke("renderer_ready");
 setInterval(() => { stage.tick(); render(); }, 250);
 requestAnimationFrame(draw);

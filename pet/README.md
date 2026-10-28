@@ -21,8 +21,15 @@ Rebuild the app after changing assets or frontend code. `Cargo.lock` is retained
 `target/` is ignored.
 
 The replaceable bundle lives in `<home>/.codex-delegate/pet/`. Mutable state
-lives beside it in `pet-state/`: a random per-user `token`, the delivery `spool/`
-and the installer's `updating` flag. The developer installer preserves an existing
+lives beside it in `pet-state/`: a random per-user `token`, the delivery `spool/`,
+leader records in `sessions/<team-key>.json`, and the installer's `updating` flag.
+Records contain `team`, `session` and the session-start timestamp `at` in Unix
+milliseconds. They survive idle exits and bundle updates. The shell restores
+live recorded leaders before accepting events and deletes dead records. Every
+five seconds it checks recorded teams and teams seen in leader events using
+their Windows process ids; a dead process removes and tombstones the whole team.
+Process creation times also guard against restoring a reused PID.
+The developer installer preserves an existing
 token. Every HTTP request requires it. The helper serializes startup and replay;
 events and update flags expire after five minutes. The app exits after ten
 minutes without accepted events (health checks do not keep it alive).
@@ -105,8 +112,8 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Later tickets own scenes, overflow, fullscreen, capture exclusion, process
-liveness, and production installation/release. This app accepts leader
+Later tickets own scenes, overflow, fullscreen, capture exclusion,
+and production installation/release. This app accepts leader
 and worker events on loopback; it does not implement those later features.
 
 ## Leader hooks (manual registration)
@@ -187,9 +194,17 @@ Manual checks with the rebuilt app and a real Claude session:
    stay beside its own leader, and one team's activity does not change the other.
 8. Use `/exit` in one session: its leader and workers disappear together, leaving
    the other team. Use `/exit` in the other session to remove that team too.
+9. Start a session, then close its terminal window without `/exit`. Its leader
+   and workers leave within about five seconds and its session record is deleted.
+10. Leave a session open and quiet. Stop the pet app through `/quit`, then start
+    the installed executable again with the same isolated environment. Its idle
+    leader returns without another hook event. Repeat after an idle exit or a
+    bundle update; closed sessions must not return.
 
 Seam 2 tests run the installed-layout hook as real child processes against a
 fake HTTP listener with isolated homes, including concurrent deliveries replayed
 out of order. Seam 3 tests drive leader activity, wall-time review expiry,
-timestamp ordering, generations, team tombstones and worker grouping directly.
+timestamp ordering, restore ordering, generations, process death, team tombstones
+and worker grouping directly. Hook tests also check session record persistence,
+replacement and removal, including clear/compact and unavailable listeners.
 The existing worker tests remain unchanged.

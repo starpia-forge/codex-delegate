@@ -11,6 +11,13 @@ export function createStage({ now }) {
     return teams.get(key);
   }
   return {
+    liveness({ team, alive, at }) {
+      if (alive !== false) return;
+      const previous = leaders.get(team);
+      if (previous?.ended || at < (previous?.at ?? -Infinity)) return;
+      leaders.set(team, { at, generation: previous?.generation, ended: true });
+      teams.delete(team);
+    },
     apply(event) {
       if (event.source === "leader") {
         const previous = leaders.get(event.team);

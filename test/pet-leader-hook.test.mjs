@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { tmpdir } from "node:os";
@@ -58,7 +58,8 @@ async function harness(t, mode = "pet") {
     if (server.listening) await new Promise(resolve => server.close(resolve));
     rmSync(root, { recursive: true, force: true });
   });
-  return { events, nextEvent: () => once(arrivals, "event").then(([event]) => event),
+  return { events, bundle, state: join(home, ".codex-delegate", "pet-state"),
+    nextEvent: () => once(arrivals, "event").then(([event]) => event),
     run(input, overrides = {}, { open = false } = {}) {
       const childEnv = { ...env, ...overrides };
       for (const key of Object.keys(childEnv)) if (childEnv[key] === undefined) delete childEnv[key];
@@ -99,6 +100,9 @@ test("a real SessionStart hook sends the leader identity from its isolated insta
   const [event] = h.events;
   assert.deepEqual({ ...event, at: 0 }, { v: 1, source: "leader", team: "43210", session: "session-a", at: 0, type: "session-start" });
   assert.ok(event.at >= before && event.at <= Date.now());
+  assert.deepEqual(JSON.parse(readFileSync(join(h.state, "sessions", "43210.json"), "utf8")), {
+    team: "43210", session: "session-a", at: event.at,
+  });
 });
 
 test("registered hooks map to leader events while clear, compact, notifications and subagents stay quiet", async t => {
@@ -136,6 +140,51 @@ test("registered hooks map to leader events while clear, compact, notifications 
   }
 });
 
+test("a session record survives quiet activity and in-window restarts until its team ends", async t => {
+  const h = await harness(t);
+  const record = join(h.state, "sessions", "43210.json");
+  for (const source of ["clear", "compact"]) {
+    quiet(await h.run({ hook_event_name: "SessionStart", source }));
+    assert.equal(existsSync(record), false);
+  }
+  quiet(await h.run({ hook_event_name: "SessionStart", source: "startup", session_id: "original" }));
+  const original = readFileSync(record, "utf8");
+  for (const input of [
+    { hook_event_name: "SessionEnd", reason: "clear" },
+    { hook_event_name: "SessionStart", source: "clear" },
+    { hook_event_name: "SessionStart", source: "compact" },
+    { hook_event_name: "UserPromptSubmit" },
+    { hook_event_name: "Stop" },
+  ]) {
+    quiet(await h.run({ session_id: "after-clear", ...input }));
+    assert.equal(readFileSync(record, "utf8"), original);
+  }
+  quiet(await h.run({ hook_event_name: "SessionEnd", reason: "prompt_input_exit", session_id: "other" }, { CLAUDE_PID: "54321" }));
+  assert.equal(readFileSync(record, "utf8"), original);
+  // The session id changed on /clear; the team still owns the original record.
+  quiet(await h.run({ hook_event_name: "SessionEnd", reason: "prompt_input_exit", session_id: "after-clear" }));
+  assert.equal(existsSync(record), false);
+});
+
+test("a new session start replaces only its team's saved record", async t => {
+  const h = await harness(t);
+  quiet(await h.run({ hook_event_name: "SessionStart", source: "startup", session_id: "first" }));
+  quiet(await h.run({ hook_event_name: "SessionStart", source: "startup", session_id: "other-team" }, { CLAUDE_PID: "54321" }));
+  quiet(await h.run({ hook_event_name: "SessionStart", source: "resume", session_id: "resumed" }));
+  const record = team => JSON.parse(readFileSync(join(h.state, "sessions", `${team}.json`), "utf8"));
+  assert.deepEqual(record("43210"), { team: "43210", session: "resumed", at: h.events[2].at });
+  quiet(await h.run({ hook_event_name: "SessionEnd", reason: "prompt_input_exit", session_id: "resumed" }));
+  assert.deepEqual(record("54321"), { team: "54321", session: "other-team", at: h.events[1].at });
+});
+
+test("missing delivery files cannot prevent quiet session recording", async t => {
+  const h = await harness(t);
+  rmSync(join(h.bundle, "client", "pet-transport.mjs"));
+  quiet(await h.run({ hook_event_name: "SessionStart", source: "startup", session_id: "session-a" }));
+  assert.equal(JSON.parse(readFileSync(join(h.state, "sessions", "43210.json"), "utf8")).session, "session-a");
+  assert.deepEqual(h.events, []);
+});
+
 test("invalid input and missing team keys send nothing and never affect the leader", async t => {
   const h = await harness(t);
   for (const input of ["", "{broken", "null", "[]", "42"]) quiet(await h.run(input));
@@ -159,10 +208,12 @@ test("oversized input or stdin left open is abandoned with a quiet successful ex
 
 for (const mode of ["absent", "silent", "foreign"]) test(`${mode} listener cannot block or add hook output`, async t => {
   const h = await harness(t, mode);
-  const result = await h.run({ hook_event_name: "UserPromptSubmit", session_id: "session-a" });
+  const result = await h.run({ hook_event_name: "SessionStart", source: "startup", session_id: "session-a" });
   quiet(result);
   assert.ok(result.elapsed < 1500, `${mode} took ${result.elapsed}ms`);
   assert.deepEqual(h.events, []);
+  const record = JSON.parse(readFileSync(join(h.state, "sessions", "43210.json"), "utf8"));
+  assert.equal(record.session, "session-a", "record must survive even when delivery fails");
 });
 
 test("concurrent real hooks delivered in reverse timestamp order leave the latest leader state", { timeout: 5000 }, async t => {

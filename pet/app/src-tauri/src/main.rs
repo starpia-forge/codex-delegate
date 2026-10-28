@@ -1,12 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod liveness;
+
 use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use liveness::{LeaderSessions, Sessions};
 
 const DEFAULT_PORT: u16 = 47800;
 type Ready = Arc<AtomicBool>;
@@ -14,8 +17,10 @@ type EventApp = Arc<Mutex<Option<AppHandle>>>;
 type PetScale = Arc<AtomicU64>;
 
 #[tauri::command]
-fn renderer_ready(ready: tauri::State<Ready>) {
+fn renderer_ready(app: AppHandle, ready: tauri::State<Ready>, sessions: tauri::State<LeaderSessions>) -> Result<(), String> {
+    sessions.lock().unwrap().restore(&app)?;
     ready.store(true, Ordering::Release);
+    Ok(())
 }
 
 fn pet_directories() -> Result<(PathBuf, PathBuf), String> {
@@ -59,7 +64,7 @@ fn main() {
     let state = std::env::var_os("CODEX_DELEGATE_PET_STATE_DIR").map(std::path::PathBuf::from)
         .or_else(|| std::env::current_exe().ok().and_then(|exe|
             exe.parent().map(|dir| dir.join("..").join("pet-state"))));
-    let token = state.and_then(|dir| std::fs::read_to_string(dir.join("token")).ok())
+    let token = state.as_ref().and_then(|dir| std::fs::read_to_string(dir.join("token")).ok())
         .map(|token| token.trim().to_owned()).filter(|token| !token.is_empty());
     let Some(token) = token else { std::process::exit(0) };
     let token = Arc::new(token);
@@ -69,6 +74,7 @@ fn main() {
     // Bind before opening the window; a second instance exits on a port conflict.
     let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) else { std::process::exit(0) };
     let ready: Ready = Arc::new(AtomicBool::new(false));
+    let sessions: LeaderSessions = Arc::new(Mutex::new(Sessions::new(state.unwrap())));
     let last_event = Arc::new(Mutex::new(Instant::now()));
     let event_app: EventApp = Arc::new(Mutex::new(None));
     // Serve authenticated 503 health before WebView/window creation, so a
@@ -93,6 +99,7 @@ fn main() {
     });
     tauri::Builder::default()
         .manage(ready.clone())
+        .manage(sessions.clone())
         .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
         .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale])
         .setup(move |app| {
@@ -104,6 +111,8 @@ fn main() {
             win.set_ignore_cursor_events(true)?;
             let win = win.clone();
             std::thread::spawn(move || watch_window(win));
+            let handle = app.handle().clone();
+            std::thread::spawn(move || liveness::watch(handle, ready, sessions));
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -198,7 +207,7 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
                 if !ready.load(Ordering::Acquire) {
                     ("503 Service Unavailable", json!({"error": "renderer unavailable"}))
                 } else {
-                    if app.lock().unwrap().as_ref().is_some_and(|app| app.emit("pet-event", &event).is_ok()) {
+                    if app.lock().unwrap().as_ref().is_some_and(|app| liveness::emit_event(app, &event)) {
                         *last_event.lock().unwrap() = Instant::now();
                         ("200 OK", json!({"ok": true}))
                     } else {
