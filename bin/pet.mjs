@@ -84,6 +84,13 @@ export function readPetMarker() {
   catch { return null; }
 }
 
+export function readPetPin(root) {
+  const pin = JSON.parse(readFileSync(process.env.CODEX_DELEGATE_PET_TEST_PIN || join(root, "pet-pin.json"), "utf8"));
+  if (![pin.tag, pin.asset, pin.version].every(value => typeof value === "string" && value.length)
+    || !/^[a-f0-9]{64}$/i.test(pin.sha256)) throw new Error("Invalid pet pin");
+  return pin;
+}
+
 export function listPet() {
   const marker = readPetMarker();
   console.log(marker
@@ -104,19 +111,14 @@ function alive(pid) {
   catch (error) { if (error.code === "ESRCH") return false; throw error; }
 }
 
-async function stopPet(state) {
-  let token;
-  try { token = readFileSync(join(state, "token"), "utf8").trim(); }
-  catch (error) { if (error.code === "ENOENT") return; throw error; }
-  if (!token) return;
-  const timeout = Math.max(50, Number(process.env.CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS) || 1500);
-  const exchange = (path, method = "GET") => new Promise((resolve, reject) => {
+function exchangePet(path, { token, timeout, method = "GET" }) {
+  return new Promise((resolve, reject) => {
     const req = request({ hostname: "127.0.0.1", port: Number(process.env.CODEX_DELEGATE_PET_PORT || 47800), path, method,
       agent: false, headers: { "x-codex-delegate-pet-token": token } }, res => {
       let body = "";
       res.on("data", chunk => {
         body += chunk;
-        if (body.length > 8192) req.destroy(new Error("Pet response too large"));
+        if (Buffer.byteLength(body) > 8192) req.destroy(new Error("Pet response too large"));
       });
       res.on("error", reject);
       res.on("end", () => resolve({ status: res.statusCode, body }));
@@ -126,16 +128,38 @@ async function stopPet(state) {
     req.on("error", reject);
     req.end();
   });
-  let health;
+}
+
+export async function petHealth({ token, timeout = 1000 } = {}) {
+  if (token === undefined) {
+    try { token = readFileSync(join(petRoot(), "pet-state", "token"), "utf8").trim(); }
+    catch { token = ""; }
+  }
   try {
-    const response = await exchange("/health");
-    if (![200, 503].includes(response.status)) return;
-    health = JSON.parse(response.body);
-  } catch { return; }
-  if (health?.app !== "codex-delegate-pet" || health.protocol !== 1 || typeof health.version !== "string") return;
+    const response = await exchangePet("/health", { token, timeout });
+    const health = JSON.parse(response.body);
+    if ([200, 503].includes(response.status) && health?.app === "codex-delegate-pet"
+      && health.protocol === 1 && typeof health.version === "string" && health.version.length) {
+      return { status: "pet", health };
+    }
+  } catch (error) {
+    if (error.code === "ECONNREFUSED") return { status: "absent" };
+  }
+  return { status: "unavailable" };
+}
+
+async function stopPet(state) {
+  let token;
+  try { token = readFileSync(join(state, "token"), "utf8").trim(); }
+  catch (error) { if (error.code === "ENOENT") return; throw error; }
+  if (!token) return;
+  const timeout = Math.max(50, Number(process.env.CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS) || 1500);
+  const result = await petHealth({ token, timeout });
+  if (result.status !== "pet") return;
+  const { health } = result;
   const pid = health.pid;
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) throw new Error("Pet health has no safe process id; cannot safely replace or remove the running app");
-  try { await exchange("/quit", "POST"); } catch { /* A quitting app may close the socket. */ }
+  try { await exchangePet("/quit", { token, timeout, method: "POST" }); } catch { /* A quitting app may close the socket. */ }
   const deadline = Date.now() + timeout;
   while (alive(pid) && Date.now() < deadline) await delay(25);
   if (alive(pid)) {
@@ -240,9 +264,7 @@ export function preparePetRemoval({ dryRun = false } = {}) {
 
 export async function preparePet({ root, pkg, dryRun = false }) {
   const existing = readPetMarker();
-  const pin = JSON.parse(readFileSync(process.env.CODEX_DELEGATE_PET_TEST_PIN || join(root, "pet-pin.json"), "utf8"));
-  if (![pin.tag, pin.asset, pin.version].every(value => typeof value === "string" && value.length)
-    || !/^[a-f0-9]{64}$/i.test(pin.sha256)) throw new Error("Invalid pet pin");
+  const pin = readPetPin(root);
   const base = process.env.CODEX_DELEGATE_PET_BASE_URL || "https://github.com/starpia-forge/codex-delegate/releases/download";
   const url = `${base.replace(/\/$/, "")}/${pin.tag}/${pin.asset}`;
   const settingsPath = existing?.settingsPath ?? resolve(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");

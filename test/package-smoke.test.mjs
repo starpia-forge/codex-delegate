@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
+import { unusedPetPort } from "./helpers/pet-release.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 
@@ -64,6 +65,8 @@ else {
   Object.assign(env, {
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
     CODEX_DELEGATE_TEST_PLATFORM: "win32",
+    CODEX_DELEGATE_PET_TEST_WEBVIEW2: "present",
+    CODEX_DELEGATE_PET_PORT: await unusedPetPort(t),
     CLAUDE_PID: "43210",
     CLAUDE_CODE_SESSION_ID: "package-smoke",
     npm_config_cache: join(work, "npm-cache"),
@@ -75,7 +78,7 @@ else {
     { cwd: repo, env, shell: windows },
   ))[0];
   const files = packed.files.map(file => file.path);
-  for (const required of ["pet-pin.json", "bin/cli.mjs", "bin/pet.mjs", "bin/zip.mjs",
+  for (const required of ["pet-pin.json", "bin/cli.mjs", "bin/pet.mjs", "bin/zip.mjs", "pet/app/ui/pet-config.mjs",
     "skills/claude/codex-implement/scripts/codex-run.mjs"]) {
     assert.ok(files.includes(required), `packed package is missing ${required}`);
   }

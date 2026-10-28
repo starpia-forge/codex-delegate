@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listPet, preparePet, preparePetRemoval, readPetMarker, withInstallerLock } from "./pet.mjs";
+import { checkPet } from "./pet-doctor.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -189,7 +190,7 @@ async function install(opts) {
   }
   if (!await applySteps(steps, pet, "Install")) return;
   console.log(`\nInstalled codex-delegate ${pkg.version}. Restart Claude Code and Codex to pick up the skills.\n`);
-  doctor();
+  await doctor();
 }
 
 async function applySteps(steps, pet, operation) {
@@ -250,7 +251,7 @@ function run(command) {
   return `${result.stdout}${result.stderr}`.trim();
 }
 
-function doctor() {
+async function doctor() {
   const results = [];
   const check = (ok, label, detail = "") => results.push({ ok, label, detail });
 
@@ -321,6 +322,8 @@ function doctor() {
       .filter((name) => existsSync(join(userDir, name)) && !readMarker(join(userDir, name)));
     if (shadowed.length) check("warn", "No personal skills shadowing project install", `${userDir} has ${shadowed.join(", ")}, not installed by this tool; Claude Code uses those instead of the project copies`);
   }
+
+  await checkPet(root, check);
 
   const icon = { ok: "OK  ", warn: "WARN", fail: "FAIL" };
   console.log("doctor:");

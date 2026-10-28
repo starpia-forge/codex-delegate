@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash, randomInt } from "node:crypto";
-import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,52 +7,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
 import { zip } from "./helpers/zip.mjs";
+import { bundleFiles, release, unusedPetPort } from "./helpers/pet-release.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 const events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "Notification", "Stop", "StopFailure", "PostToolUse"];
-const bundleFiles = {
-  "codex-delegate-pet.exe": "fake executable, never run",
-  "client/pet-client.mjs": "export const fake = true;\n",
-  "hook/leader-hook.mjs": "// fake hook\n",
-  "default-pets/pet/manifest.json": "{}",
-};
 
-async function release(t, f, { bytes = zip(bundleFiles), status = 200 } = {}) {
-  const requests = [];
-  const server = createServer((req, res) => {
-    requests.push(req.url);
-    res.writeHead(status);
-    res.end(bytes);
-  });
-  // Windows can allocate a low port for listen(0); fetch refuses certain
-  // well-known ports (for example 1720) even on a loopback fake server.
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await new Promise((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(randomInt(49152, 65536), "127.0.0.1", () => {
-          server.off("error", reject);
-          resolve();
-        });
-      });
-      break;
-    } catch (error) {
-      // Windows reserves some dynamic-port ranges, reported as EACCES.
-      if (attempt >= 31 || !["EADDRINUSE", "EACCES"].includes(error.code)) throw error;
-    }
-  }
-  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
-  const pin = { tag: "pet-v1.2.3", asset: "pet.zip", sha256: createHash("sha256").update(bytes).digest("hex"), version: "1.2.3" };
-  const pinPath = join(f.root, "pin.json");
-  writeFileSync(pinPath, JSON.stringify(pin));
-  Object.assign(f.env, {
-    CODEX_DELEGATE_PET_TEST_PIN: pinPath,
-    CODEX_DELEGATE_PET_BASE_URL: `http://127.0.0.1:${server.address().port}`,
-  });
-  return { requests, pin, pinPath };
-}
-
-function fixture(t) {
+async function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "install pet test "));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const fake = fakeCodex(root, `
@@ -62,7 +20,8 @@ if (process.argv.includes("--version")) console.log("codex-cli test");
 else if (process.argv.slice(2).join(" ") === "login status") console.log("Logged in");
 else process.exitCode = 1;
 `);
-  const env = { ...fake.env, CODEX_DELEGATE_TEST_PLATFORM: "win32" };
+  const env = { ...fake.env, CODEX_DELEGATE_TEST_PLATFORM: "win32",
+    CODEX_DELEGATE_PET_PORT: await unusedPetPort(t), CODEX_DELEGATE_PET_TEST_WEBVIEW2: "present" };
   const settingsPath = join(fake.claudeHome, "settings.json");
   writeFileSync(settingsPath, '{ "theme": "dark" }\n');
   const run = (args, extraEnv = {}, onOutput = () => {}) => {
@@ -124,7 +83,7 @@ for (const args of [
   ["uninstall", "--agent", "codex"],
 ]) {
   test(`${args.join(" ")} leaves an enabled pet untouched`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     const r = await release(t, f);
     const installed = await f.run(["install", "--with-pet"]);
     assert.equal(installed.code, 0, installed.output);
@@ -162,7 +121,7 @@ for (const args of [
 for (const args of [["install"], ["install", "--without-pet"], ["uninstall"]]) {
   for (const ignoreQuit of [false, true]) {
     test(`${args.join(" ")} suppresses relaunch before asking the app to quit${ignoreQuit ? " and force-stops it" : ""}`, async t => {
-      const f = fixture(t);
+      const f = await fixture(t);
       await release(t, f);
       assert.equal((await f.run(["install", "--with-pet"])).code, 0);
       const app = await appStub(t, f, { ignoreQuit });
@@ -178,7 +137,7 @@ for (const args of [["install"], ["install", "--without-pet"], ["uninstall"]]) {
 }
 
 test("a concurrent installer is refused while the first installer waits for the app to stop", { timeout: 15_000 }, async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const app = await appStub(t, f, { ignoreQuit: true });
@@ -205,7 +164,7 @@ test("a concurrent installer is refused while the first installer waits for the 
 
 for (const enabled of [false, true]) {
   test(`rerunning ${enabled ? "implicit update" : "with-pet"} completes a failure after the bundle swap`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     const r = await release(t, f);
     const state = join(f.petRoot, "pet-state");
     let token;
@@ -247,7 +206,7 @@ for (const enabled of [false, true]) {
 }
 
 test("the same install recovers the lock and updating flag after a hard interruption", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const app = await appStub(t, f, { ignoreQuit: true });
@@ -267,7 +226,7 @@ test("the same install recovers the lock and updating flag after a hard interrup
 });
 
 test("a stale updating flag is cleared even when the next install fails preflight", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const flag = join(f.petRoot, "pet-state", "updating");
@@ -282,7 +241,7 @@ test("a stale updating flag is cleared even when the next install fails prefligh
 
 for (const args of [["install"], ["uninstall"]]) {
   test(`${args.join(" ")} never asks a foreign listener to quit or kills its process`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f);
     assert.equal((await f.run(["install", "--with-pet"])).code, 0);
     const app = await appStub(t, f, { foreign: true });
@@ -298,7 +257,7 @@ for (const scope of ["user", "project"]) {
     for (const enabled of [false, true]) {
       for (const command of ["install", "uninstall"]) {
         test(`matrix: ${command}, ${scope}, ${agents.join() || "both agents"}, pet ${enabled ? "enabled" : "disabled"}`, async t => {
-          const f = fixture(t);
+          const f = await fixture(t);
           const r = await release(t, f);
           if (enabled) assert.equal((await f.run(["install", "--with-pet"])).code, 0);
           r.requests.length = 0;
@@ -325,7 +284,7 @@ for (const scope of ["user", "project"]) {
 }
 
 test("contradictory pet options are refused without changing anything", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const before = snapshot(f.root);
   const result = await f.run(["install", "--with-pet", "--without-pet"]);
   assert.notEqual(result.code, 0);
@@ -342,7 +301,7 @@ for (const [args, extraEnv, reason] of [
   ...["list", "uninstall", "doctor"].flatMap(command => ["--with-pet", "--without-pet"].map(flag => [[command, flag], {}, /only.*install/i])),
 ]) {
   test(`refuses ${args.join(" ")} ${extraEnv.CODEX_DELEGATE_TEST_PLATFORM ?? ""} without changes`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     const before = snapshot(f.root);
     const result = await f.run(args, extraEnv);
     assert.notEqual(result.code, 0);
@@ -352,7 +311,7 @@ for (const [args, extraEnv, reason] of [
 }
 
 test("fresh install downloads the pin, installs bundle and state, and registers all leader hooks with a backup", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   const original = readFileSync(f.settingsPath, "utf8");
   const result = await f.run(["install", "--with-pet"]);
@@ -385,7 +344,7 @@ test("fresh install downloads the pin, installs bundle and state, and registers 
 });
 
 test("reinstall replaces owned leaves in place, preserves user hooks and state, and never duplicates", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const tokenPath = join(f.petRoot, "pet-state", "token");
@@ -419,7 +378,7 @@ test("reinstall replaces owned leaves in place, preserves user hooks and state, 
 for (const enabled of [false, true]) {
   for (const failure of ["checksum", "download", "settings"]) {
     test(`${failure} preflight failure leaves ${enabled ? "existing" : "fresh"} skills, pet and settings unchanged`, async t => {
-      const f = fixture(t);
+      const f = await fixture(t);
       const r = await release(t, f, { status: failure === "download" ? 404 : 200 });
       if (enabled) {
         // Seed pre-existing files, including an enabled marker, without needing a successful download.
@@ -445,7 +404,7 @@ for (const [name, bytes] of [
   ...["../escape", "/absolute", "C:/drive", "client/../../escape", "..\\escape", "client/file:stream"].map(path => [path, zip({ ...bundleFiles, [path]: "escape" })]),
 ]) {
   test(`invalid bundle (${name}) is refused and staging is cleaned`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f, { bytes });
     const before = snapshot(f.root);
     const result = await f.run(["install", "--with-pet"]);
@@ -457,7 +416,7 @@ for (const [name, bytes] of [
 
 for (const body of ["null", "[]", '"settings"', '{"hooks":[]}', '{"hooks":{"Stop":{}}}']) {
   test(`invalid settings shape ${body} changes nothing`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f);
     writeFileSync(f.settingsPath, body);
     const before = snapshot(f.root);
@@ -469,7 +428,7 @@ for (const body of ["null", "[]", '"settings"', '{"hooks":[]}', '{"hooks":{"Stop
 }
 
 test("missing settings and its parent directory are created", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   const config = join(f.root, "new config");
   const result = await f.run(["install", "--with-pet"], { CLAUDE_CONFIG_DIR: config });
@@ -479,7 +438,7 @@ test("missing settings and its parent directory are created", async t => {
 });
 
 test("skill conflicts abort before the pet download", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   mkdirSync(join(f.claudeHome, "skills", "codex-implement"), { recursive: true });
   writeFileSync(join(f.claudeHome, "skills", "codex-implement", "SKILL.md"), "user skill");
@@ -492,7 +451,7 @@ test("skill conflicts abort before the pet download", async t => {
 });
 
 test("plain install downloads nothing when disabled and updates an enabled pet with its original ownership", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   assert.equal((await f.run(["install"])).code, 0);
   assert.deepEqual(r.requests, []);
@@ -521,7 +480,7 @@ test("plain install downloads nothing when disabled and updates an enabled pet w
 });
 
 test("dry run reports every pet action without downloading or changing files", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   const before = snapshot(f.root);
   const result = await f.run(["install", "--with-pet", "--dry-run"]);
@@ -548,7 +507,7 @@ test("dry run reports every pet action without downloading or changing files", a
 });
 
 test("without-pet installs skills normally when disabled", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   const initialSettings = readFileSync(f.settingsPath);
   const disabled = await f.run(["install", "--without-pet"]);
@@ -561,7 +520,7 @@ test("without-pet installs skills normally when disabled", async t => {
 
 for (const args of [["install", "--without-pet"], ["uninstall"]]) {
   test(`${args.join(" ")} removes only owned hooks from the recorded settings path`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     const r = await release(t, f);
     assert.equal((await f.run(["install", "--with-pet"])).code, 0);
     const marker = JSON.parse(readFileSync(join(f.petRoot, "pet-state", ".codex-delegate.json")));
@@ -605,7 +564,7 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
 
 for (const args of [["install", "--without-pet"], ["uninstall"]]) {
   test(`${args.join(" ")} retries cleanup even after an interrupted removal deleted the state marker`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f);
     assert.equal((await f.run(["install", "--with-pet"])).code, 0);
     const failed = await f.run(args, { CODEX_DELEGATE_PET_TEST_FAIL_AFTER_REMOVAL: "1" });
@@ -619,7 +578,7 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
   });
 
   test(`${args.join(" ")} refuses changed settings during apply and can be rerun`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f);
     assert.equal((await f.run(["install", "--with-pet"])).code, 0);
     const edited = JSON.parse(readFileSync(f.settingsPath));
@@ -644,7 +603,7 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
   });
 
   test(`${args.join(" ")} aborts before skills change when recorded settings are invalid`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f);
     assert.equal((await f.run(["install", "--with-pet"])).code, 0);
     writeFileSync(f.settingsPath, "invalid JSON");
@@ -657,7 +616,7 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
 }
 
 test("user-scope list reports pet state, bundle version, and recorded settings path", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   const r = await release(t, f);
   const before = snapshot(f.root);
   const empty = await f.run(["list"]);
@@ -677,7 +636,7 @@ test("user-scope list reports pet state, bundle version, and recorded settings p
 });
 
 test("commands recorded in the marker are replaced exactly, keeping surrounding user leaves", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   const recorded = 'node "C:\\old location\\leader-hook.mjs"';
   const user = { type: "command", command: `echo ${recorded}`, timeout: 20 };
@@ -691,7 +650,7 @@ test("commands recorded in the marker are replaced exactly, keeping surrounding 
 });
 
 test("updating removes duplicate owned registrations while preserving their surrounding user hooks", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const settings = JSON.parse(readFileSync(f.settingsPath));
@@ -713,7 +672,7 @@ test("updating removes duplicate owned registrations while preserving their surr
 
 for (const change of ["modified", "appeared", "disappeared"]) {
   test(`settings ${change} during apply are not overwritten and applied steps are reported`, async t => {
-    const f = fixture(t);
+    const f = await fixture(t);
     await release(t, f);
     if (change === "appeared") rmSync(f.settingsPath);
     let changed = false;
@@ -742,7 +701,7 @@ for (const change of ["modified", "appeared", "disappeared"]) {
 }
 
 test("a blocked updating flag fails before the bundle swap and reports completed and pending steps", async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   mkdirSync(f.petRoot);
   writeFileSync(join(f.petRoot, "pet-state"), "file blocks creation of the state directory");
@@ -761,7 +720,7 @@ test("a blocked updating flag fails before the bundle swap and reports completed
 });
 
 test("a locked settings destination reports the actual backup and leaves original settings intact", { skip: process.platform !== "win32", timeout: 20_000 }, async t => {
-  const f = fixture(t);
+  const f = await fixture(t);
   await release(t, f);
   const original = readFileSync(f.settingsPath);
   const script = join(f.root, "lock-settings.ps1");
