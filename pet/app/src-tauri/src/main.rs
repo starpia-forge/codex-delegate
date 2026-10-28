@@ -3,17 +3,56 @@
 use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 const DEFAULT_PORT: u16 = 47800;
 type Ready = Arc<AtomicBool>;
 type EventApp = Arc<Mutex<Option<AppHandle>>>;
+type PetScale = Arc<AtomicU64>;
 
 #[tauri::command]
 fn renderer_ready(ready: tauri::State<Ready>) {
     ready.store(true, Ordering::Release);
+}
+
+fn pet_directories() -> Result<(PathBuf, PathBuf), String> {
+    let env_path = |key| std::env::var_os(key).filter(|value| !value.is_empty()).map(PathBuf::from);
+    let home = env_path("USERPROFILE").or_else(|| env_path("HOME"))
+        .ok_or("home directory unavailable")?;
+    let codex_home = env_path("CODEX_HOME").unwrap_or_else(|| home.join(".codex"));
+    Ok((home, codex_home))
+}
+
+#[tauri::command]
+fn pet_paths() -> Result<Value, String> {
+    let (home, codex_home) = pet_directories()?;
+    Ok(json!({ "home": home, "codexHome": codex_home }))
+}
+
+#[tauri::command]
+fn read_pet_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let (home, codex_home) = pet_directories()?;
+    let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let config = home.join(".codex-delegate").join("pet.json");
+    let is_config = std::fs::canonicalize(config).is_ok_and(|allowed| path == allowed);
+    let in_pets = [home.join(".codex-delegate").join("pets"), codex_home.join("pets")]
+        .iter().any(|root| std::fs::canonicalize(root)
+            .is_ok_and(|root| path != root && path.starts_with(root)));
+    if !is_config && !in_pets { return Err("pet file access denied".into()); }
+    std::fs::read(path).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_pet_scale(win: WebviewWindow, scale: f64, state: tauri::State<PetScale>) -> Result<(), String> {
+    if !scale.is_finite() || !(0.3..=1.0).contains(&scale) {
+        return Err("pet scale must be between 0.3 and 1.0".into());
+    }
+    state.store(scale.to_bits(), Ordering::Relaxed);
+    place_strip(&win);
+    Ok(())
 }
 
 fn main() {
@@ -54,7 +93,8 @@ fn main() {
     });
     tauri::Builder::default()
         .manage(ready.clone())
-        .invoke_handler(tauri::generate_handler![renderer_ready])
+        .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
+        .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale])
         .setup(move |app| {
             *event_app.lock().unwrap() = Some(app.handle().clone());
             let win = app.get_webview_window("main").unwrap();
@@ -73,7 +113,8 @@ fn main() {
 fn place_strip(win: &WebviewWindow) {
     let Ok(Some(mon)) = win.primary_monitor() else { return };
     let area = mon.work_area();
-    let height = (160.0 * mon.scale_factor()).round() as u32;
+    let scale = f64::from_bits(win.state::<PetScale>().load(Ordering::Relaxed));
+    let height = ((208.0 * scale + 36.0) * mon.scale_factor()).ceil() as u32;
     let size = PhysicalSize::new(area.size.width, height);
     let position = PhysicalPosition::new(area.position.x,
         area.position.y + area.size.height as i32 - height as i32);
@@ -103,6 +144,12 @@ fn watch_window(win: WebviewWindow) {
 }
 
 fn valid_event(e: &Value) -> bool {
+    if e["v"] == 1 && e["source"] == "leader" {
+        return matches!(e["type"].as_str(), Some("session-start" | "prompt" | "waiting" | "resumed" | "stop" | "failed" | "session-end"))
+            && e["team"].as_str().is_some_and(|s| !s.is_empty())
+            && e["at"].is_number()
+            && e.get("session").is_some_and(|v| v.is_null() || v.is_string());
+    }
     e["v"] == 1 && e["source"] == "worker"
         && matches!(e["type"].as_str(), Some("start" | "heartbeat" | "end"))
         && ["team", "session"].iter().all(|k| e.get(k).is_some_and(|v| v.is_null() || v.is_string()))

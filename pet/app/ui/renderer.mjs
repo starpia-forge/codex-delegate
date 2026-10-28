@@ -1,4 +1,5 @@
 import { createStage } from "./stage.mjs";
+import { resolvePets } from "./pet-config.mjs";
 
 // Codex v1 row order and per-frame durations in milliseconds. These timings
 // are provisional: exact Codex timings were not supplied with the v1 contract.
@@ -15,19 +16,54 @@ const CODEX_V1_FRAME_TIMINGS_MS = {
   review: [180, 120, 120, 180, 120, 240],
 };
 const rows = Object.keys(CODEX_V1_FRAME_TIMINGS_MS);
-const roles = ["leader", "researcher", "critic", "implementer", "computer-user"];
-const sheets = new Map(roles.map(role => {
+const invoke = window.__TAURI__.core.invoke;
+// Retain the same bytes that the resolver validated, including the sheet MIME.
+const files = new Map();
+async function readPetFile(path) {
+  if (!files.has(path)) {
+    try { files.set(path, new Uint8Array(await invoke("read_pet_file", { path }))); }
+    catch { files.set(path, null); }
+  }
+  return files.get(path);
+}
+let config;
+try {
+  config = await resolvePets({ ...await invoke("pet_paths"), readFile: readPetFile });
+} catch (error) {
+  console.warn("Pet configuration unavailable; using bundled pets", error);
+  config = await resolvePets({ home: "", readFile: async () => null });
+}
+document.documentElement.style.setProperty("--pet-scale", String(config.scale));
+try { await invoke("set_pet_scale", { scale: config.scale }); }
+catch (error) { console.warn("Pet strip size unavailable", error); }
+const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async ([slot, artwork]) => {
   const image = new Image();
-  image.src = `./assets/${role}/spritesheet.png`;
-  return [role, image];
-}));
+  const fallback = `./assets/${slot}/spritesheet.png`;
+  if (artwork.source === "bundled") image.src = `./assets/${artwork.name}/spritesheet.png`;
+  else {
+    const bytes = await readPetFile(artwork.sheetPath);
+    if (bytes === null) image.src = fallback;
+    else {
+      const url = URL.createObjectURL(new Blob([bytes], { type: artwork.mime }));
+      image.onload = () => URL.revokeObjectURL(url);
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        image.onload = image.onerror = null;
+        image.src = fallback;
+      };
+      image.src = url;
+    }
+  }
+  return [slot, image];
+})));
+files.clear();
 const stage = createStage({ now: () => Date.now() });
 const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
 
 function render() {
   const snapshot = stage.snapshot();
-  const liveWorkers = new Set(), liveTeams = new Set();
+  const livePets = new Set(), liveTeams = new Set();
   for (const team of snapshot.teams) {
     liveTeams.add(team.key);
     if (!teams.has(team.key)) {
@@ -36,9 +72,11 @@ function render() {
       root.append(node);
       teams.set(team.key, node);
     }
-    for (const worker of team.workers) {
-      liveWorkers.add(worker.worker);
-      if (!pets.has(worker.worker)) {
+    const characters = team.workers.map(worker => ({ ...worker, id: `worker:${worker.worker}` }));
+    if (team.leader) characters.unshift({ ...team.leader, id: `leader:${team.key}`, role: "leader" });
+    for (const character of characters) {
+      livePets.add(character.id);
+      if (!pets.has(character.id)) {
         const node = document.createElement("div");
         node.className = "pet";
         const canvas = document.createElement("canvas");
@@ -46,21 +84,23 @@ function render() {
         const tag = document.createElement("span");
         tag.className = "tag";
         node.append(canvas, tag);
-        pets.set(worker.worker, { node, canvas, tag, began: performance.now() });
+        pets.set(character.id, { node, canvas, tag, began: performance.now() });
       }
-      const pet = pets.get(worker.worker);
-      if (pet.node.parentNode !== teams.get(team.key)) teams.get(team.key).append(pet.node);
-      pet.worker = worker;
-      pet.tag.textContent = `${worker.role} · ${worker.label}`;
+      const pet = pets.get(character.id);
+      // Reconcile order too: the leader may arrive after its workers.
+      teams.get(team.key).append(pet.node);
+      if (pet.character?.state !== character.state) pet.began = performance.now();
+      pet.character = character;
+      pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
   }
-  for (const [id, pet] of pets) if (!liveWorkers.has(id)) { pet.node.remove(); pets.delete(id); }
+  for (const [id, pet] of pets) if (!livePets.has(id)) { pet.node.remove(); pets.delete(id); }
   for (const [key, node] of teams) if (!liveTeams.has(key)) { node.remove(); teams.delete(key); }
 }
 
 function draw(time) {
   for (const pet of pets.values()) {
-    const { state, role } = pet.worker;
+    const { state, role } = pet.character;
     const sheet = sheets.get(role) ?? sheets.get("implementer");
     if (!sheet.complete || !sheet.naturalWidth) continue;
     const timings = CODEX_V1_FRAME_TIMINGS_MS[state];
