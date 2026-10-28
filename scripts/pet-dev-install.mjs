@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,7 +11,7 @@ if (!home) {
 }
 const root = fileURLToPath(new URL("../", import.meta.url));
 const executable = join(root, "pet/app/src-tauri/target/release/codex-delegate-pet.exe");
-const client = join(root, "pet/client/pet-client.mjs");
+const client = join(root, "pet/client");
 const pets = join(root, "pet/app/ui/assets");
 for (const path of [executable, client, pets]) {
   if (!existsSync(path)) {
@@ -19,11 +20,16 @@ for (const path of [executable, client, pets]) {
   }
 }
 const dest = join(resolve(home), ".codex-delegate", "pet");
+const state = join(resolve(home), ".codex-delegate", "pet-state");
+mkdirSync(state, { recursive: true });
+try { writeFileSync(join(state, "token"), randomBytes(32).toString("hex"), { flag: "wx", mode: 0o600 }); }
+catch (error) { if (error.code !== "EEXIST") throw error; }
 mkdirSync(join(dest, "client"), { recursive: true });
 cpSync(executable, join(dest, "codex-delegate-pet.exe"));
-cpSync(client, join(dest, "client", "pet-client.mjs"));
+cpSync(client, join(dest, "client"), { recursive: true });
 cpSync(pets, join(dest, "default-pets"), { recursive: true });
 console.log(`Installed app: ${join(dest, "codex-delegate-pet.exe")}`);
 console.log(`Installed client: ${join(dest, "client", "pet-client.mjs")}`);
 console.log(`Installed placeholder pets: ${join(dest, "default-pets")}`);
-console.log("Start the app manually before running a worker; use this home for HOME and USERPROFILE.");
+console.log(`Pet state: ${state}`);
+console.log("The first worker event starts the app automatically; use this home for HOME and USERPROFILE.");
