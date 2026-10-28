@@ -62,6 +62,10 @@ export async function post(event, token, deadline) {
   return status;
 }
 
+export async function exclude(token, deadline) {
+  await exchange("/exclude", "{}", token, deadline);
+}
+
 let spoolSequence = 0;
 export function enqueue(event) {
   mkdirSync(spool, { recursive: true });

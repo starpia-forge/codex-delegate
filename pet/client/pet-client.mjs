@@ -1,6 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { enqueue, health, pending, post, readToken, startHelper, updating } from "./pet-transport.mjs";
+import { enqueue, exclude, health, pending, post, readToken, startHelper, updating } from "./pet-transport.mjs";
 export { DEFAULT_PORT } from "./pet-transport.mjs";
+
+// This boundary never starts an app or spools a request. Nothing listening
+// means there is no visible strip to protect.
+export async function requestCaptureExclusion() {
+  try {
+    const deadline = Date.now() + 1000;
+    const token = readToken();
+    if (!token) return;
+    const status = await health(token, deadline);
+    if (status === "ready" || status === "starting") await exclude(token, deadline);
+  } catch { /* Capture must never prevent a worker from starting. */ }
+}
 
 async function deliver(event) {
   try {

@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod capture;
+mod window;
+
 use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -76,13 +79,16 @@ fn main() {
     let server_app = event_app.clone();
     let server_ready = ready.clone();
     let server_last_event = last_event.clone();
+    let capture = Arc::new(capture::CaptureState::new(pet_directories().ok().map(|(home, _)| home)));
+    let server_capture = capture.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let app = server_app.clone();
             let ready = server_ready.clone();
             let token = token.clone();
             let last_event = server_last_event.clone();
-            std::thread::spawn(move || { let _ = serve(stream, app, ready, &token, &last_event); });
+            let capture = server_capture.clone();
+            std::thread::spawn(move || { let _ = serve(stream, app, ready, &token, &last_event, &capture); });
         }
     });
     std::thread::spawn(move || loop {
@@ -91,19 +97,26 @@ fn main() {
             std::process::exit(0);
         }
     });
+    let fullscreen: window::Fullscreen = Arc::new(AtomicBool::new(false));
     tauri::Builder::default()
         .manage(ready.clone())
+        .manage(capture.clone())
+        .manage(fullscreen.clone())
         .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
-        .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale])
+        .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale,
+            capture::computer_use_live, window::fullscreen_paused])
         .setup(move |app| {
-            *event_app.lock().unwrap() = Some(app.handle().clone());
             let win = app.get_webview_window("main").unwrap();
             place_strip(&win);
             win.set_ignore_cursor_events(true)?;
+            // A cold start during computer use must be protected before showing.
+            capture.refresh(&win);
             win.show()?;
             win.set_ignore_cursor_events(true)?;
-            let win = win.clone();
-            std::thread::spawn(move || watch_window(win));
+            *event_app.lock().unwrap() = Some(app.handle().clone());
+            let capture_win = win.clone();
+            std::thread::spawn(move || capture::watch(capture_win, capture));
+            std::thread::spawn(move || window::watch(win, fullscreen));
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -120,27 +133,6 @@ fn place_strip(win: &WebviewWindow) {
         area.position.y + area.size.height as i32 - height as i32);
     if win.outer_size().ok() != Some(size) { let _ = win.set_size(size); }
     if win.outer_position().ok() != Some(position) { let _ = win.set_position(position); }
-}
-
-fn watch_window(win: WebviewWindow) {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetWindowPos,
-        HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
-    let own = win.hwnd().unwrap().0 as isize;
-    let mut last_fg: isize = 0;
-    loop {
-        std::thread::sleep(Duration::from_millis(300));
-        place_strip(&win);
-        unsafe {
-            let foreground = GetForegroundWindow().0 as isize;
-            if foreground != last_fg {
-                last_fg = foreground;
-                // Tauri's setter is a no-op when its topmost flag is unchanged.
-                let _ = SetWindowPos(HWND(own as _), Some(HWND_TOPMOST), 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
-        }
-    }
 }
 
 fn valid_event(e: &Value) -> bool {
@@ -160,7 +152,7 @@ fn valid_event(e: &Value) -> bool {
 }
 
 fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
-    last_event: &Mutex<Instant>) -> std::io::Result<()> {
+    last_event: &Mutex<Instant>, capture: &capture::Capture) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
     let mut reader = BufReader::new(&stream);
@@ -188,6 +180,13 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
             json!({"app": "codex-delegate-pet", "protocol": 1, "version": env!("CARGO_PKG_VERSION")}))
     } else if quit {
         ("200 OK", json!({"ok": true}))
+    } else if request == "POST /exclude HTTP/1.1" {
+        let win = app.lock().unwrap().as_ref().and_then(|app| app.get_webview_window("main"));
+        if win.as_ref().is_some_and(|win| capture.request(win).is_ok()) {
+            ("200 OK", json!({"ok": true}))
+        } else {
+            ("503 Service Unavailable", json!({"error": "capture exclusion unavailable"}))
+        }
     } else if request == "POST /event HTTP/1.1" && length > 16384 {
         ("413 Payload Too Large", json!({"error": "event too large"}))
     } else if request == "POST /event HTTP/1.1" && length > 0 {

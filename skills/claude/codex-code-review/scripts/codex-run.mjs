@@ -27,6 +27,19 @@ const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
 const HOLDER = join(LOCK, "holder.json");
 const CHILD = join(LOCK, "child.json");
 
+async function excludePetCapture() {
+  const path = join(homedir(), ".codex-delegate", "pet", "client", "pet-client.mjs");
+  if (!existsSync(path)) return;
+  let timer;
+  try {
+    await Promise.race([
+      import(pathToFileURL(path).href).then(module => module.requestCaptureExclusion?.()).catch(() => {}),
+      new Promise(resolve => { timer = setTimeout(resolve, 1000); }),
+    ]);
+  } catch { /* Optional installed client. */ }
+  finally { clearTimeout(timer); }
+}
+
 // Loading and delivery are optional, silent, and bounded even for a broken
 // installed client. Serialize events so a short run cannot overtake its start.
 function reportPet(child, role, label) {
@@ -264,6 +277,7 @@ console.log(`codex-run: role=${role} model=${config.model} effort=${config.effor
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);
+if (role === "computer-user") await excludePetCapture();
 child = !config.exclusive
   ? (process.platform === "win32"
     ? spawn(["codex", ...args.map(quote)].join(" "), { cwd, env, shell: true })
