@@ -1,4 +1,5 @@
 import { createStage } from "./stage.mjs";
+import { createAnimationClock } from "./animation-clock.mjs";
 import { resolvePets } from "./pet-config.mjs";
 import { fitLimit } from "./layout.mjs";
 
@@ -44,6 +45,8 @@ const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async (
 })));
 files.clear();
 const stage = createStage({ now: () => Date.now() });
+const animation = createAnimationClock({ now: () => performance.now() });
+let paused = false;
 const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
 const sessionsBadge = document.createElement("span");
@@ -74,12 +77,12 @@ function render() {
         const tag = document.createElement("span");
         tag.className = "tag";
         node.append(canvas, tag);
-        pets.set(character.id, { node, canvas, tag, began: performance.now() });
+        pets.set(character.id, { node, canvas, tag, began: animation.now() });
       }
       const pet = pets.get(character.id);
       // Reconcile order too: the leader may arrive after its workers.
       teams.get(team.key).append(pet.node);
-      if (pet.character?.displayState !== character.displayState) pet.began = performance.now();
+      if (pet.character?.displayState !== character.displayState) pet.began = animation.now();
       // Flex owns the home slots; scenes only translate within the team.
       pet.node.style.setProperty("--scene-offset", String(character.x - character.home));
       pet.character = character;
@@ -122,7 +125,11 @@ async function setScale(scale) {
 window.addEventListener("resize", updateFitLimit);
 await setScale(config.scale);
 
-function draw(time) {
+function draw() {
+  requestAnimationFrame(draw);
+  // Fullscreen stops the animation clock; the interval below keeps lifecycle running.
+  if (paused) return;
+  const time = animation.now();
   stage.tick();
   render();
   for (const pet of pets.values()) {
@@ -136,12 +143,22 @@ function draw(time) {
     ctx.clearRect(0, 0, 192, 208);
     ctx.drawImage(sheet, frame * 192, rows.indexOf(state) * 208, 192, 208, 0, 0, 192, 208);
   }
-  requestAnimationFrame(draw);
 }
 
-await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); render(); });
-await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); render(); });
+function update() {
+  invoke("computer_use_live", { live: stage.computerUseLive() }).catch(() => {});
+  if (!paused) render();
+}
+await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
+await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
+await window.__TAURI__.event.listen("pet-fullscreen", ({ payload }) => {
+  paused = payload;
+  animation.setPaused(paused);
+  if (!paused) render();
+});
+paused = await invoke("fullscreen_paused");
+animation.setPaused(paused);
 await window.__TAURI__.core.invoke("renderer_ready");
 // Lifecycle runs on wall time even when animation frames are paused.
-setInterval(() => { stage.tick(); render(); }, 250);
+setInterval(() => { stage.tick(); update(); }, 250);
 requestAnimationFrame(draw);

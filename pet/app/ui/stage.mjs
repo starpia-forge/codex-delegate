@@ -95,6 +95,10 @@ export function createStage({ now }) {
         if (!team.leader && !team.workers.size) teams.delete(key);
       }
     },
+    computerUseLive() {
+      return [...teams.values()].some(team => [...team.workers.values()]
+        .some(worker => worker.role === "computer-user" && !ended.has(worker.worker)));
+    },
     snapshot() {
       return applyOverflow([...teams].map(([key, team]) => ({ key,
         leader: team.leader ? { ...team.leader, ...team.scenes.leader(team.leader.state) } : null,
