@@ -55,7 +55,7 @@ export async function checkPet(root, check) {
     : `installed ${marker.bundle?.version ?? "unknown"} (${marker.bundle?.tag ?? "unknown"}), expected ${pin.version} (${pin.tag}); run codex-delegate install --with-pet`);
 
   try {
-    const settings = JSON.parse(readFileSync(marker.settingsPath, "utf8"));
+    const settings = JSON.parse(readFileSync(marker.settingsPath, "utf8").replace(/^\uFEFF/, ""));
     const missing = Object.entries(marker.hooks ?? {}).filter(([event, command]) => {
       const groups = settings?.hooks?.[event];
       return !Array.isArray(groups) || !groups.some(group => Array.isArray(group?.hooks)

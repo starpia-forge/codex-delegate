@@ -103,6 +103,14 @@ for (const change of [{ tag: "pet-v2.0.0", version: "2.0.0" }, { sha256: "b".rep
   });
 }
 
+test("doctor accepts settings with a UTF-8 BOM and all recorded pet hooks", async t => {
+  const f = await installedFixture(t);
+  writeFileSync(f.settingsPath, "\uFEFF" + readFileSync(f.settingsPath, "utf8"));
+  const result = await f.run();
+  assert.match(result.stdout, /\[OK  \] Pet hooks - /);
+  assert.equal(result.code, 0, result.output);
+});
+
 test("doctor fails for removed hook commands even when a user command mentions the owned command", async t => {
   const f = await installedFixture(t);
   const settings = JSON.parse(readFileSync(f.settingsPath));
