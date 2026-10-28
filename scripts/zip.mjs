@@ -1,13 +1,5 @@
 import { deflateRawSync } from "node:zlib";
-
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
+import { crc32 } from "../bin/zip.mjs";
 
 // Classic ZIP with deflate, UTF-8 paths and fixed DOS timestamps (1980-01-01).
 // Callers supply files only; no directory entries or filesystem metadata needed.

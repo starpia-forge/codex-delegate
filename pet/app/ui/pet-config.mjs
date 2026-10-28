@@ -1,5 +1,6 @@
 // Shared by the webview and Node callers. All filesystem access is injected.
 const slots = ["leader", "researcher", "critic", "implementer", "computer-user"];
+export const bundledPetName = role => slots.includes(role) ? role : "implementer";
 const bundled = name => ({ name, source: "bundled" });
 const join = (...parts) => parts.map((part, i) => String(part).replace(/\\/g, "/")
   .replace(i === 0 ? /\/+$/g : /^\/+|\/+$/g, "")).join("/");
@@ -91,18 +92,23 @@ export async function resolvePets({ home, codexHome, readFile }) {
   for (const key of Object.keys(config)) {
     if (key !== "scale" && key !== "pets") result.issues.push({ code: "unknown-key", key });
   }
-  const names = {};
+  const names = Object.create(null);
+  const configuredSlots = new Set(slots);
   if (Object.hasOwn(config, "pets")) {
     if (!object(config.pets)) result.issues.push({ code: "pets-invalid", key: "pets" });
     else for (const [slot, name] of Object.entries(config.pets)) {
       const key = `pets.${slot}`;
-      if (!slots.includes(slot)) result.issues.push({ code: "unknown-key", key });
-      else if (typeof name !== "string" || !name.trim() || /[/\\:\u0000-\u001f]/.test(name)
+      // Role names use lower-case letters, digits and hyphens, starting with a
+      // letter. Unknown names are accepted for roles added after this release.
+      if (!/^[a-z][a-z0-9-]*$/.test(slot)) { result.issues.push({ code: "unknown-key", key }); continue; }
+      configuredSlots.add(slot);
+      if (typeof name !== "string" || !name.trim() || /[/\\:\u0000-\u001f]/.test(name)
         || name.includes("..") || name === ".") result.issues.push({ code: "pet-name", key });
       else names[slot] = name;
     }
   }
-  for (const slot of slots) {
+  for (const slot of configuredSlots) {
+    result.pets[slot] = bundled(bundledPetName(slot));
     const name = names[slot] ?? slot;
     let present = false;
     for (const [source, base] of [["codex-delegate", join(home, ".codex-delegate")],

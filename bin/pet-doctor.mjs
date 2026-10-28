@@ -47,7 +47,8 @@ export async function checkPet(root, check) {
   catch (error) { check("fail", "Pet bundle", `cannot read pet pin: ${error.message}`); }
   const bundle = join(homedir(), ".codex-delegate", "pet");
   const missing = [bundle, join(bundle, "codex-delegate-pet.exe")].find(path => !existsSync(path));
-  const matches = pin && marker.bundle?.tag === pin.tag && marker.bundle?.sha256 === pin.sha256;
+  const matches = pin && marker.bundle?.tag === pin.tag && marker.bundle?.sha256 === pin.sha256
+    && marker.bundle?.version === pin.version;
   if (!pin) { /* The pin failure is reported above; continue other checks. */ }
   else if (missing) check("fail", "Pet bundle", `missing ${missing}; run codex-delegate install --with-pet`);
   else check(matches ? "ok" : "warn", "Pet bundle", matches ? pin.version
@@ -102,6 +103,10 @@ export async function checkPet(root, check) {
   const port = process.env.CODEX_DELEGATE_PET_PORT || 47800;
   const app = await petHealth();
   if (app.status === "absent") check("ok", "Pet port", `${port}: pet app not running`);
-  else if (app.status === "pet") check("ok", "Pet port", `${port}: pet app ${app.health.version}, pid ${app.health.pid ?? "unknown"}`);
+  else if (app.status === "pet") {
+    const mismatch = pin && app.health.version !== pin.version;
+    check(mismatch ? "warn" : "ok", "Pet port", `${port}: pet app ${app.health.version}, pid ${app.health.pid ?? "unknown"}`
+      + (mismatch ? `; expected ${pin.version}; run codex-delegate install --with-pet` : ""));
+  }
   else check("warn", "Pet port", `port ${port} is held by something that isn't the pet app`);
 }

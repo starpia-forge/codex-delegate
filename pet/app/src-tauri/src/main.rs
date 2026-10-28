@@ -8,12 +8,31 @@ use serde_json::{json, Value};
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex};
+use std::sync::{atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering}, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use liveness::{LeaderSessions, Sessions};
 
 const DEFAULT_PORT: u16 = 47800;
+const BUNDLE_VERSION: &str = match option_env!("CODEX_DELEGATE_PET_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+const MAX_CONNECTIONS: usize = 8;
+
+// Acquire before spawning, and release even on an I/O error or handler panic.
+struct ConnectionPermit(Arc<AtomicUsize>);
+impl ConnectionPermit {
+    fn acquire(active: &Arc<AtomicUsize>) -> Option<Self> {
+        active.fetch_update(Ordering::Relaxed, Ordering::Relaxed,
+            |n| (n < MAX_CONNECTIONS).then_some(n + 1)).ok()?;
+        Some(Self(active.clone()))
+    }
+}
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) { self.0.fetch_sub(1, Ordering::Relaxed); }
+}
+
 type Ready = Arc<AtomicBool>;
 type EventApp = Arc<Mutex<Option<AppHandle>>>;
 type PetScale = Arc<AtomicU64>;
@@ -98,13 +117,19 @@ fn main() {
     let capture = Arc::new(capture::CaptureState::new(pet_directories().ok().map(|(home, _)| home)));
     let server_capture = capture.clone();
     std::thread::spawn(move || {
+        let active = Arc::new(AtomicUsize::new(0));
         for stream in listener.incoming().flatten() {
+            // Dropping an excess stream closes it without creating a thread.
+            let Some(permit) = ConnectionPermit::acquire(&active) else { continue };
             let app = server_app.clone();
             let ready = server_ready.clone();
             let token = token.clone();
             let last_event = server_last_event.clone();
             let capture = server_capture.clone();
-            std::thread::spawn(move || { let _ = serve(stream, app, ready, &token, &last_event, &capture); });
+            std::thread::spawn(move || {
+                let _permit = permit;
+                let _ = serve(stream, app, ready, &token, &last_event, &capture);
+            });
         }
     });
     std::thread::spawn(move || loop {
@@ -158,7 +183,7 @@ fn valid_event(e: &Value) -> bool {
     if e["v"] == 1 && e["source"] == "leader" {
         return matches!(e["type"].as_str(), Some("session-start" | "prompt" | "waiting" | "resumed" | "stop" | "failed" | "session-end"))
             && e["team"].as_str().is_some_and(|s| !s.is_empty())
-            && e["at"].is_number()
+            && e["at"].as_u64().is_some_and(|n| n <= 9_007_199_254_740_991)
             && e.get("session").is_some_and(|v| v.is_null() || v.is_string());
     }
     e["v"] == 1 && e["source"] == "worker"
@@ -196,7 +221,7 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
         ("401 Unauthorized", json!({"error": "unauthorized"}))
     } else if request == "GET /health HTTP/1.1" {
         (if ready.load(Ordering::Acquire) { "200 OK" } else { "503 Service Unavailable" },
-            json!({"app": "codex-delegate-pet", "protocol": 1, "version": env!("CARGO_PKG_VERSION"), "pid": std::process::id()}))
+            json!({"app": "codex-delegate-pet", "protocol": 1, "version": BUNDLE_VERSION, "pid": std::process::id()}))
     } else if quit {
         ("200 OK", json!({"ok": true}))
     } else if request == "POST /exclude HTTP/1.1" {
@@ -231,4 +256,56 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
     write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())?;
     if quit { std::process::exit(0); }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_reports_the_builds_bundle_version() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let handler = std::thread::spawn(move || serve(stream,
+            Arc::new(Mutex::new(None)), Arc::new(AtomicBool::new(true)), "test-token",
+            &Mutex::new(Instant::now()), &Arc::new(capture::CaptureState::new(None))));
+        client.write_all(b"GET /health HTTP/1.1\r\nx-codex-delegate-pet-token: test-token\r\n\r\n").unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        handler.join().unwrap().unwrap();
+        let (_, body) = response.split_once("\r\n\r\n").unwrap();
+        let body: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(body["version"], option_env!("CODEX_DELEGATE_PET_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn connections_are_capped_and_capacity_returns_when_a_handler_exits() {
+        let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut permits: Vec<_> = (0..MAX_CONNECTIONS)
+            .map(|_| ConnectionPermit::acquire(&active).expect("connection within cap"))
+            .collect();
+        assert!(ConnectionPermit::acquire(&active).is_none());
+        permits.pop();
+        let replacement = ConnectionPermit::acquire(&active).expect("released capacity");
+        assert!(ConnectionPermit::acquire(&active).is_none());
+        drop(permits);
+        drop(replacement);
+        assert_eq!(active.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn leader_timestamps_are_non_negative_safe_integers() {
+        let mut event = json!({ "v": 1, "source": "leader", "type": "prompt",
+            "team": "123", "session": null, "at": 0 });
+        for at in [json!(0), json!(9_007_199_254_740_991_u64)] {
+            event["at"] = at;
+            assert!(valid_event(&event));
+        }
+        for at in [json!(-1), json!(1.5), json!(9_007_199_254_740_992_u64), json!("1"), Value::Null] {
+            event["at"] = at;
+            assert!(!valid_event(&event));
+        }
+    }
 }

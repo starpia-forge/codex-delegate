@@ -3,8 +3,6 @@ import { cycleDuration } from "./animations.mjs";
 // Coordinates are team-relative slot units, never strip pixels. The leader's
 // home is 0; workers' homes are their one-based order in the team.
 const BESIDE = 0.5;
-// Exit through the team's left boundary; a strip layout can map this to its edge.
-const EXIT = -1;
 const view = (displayState, x, facing = "right") => ({ displayState, x, facing });
 function move(from, to) {
   const facing = to < from ? "left" : "right";
@@ -12,13 +10,17 @@ function move(from, to) {
   return { duration: Math.abs(to - from) * cycleDuration(displayState), from, to, displayState, facing };
 }
 const hold = (displayState, duration, x, facing) => ({ displayState, duration, from: x, to: x, facing });
+// Slot-space travel supplies pacing; the renderer projects this final phase
+// from its origin all the way beyond the strip's left edge.
+const leave = from => ({ ...move(from, -1), exit: true });
 
 function sample(scene, time, slot) {
   let elapsed = time - scene.began;
   for (const phase of scene.phases) {
     if (elapsed < phase.duration) {
       const x = phase.from === phase.to ? phase.from : phase.from + (phase.to - phase.from) * elapsed / phase.duration;
-      return view(phase.displayState, x, phase.facing);
+      return { ...view(phase.displayState, x, phase.facing),
+        ...(phase.exit ? { exit: { from: phase.from, progress: elapsed / phase.duration } } : {}) };
     }
     elapsed -= phase.duration;
   }
@@ -56,7 +58,7 @@ export function createScenes({ now }) {
         const failed = cycleDuration("failed");
         const acknowledge = hasLeader ? failed : 0;
         const phases = [hold("failed", failed * 2, origin, current.facing),
-          hold("idle", acknowledge, origin, current.facing), move(origin, EXIT)];
+          hold("idle", acknowledge, origin, current.facing), leave(origin)];
         workers.set(id, { began: time, slot, phases, ends: time + phases.reduce((sum, phase) => sum + phase.duration, 0),
           pose: hasLeader ? { state: "failed", start: time + failed * 2, duration: failed } : null });
         return;
@@ -64,7 +66,7 @@ export function createScenes({ now }) {
       const back = move(origin, BESIDE);
       const jump = hold("jumping", cycleDuration("jumping"), BESIDE, "left");
       const review = hasLeader ? cycleDuration("review") : 0;
-      const phases = [back, jump, hold("idle", review, BESIDE, "left"), move(BESIDE, EXIT)];
+      const phases = [back, jump, hold("idle", review, BESIDE, "left"), leave(BESIDE)];
       workers.set(id, { began: time, slot, phases, ends: time + phases.reduce((sum, phase) => sum + phase.duration, 0),
         pose: hasLeader ? { state: "review", start: time + back.duration + jump.duration, duration: review } : null });
     },

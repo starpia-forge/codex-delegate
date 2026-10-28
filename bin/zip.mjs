@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { inflateRawSync } from "node:zlib";
 
-function crc32(bytes) {
+export function crc32(bytes) {
   let crc = 0xffffffff;
   for (const byte of bytes) {
     crc ^= byte;

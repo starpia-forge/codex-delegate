@@ -2,6 +2,8 @@
 import { applyOverflow } from "./layout.mjs";
 import { createScenes } from "./scenes.mjs";
 
+const RETENTION_MS = 10 * 60 * 1000;
+
 export function createStage({ now }) {
   let fitLimit = 16;
   const teams = new Map();
@@ -21,7 +23,7 @@ export function createStage({ now }) {
       if (alive !== false) return;
       const previous = leaders.get(team);
       if (previous?.ended || at < (previous?.at ?? -Infinity)) return;
-      leaders.set(team, { at, generation: previous?.generation, ended: true });
+      leaders.set(team, { at, generation: previous?.generation, ended: true, seen: now() });
       teams.delete(team);
     },
     setFitLimit(n) {
@@ -33,7 +35,7 @@ export function createStage({ now }) {
         if (event.at < (previous?.at ?? -Infinity)) return;
         if (previous?.ended && (event.type !== "session-start" || event.at <= previous.at)) return;
         const generation = event.type === "session-start" ? event.at : previous?.generation;
-        leaders.set(event.team, { at: event.at, generation, ended: event.type === "session-end" });
+        leaders.set(event.team, { at: event.at, generation, ended: event.type === "session-end", seen: now() });
         if (event.type === "session-end") {
           teams.delete(event.team);
           return;
@@ -41,7 +43,7 @@ export function createStage({ now }) {
         const team = teamFor(event.team);
         if (event.type === "session-start") {
           for (const id of team.workers.keys()) {
-            if (workerTimes.get(id) < event.at) {
+            if (workerTimes.get(id)?.at < event.at) {
               team.workers.delete(id);
               team.scenes.remove(id);
             }
@@ -64,7 +66,7 @@ export function createStage({ now }) {
       if (lifecycle?.ended || event.at < (lifecycle?.generation ?? -Infinity)) return;
       if (ended.has(event.worker) || event.seq <= (sequences.get(event.worker) ?? -1)) return;
       sequences.set(event.worker, event.seq);
-      workerTimes.set(event.worker, event.at);
+      workerTimes.set(event.worker, { at: event.at, seen: now() });
       if (event.type === "end") {
         ended.add(event.worker);
         const team = teamFor(key);
@@ -83,6 +85,8 @@ export function createStage({ now }) {
       if (event.type === "start") team.scenes.start(event.worker, [...team.workers.keys()].indexOf(event.worker) + 1, !!team.leader);
     },
     tick() {
+      const time = now();
+      const liveWorkers = new Set();
       for (const [key, team] of teams) {
         for (const id of team.scenes.tick()) team.workers.delete(id);
         if (team.leader?.state === "review" && now() - team.reviewSince >= 60000) team.leader.state = "idle";
@@ -93,6 +97,20 @@ export function createStage({ now }) {
           }
         }
         if (!team.leader && !team.workers.size) teams.delete(key);
+        for (const id of team.workers.keys()) liveWorkers.add(id);
+      }
+      // Keep live (including overflow-hidden) pets' ordering and generations.
+      // Inactive metadata outlives the delivery spool, then expires together.
+      for (const [id, { seen }] of workerTimes) {
+        if (!liveWorkers.has(id) && time - seen >= RETENTION_MS) {
+          ended.delete(id);
+          sequences.delete(id);
+          workerTimes.delete(id);
+          workerAppearance.delete(id);
+        }
+      }
+      for (const [key, { seen }] of leaders) {
+        if (!teams.get(key)?.leader && time - seen >= RETENTION_MS) leaders.delete(key);
       }
     },
     computerUseLive() {

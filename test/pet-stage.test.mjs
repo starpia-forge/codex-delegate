@@ -24,6 +24,24 @@ function activitySnapshot(stage) {
 
 const display = pet => [pet.displayState, pet.x, pet.facing];
 
+for (const removal of ["end", "timeout", "session-end", "dead-process"]) {
+  test(`inactive ${removal} metadata expires after ten minutes of receipt wall time`, () => {
+    const { stage, at } = harness();
+    at(60000); // Delayed delivery must still get the full retention period.
+    if (["session-end", "dead-process"].includes(removal)) stage.apply(leader("prompt"));
+    stage.apply(event({ seq: 20 }));
+    if (removal === "end") stage.apply(event({ type: "end", seq: 21, outcome: "success", at: 1001 }));
+    if (removal === "session-end") stage.apply(leader("session-end", 1001));
+    if (removal === "dead-process") stage.liveness({ team: "123", alive: false, at: 1001 });
+    at(659999);
+    stage.apply(event({ at: 659999 }));
+    assert.equal(stage.snapshot().teams.length, 0, "recent tombstones still reject replay");
+    at(660000);
+    stage.apply(event({ at: 660000 }));
+    assert.deepEqual(stage.snapshot().teams.map(t => t.workers.map(w => w.worker)), [["worker-a"]]);
+  });
+}
+
 test("delegation waves for one cycle and workers run right from beside their own leader", () => {
   const { stage, at } = harness();
   stage.apply(leader("prompt"));

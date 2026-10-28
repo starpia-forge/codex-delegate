@@ -4,6 +4,17 @@
 const CELL_WIDTH = 192, TAG_SPACE = 24, TEAM_GAP = 16, PET_GAP = 4;
 const SIDE_PADDING = 8, WORKER_BADGE = 48, SESSIONS_BADGE = 96;
 
+// Pixel translation from the untransformed flex slot. Exits use strip
+// coordinates so later teams leave the window rather than their neighbour.
+export function sceneOffset({ x, home, exit }, { homeLeft, petWidth, scale }) {
+  const slotWidth = CELL_WIDTH * scale + TAG_SPACE + PET_GAP;
+  if (exit) {
+    const from = (exit.from - home) * slotWidth;
+    return from + (-homeLeft - petWidth - from) * exit.progress;
+  }
+  return (x - home) * slotWidth;
+}
+
 export function fitLimit({ width, scale }) {
   const perTeam = CELL_WIDTH * scale + TAG_SPACE + PET_GAP + WORKER_BADGE + TEAM_GAP;
   return Math.max(0, Math.min(16, Math.floor((width - 2 * SIDE_PADDING - SESSIONS_BADGE) / perTeam)));

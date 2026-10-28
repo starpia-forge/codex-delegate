@@ -1,6 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fitLimit } from "../pet/app/ui/layout.mjs";
+import { fitLimit, sceneOffset } from "../pet/app/ui/layout.mjs";
+import { createStage } from "../pet/app/ui/stage.mjs";
+
+for (const outcome of ["success", "failed"]) {
+  test(`a ${outcome} worker in a later team exits beyond the strip's left edge`, () => {
+    let time = 1000;
+    const stage = createStage({ now: () => time });
+    stage.apply({ source: "leader", type: "prompt", team: "first", at: time });
+    stage.apply({ source: "leader", type: "prompt", team: "second", at: time });
+    stage.apply({ source: "worker", type: "heartbeat", team: "second", worker: "w",
+      role: "implementer", label: "task", seq: 1, at: time });
+    stage.apply({ source: "worker", type: "end", team: "second", worker: "w",
+      role: "implementer", label: "task", seq: 2, at: time, outcome });
+    // End of the exit phase: the pet's entire width must be outside the strip,
+    // even though its home is well to the right of the neighbouring team.
+    time = outcome === "success" ? 3899 : 5579;
+    stage.tick();
+    const worker = stage.snapshot().teams[1].workers[0];
+    assert.equal(worker.facing, "left");
+    assert.equal(worker.displayState, "running-left");
+    for (const scale of [0.3, 1]) {
+      const geometry = { homeLeft: 650, petWidth: 192 * scale + 24, scale };
+      const left = geometry.homeLeft + sceneOffset({ ...worker, home: 1 }, geometry);
+      assert.ok(left + geometry.petWidth < 2, `worker reaches strip edge at scale ${scale}`);
+    }
+    time++;
+    stage.tick();
+    assert.equal(stage.snapshot().teams[1].workers.length, 0);
+    assert.equal(stage.snapshot().teams[0].leader.state, "running");
+  });
+}
 
 test("fit limit includes name tags, both gaps, padding and worst-case overflow badges", () => {
   // Two separate teams at scale 1: 2 * (216 pet + 4 gap + 48 badge),

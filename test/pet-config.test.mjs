@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePets } from "../pet/app/ui/pet-config.mjs";
+import { bundledPetName, resolvePets } from "../pet/app/ui/pet-config.mjs";
 
 const slots = ["leader", "researcher", "critic", "implementer", "computer-user"];
 const bundled = name => ({ name, source: "bundled" });
@@ -92,15 +92,39 @@ test("configuration accepts inclusive scale bounds and reports ignored values", 
   }
 });
 
-test("configuration ignores unknown keys and unsafe names, and accepts bundled assignments", async t => {
+test("configuration accepts pets for user roles and roles reserved for future use", async t => {
   const h = await harness(t);
-  await h.config({ extra: 42, pets: { researcher: "critic", stranger: "leader", critic: "../bad",
+  await h.config({ pets: { "release-manager": "custom", "future-role2": "leader" } });
+  await packageAt(h, h.codexHome, "custom");
+  const result = await h.resolve();
+  assert.equal(result.pets["release-manager"]?.name, "custom");
+  assert.equal(result.pets["release-manager"]?.source, "codex");
+  assert.deepEqual(result.pets["future-role2"], bundled("leader"));
+  assert.deepEqual(result.issues, []);
+});
+
+test("user roles fall back to the bundled implementer when artwork is absent or invalid", async t => {
+  const h = await harness(t);
+  assert.equal(bundledPetName("release-manager"), "implementer");
+  for (const slot of slots) assert.equal(bundledPetName(slot), slot);
+  for (const role of ["release-manager", "constructor"]) for (const name of ["missing", "broken", "../unsafe"]) {
+    await h.config({ pets: { [role]: name } });
+    if (name === "broken") await packageAt(h, h.codexHome, name, { ...manifest, id: "" });
+    const result = await h.resolve();
+    assert.deepEqual(result.pets[role], bundled("implementer"));
+    assert.equal(result.issues.length, 1);
+  }
+});
+
+test("configuration ignores invalid keys and unsafe names, and accepts bundled assignments", async t => {
+  const h = await harness(t);
+  await h.config({ extra: 42, pets: { researcher: "critic", "bad/role": "leader", critic: "../bad",
     leader: "", implementer: 3, "computer-user": "nested/pet" } });
   const result = await h.resolve();
   assert.deepEqual(result.pets.researcher, bundled("critic"));
   assert.deepEqual(result.pets.critic, bundled("critic"));
   assert.deepEqual(result.issues.map(i => [i.code, i.key]), [
-    ["unknown-key", "extra"], ["unknown-key", "pets.stranger"], ["pet-name", "pets.critic"],
+    ["unknown-key", "extra"], ["unknown-key", "pets.bad/role"], ["pet-name", "pets.critic"],
     ["pet-name", "pets.leader"], ["pet-name", "pets.implementer"], ["pet-name", "pets.computer-user"],
   ]);
   for (const name of [".", "..", "a..b", "a\\b", "   ", "C:pet", "bad\u0000name"]) {

@@ -21,7 +21,10 @@ jobs:
       - name: Test the shipped package
         run: npm.cmd test
       - name: Build the pet app
-        run: cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
+        run: |
+          if ($env:PET_RELEASE_TAG -notmatch '^pet-v\d+\.\d+\.\d+$') { throw 'Expected pet-vX.Y.Z' }
+          $env:CODEX_DELEGATE_PET_VERSION = $env:PET_RELEASE_TAG.Substring(5)
+          cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
       - name: Package the pet bundle
         run: node scripts/pet-bundle.mjs --tag "$env:PET_RELEASE_TAG" --out dist
       - name: Publish the pet release

@@ -92,7 +92,7 @@ test("doctor reports the pinned pet bundle after a real install", async t => {
   assert.match(result.stdout, /\[OK  \] Pet port - .*pet app not running/);
 });
 
-for (const change of [{ tag: "pet-v2.0.0", version: "2.0.0" }, { sha256: "b".repeat(64) }]) {
+for (const change of [{ tag: "pet-v2.0.0", version: "2.0.0" }, { sha256: "b".repeat(64) }, { version: "2.0.0" }]) {
   test(`doctor warns when the installed bundle differs from the pin (${Object.keys(change)[0]})`, async t => {
     const f = await installedFixture(t);
     writeFileSync(f.pinPath, JSON.stringify({ ...f.pin, ...change }));
@@ -280,12 +280,26 @@ for (const status of [200, 503]) {
     const server = await listen(t, (req, res) => {
       requests.push({ path: req.url, method: req.method, token: req.headers["x-codex-delegate-pet-token"] });
       res.writeHead(status);
-      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version: "9.8.7", pid: 4321 }));
+      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version: "1.2.3", pid: 4321 }));
     });
     const result = await f.run(["doctor"], { CODEX_DELEGATE_PET_PORT: String(server.address().port) });
     assert.equal(result.code, 0, result.output);
-    assert.match(result.stdout, /\[OK  \] Pet port - .*9\.8\.7.*4321/);
+    assert.match(result.stdout, /\[OK  \] Pet port - .*1\.2\.3.*4321/);
     assert.deepEqual(requests, [{ path: "/health", method: "GET", token: "doctor-test-token" }]);
+  });
+}
+
+for (const status of [200, 503]) {
+  test(`doctor warns when the running pet version differs from the release pin (HTTP ${status})`, async t => {
+    const f = await installedFixture(t);
+    const server = await listen(t, (req, res) => {
+      res.writeHead(status);
+      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version: "0.1.0", pid: 4321 }));
+    });
+    const result = await f.run(["doctor"], { CODEX_DELEGATE_PET_PORT: String(server.address().port) });
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.stdout, /\[WARN\] Pet port - .*0\.1\.0.*4321.*expected 1\.2\.3.*install --with-pet/);
+    assert.doesNotMatch(result.stdout, /held by something that isn't the pet app/);
   });
 }
 

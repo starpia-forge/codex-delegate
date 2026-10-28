@@ -1,7 +1,7 @@
 import { createStage } from "./stage.mjs";
 import { createAnimationClock } from "./animation-clock.mjs";
-import { resolvePets } from "./pet-config.mjs";
-import { fitLimit } from "./layout.mjs";
+import { bundledPetName, resolvePets } from "./pet-config.mjs";
+import { fitLimit, sceneOffset } from "./layout.mjs";
 
 import { CODEX_V1_FRAME_TIMINGS_MS } from "./animations.mjs";
 
@@ -25,7 +25,7 @@ try {
 }
 const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async ([slot, artwork]) => {
   const image = new Image();
-  const fallback = `./assets/${slot}/spritesheet.png`;
+  const fallback = `./assets/${bundledPetName(slot)}/spritesheet.png`;
   if (artwork.source === "bundled") image.src = `./assets/${artwork.name}/spritesheet.png`;
   else {
     const bytes = await readPetFile(artwork.sheetPath);
@@ -83,8 +83,6 @@ function render() {
       // Reconcile order too: the leader may arrive after its workers.
       teams.get(team.key).append(pet.node);
       if (pet.character?.displayState !== character.displayState) pet.began = animation.now();
-      // Flex owns the home slots; scenes only translate within the team.
-      pet.node.style.setProperty("--scene-offset", String(character.x - character.home));
       pet.character = character;
       pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
@@ -107,6 +105,13 @@ function render() {
     sessionsBadge.title = sessionsBadge.textContent;
     root.append(sessionsBadge);
   } else sessionsBadge.remove();
+  // Measure after reconciling every team: offsetLeft excludes the previous
+  // transform and includes the team's actual place in the strip.
+  for (const pet of pets.values()) {
+    const offset = sceneOffset(pet.character, { homeLeft: pet.node.offsetLeft,
+      petWidth: pet.node.offsetWidth, scale: config.scale });
+    pet.node.style.setProperty("--scene-offset", `${offset}px`);
+  }
 }
 
 function updateFitLimit() {
