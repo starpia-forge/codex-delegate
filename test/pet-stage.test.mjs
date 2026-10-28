@@ -494,7 +494,7 @@ test("a dead process removes its whole team and blocks late events until a newer
   stage.apply(event({ worker: "old-worker", at: 2999 }));
   stage.apply(event({ worker: "new-worker", at: 3001 }));
   assert.deepEqual(stage.snapshot().teams.find(t => t.key === "123").workers.map(w => w.worker), ["new-worker"]);
-  assert.deepEqual(stage.snapshot().teams.find(t => t.key === "123").leader, { state: "idle", session: "new-session" });
+  assert.deepEqual(activitySnapshot(stage).teams.find(t => t.key === "123").leader, { state: "idle", session: "new-session" });
   // A death also tombstones a team whose first event has not arrived yet.
   stage.liveness({ team: "unseen", alive: false, at: 4000 });
   stage.apply(leader("prompt", 5000, { team: "unseen" }));
@@ -510,8 +510,9 @@ test("restored leader starts use the recorded time so newer delivered activity w
     const prompt = leader("prompt", 500000, { session: "after-clear" });
     for (const input of restoreFirst ? [restored, prompt] : [prompt, restored]) stage.apply(input);
     stage.liveness({ team: "123", alive: true, at: 600000 });
-    assert.deepEqual(stage.snapshot(), { teams: [{ key: "123",
-      leader: { state: "running", session: "after-clear" }, workers: [] }] });
+    const { teams } = activitySnapshot(stage);
+    assert.deepEqual(teams.map(({ key, leader, workers }) => ({ key, leader, workers })),
+      [{ key: "123", leader: { state: "running", session: "after-clear" }, workers: [] }]);
   }
 });
 
