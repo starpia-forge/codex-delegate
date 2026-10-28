@@ -3,13 +3,14 @@ import { spawn } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
 
 const sourceRunner = fileURLToPath(new URL("../src/runner/codex-run.mjs", import.meta.url));
 const client = fileURLToPath(new URL("../pet/client/pet-client.mjs", import.meta.url));
+const token = "runner-test-token";
 
 async function harness(t, mode = "pet") {
   const root = mkdtempSync(join(tmpdir(), "pet runner "));
@@ -27,6 +28,7 @@ process.stdin.on("end", () => setTimeout(() => {
   const sockets = new Set();
   const server = createServer((req, res) => {
     requests.push(req.url);
+    if (req.headers["x-codex-delegate-pet-token"] !== token) { res.statusCode = 401; res.end(); return; }
     if (mode === "silent") return;
     if (mode === "silent-post" && req.url === "/event") return;
     if (req.url === "/health") {
@@ -56,7 +58,11 @@ process.stdin.on("end", () => setTimeout(() => {
     install(source = client) {
       const dest = join(home, ".codex-delegate", "pet", "client");
       mkdirSync(dest, { recursive: true });
-      cpSync(source, join(dest, "pet-client.mjs"));
+      cpSync(dirname(client), dest, { recursive: true });
+      if (source !== client) cpSync(source, join(dest, "pet-client.mjs"));
+      const state = join(home, ".codex-delegate", "pet-state");
+      mkdirSync(state, { recursive: true });
+      writeFileSync(join(state, "token"), token);
     },
     async run({ runner = sourceRunner, exit = 0, delay = 0 } = {}) {
       const started = performance.now();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { EventEmitter, once } from "node:events";
 import { tmpdir } from "node:os";
@@ -19,6 +19,9 @@ async function harness(t, mode = "pet") {
     const source = fileURLToPath(new URL(`../pet/${part}`, import.meta.url));
     if (existsSync(source)) cpSync(source, join(bundle, part), { recursive: true });
   }
+  const token = "leader-test-token";
+  mkdirSync(join(home, ".codex-delegate", "pet-state"));
+  writeFileSync(join(home, ".codex-delegate", "pet-state", "token"), token);
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (["HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PID"].includes(key.toUpperCase())) delete env[key];
@@ -27,9 +30,10 @@ async function harness(t, mode = "pet") {
   const events = [], sockets = new Set(), children = new Set(), replies = [];
   const arrivals = new EventEmitter();
   const server = createServer((req, res) => {
+    if (req.headers["x-codex-delegate-pet-token"] !== token) { res.statusCode = 401; res.end(); return; }
     if (mode === "silent") return;
     if (req.url === "/health") {
-      res.end(JSON.stringify(mode === "foreign" ? { app: "other" } : { app: "codex-delegate-pet", protocol: 1 }));
+      res.end(JSON.stringify(mode === "foreign" ? { app: "other" } : { app: "codex-delegate-pet", protocol: 1, version: "0.1.0" }));
     } else if (req.url === "/event" && req.method === "POST") {
       let body = "";
       req.on("data", chunk => body += chunk);

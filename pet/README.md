@@ -1,6 +1,6 @@
 # Leader and worker pets (developer tracer)
 
-Windows only. The app must be started manually for this ticket. The runner
+Windows only. The first event starts the app automatically. The runner
 reports only when `<home>/.codex-delegate/pet/client/pet-client.mjs` exists.
 No hooks, settings, real home directories, or normal installation paths are
 changed by the build. Use an isolated home for testing.
@@ -20,8 +20,15 @@ installer also copies their Codex v1 packages into `pet/default-pets` for inspec
 Rebuild the app after changing assets or frontend code. `Cargo.lock` is retained;
 `target/` is ignored.
 
-In a **new** PowerShell terminal, set the isolated home before starting the app
-and runner. The task's working directory can be any real repository. `CODEX_HOME`
+The replaceable bundle lives in `<home>/.codex-delegate/pet/`. Mutable state
+lives beside it in `pet-state/`: a random per-user `token`, the delivery `spool/`
+and the installer's `updating` flag. The developer installer preserves an existing
+token. Every HTTP request requires it. The helper serializes startup and replay;
+events and update flags expire after five minutes. The app exits after ten
+minutes without accepted events (health checks do not keep it alive).
+
+In a **new** PowerShell terminal, set the isolated home before starting the
+runner. The task's working directory can be any real repository. `CODEX_HOME`
 keeps pointing at your real Codex home so the worker stays logged in.
 
 ```powershell
@@ -34,11 +41,14 @@ $env:CODEX_DELEGATE_PET_PORT = '47800' # optional; app and runner must agree
 # A real leader supplies these. Omit both to exercise an unkeyed worker.
 $env:CLAUDE_PID = '12345'
 $env:CLAUDE_CODE_SESSION_ID = 'manual-test'
-Start-Process -WindowStyle Hidden "$petTestHome\.codex-delegate\pet\codex-delegate-pet.exe"
-Invoke-RestMethod "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/health"
 New-Item -ItemType Directory -Force "$petTestHome\task-one" | Out-Null
 Set-Content "$petTestHome\task-one\prompt.md" 'Inspect the repository and summarize its purpose. Do not edit files.'
 node skills/claude/codex-research/scripts/codex-run.mjs researcher --prompt-file "$petTestHome\task-one\prompt.md" --cwd (Get-Location).Path
+# Allow a cold start to finish before inspecting health.
+$petHeaders = @{ 'X-Codex-Delegate-Pet-Token' = (Get-Content "$petTestHome\.codex-delegate\pet-state\token" -Raw).Trim() }
+Invoke-RestMethod "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/health" -Headers $petHeaders
+# Stop it explicitly when finished (otherwise it exits after ten idle minutes).
+Invoke-RestMethod "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/quit" -Method Post -Headers $petHeaders
 ```
 
 Manual checks for this ticket:
@@ -53,7 +63,7 @@ Manual checks for this ticket:
 4. Kill a runner and its worker process tree. Its pet disappears within about
    30 seconds of the last report. Ordinary success and failure remove it immediately.
 5. Check a non-100% DPI, change the primary work area, and confirm the strip follows.
-6. Stop the app via Task Manager and run again. Output, results and exit status
+6. Stop the app via `/quit` and run again. Output, results and exit status
    match a run with the installed client removed; nothing pet-related is printed.
 
 Five original placeholder PNGs follow Codex v1: 1536×1872, cells 192×208,
@@ -63,7 +73,8 @@ are collected in `CODEX_V1_FRAME_TIMINGS_MS` in `app/ui/renderer.mjs`.
 
 Tests: `npm.cmd test`. The runner tests use fake Codex, a fake HTTP listener,
 isolated homes and a runner copied from the generated `codex-implement` skill.
-The stage tests inject wall time. Expiry removes a missing worker but permits
+The delivery tests launch a delayed stub app and replay cold-start events into
+the real stage. The stage tests inject wall time. Expiry removes a missing worker but permits
 a newer heartbeat to recover it; an explicit `end` permanently tombstones its id.
 
 Optional configuration: `<home>/.codex-delegate/pet.json`:
@@ -94,16 +105,15 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Later tickets own scenes, authentication, fullscreen,
-capture exclusion, process liveness, quit, automatic launch, spool delivery,
-and production installation/release. This app accepts leader
+Later tickets own scenes, fullscreen, capture exclusion, process
+liveness, and production installation/release. This app accepts leader
 and worker events on loopback; it does not implement those later features.
 
 ## Leader hooks (manual registration)
 
 The developer installer copies `hook/leader-hook.mjs` beside `client/` under
-`<home>/.codex-delegate/pet/`. It does not change Claude Code settings. Start
-the app manually as above. In a new terminal, set `HOME`, `USERPROFILE`,
+`<home>/.codex-delegate/pet/`. It does not change Claude Code settings. The first
+event starts the app. In a new terminal, set `HOME`, `USERPROFILE`,
 `CLAUDE_CONFIG_DIR` and the optional pet port to the same isolated values.
 Remove the synthetic worker-test identity before launching a real Claude session:
 
@@ -201,12 +211,14 @@ for a pet has limit zero. A fully hidden leaderless team counts in the sessions
 badge; partially visible leaderless teams show their own worker badge.
 
 Use a fresh app instance without real sessions, with the isolated environment
-and pet port configured as above. Send synthetic events from PowerShell:
+and pet port configured as above (start it with one runner as above so the
+token exists). Send synthetic events from PowerShell:
 
 ```powershell
+$petHeaders = @{ 'X-Codex-Delegate-Pet-Token' = (Get-Content "$petTestHome\.codex-delegate\pet-state\token" -Raw).Trim() }
 $petDemoUrl = "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/event"
 function Send-PetDemo($eventFields) {
-  Invoke-RestMethod -Method Post -Uri $petDemoUrl -ContentType 'application/json' `
+  Invoke-RestMethod -Method Post -Uri $petDemoUrl -Headers $petHeaders -ContentType 'application/json' `
     -Body ($eventFields | ConvertTo-Json -Compress) | Out-Null
 }
 function Add-PetDemoSession($team) {
