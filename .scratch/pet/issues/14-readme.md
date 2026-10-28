@@ -4,9 +4,13 @@
 
 **Blocked by:** 11
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet/spec.md`
 
-- [ ] English README section and matching Korean section.
-- [ ] Commands, requirements and changed files match the implemented behaviour.
+- [x] English README section and matching Korean section.
+- [x] Commands, requirements and changed files match the implemented behaviour.
+
+## Comments
+
+- 2026-10-29: Implemented on the integration branch `feat/pet` (review fixes merged at bba2cbf); `npm test` 333/333 and the Rust build and tests pass.

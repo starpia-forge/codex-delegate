@@ -4,14 +4,18 @@
 
 **Blocked by:** 01, 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet/spec.md` (Team identity, Claude Code settings merge, Event protocol, Pet stage model)
 
-- [ ] Leader hook script: reads the hook input on stdin, maps it per the spec (notification types filtered per 01's findings, `PostToolUse` → `resumed`), sends with the team key 01 established through the pet client; always exits 0 and prints nothing.
-- [ ] If 01 found a turn-failure hook, it maps to leader `failed` (until the next prompt); otherwise leader `failed` comes only from scenes (06).
-- [ ] Stage: teams keyed by team key, laid out left to right in order of appearance, workers beside their leader; leader activity rules as specified; `resumed` only leaves `waiting`; leader events ordered by `at`, older ones dropped, `session-start` starting a new generation; `session-end` tombstones the team.
-- [ ] Seam 2 tests: each hook input produces the mapped event (ignored notification types produce none; event types the hook isn't registered for, such as subagent events, produce none); exit 0 with empty stdout and stderr, including with nothing listening; several real hook processes run concurrently and delivered out of order end in the right leader state.
-- [ ] Seam 3 tests for team layout, every leader state transition, ordering and generations, and two teams never mixing.
+- [x] Leader hook script: reads the hook input on stdin, maps it per the spec (notification types filtered per 01's findings, `PostToolUse` → `resumed`), sends with the team key 01 established through the pet client; always exits 0 and prints nothing.
+- [x] If 01 found a turn-failure hook, it maps to leader `failed` (until the next prompt); otherwise leader `failed` comes only from scenes (06).
+- [x] Stage: teams keyed by team key, laid out left to right in order of appearance, workers beside their leader; leader activity rules as specified; `resumed` only leaves `waiting`; leader events ordered by `at`, older ones dropped, `session-start` starting a new generation; `session-end` tombstones the team.
+- [x] Seam 2 tests: each hook input produces the mapped event (ignored notification types produce none; event types the hook isn't registered for, such as subagent events, produce none); exit 0 with empty stdout and stderr, including with nothing listening; several real hook processes run concurrently and delivered out of order end in the right leader state.
+- [x] Seam 3 tests for team layout, every leader state transition, ordering and generations, and two teams never mixing.
 - [ ] Developer instructions for registering the hooks by hand; manual check with a real session.
-- [ ] `npm test` passes.
+- [x] `npm test` passes.
+
+## Comments
+
+- 2026-10-29: Implemented on the integration branch `feat/pet` (review fixes merged at bba2cbf); `npm test` 333/333 and the Rust build and tests pass. The manual check above is not run yet; it is part of ticket 16's full manual checklist (steps in `pet/README.md`).

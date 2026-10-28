@@ -4,14 +4,18 @@
 
 **Blocked by:** 10
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet/spec.md` (Installer behaviour: scope/agent matrix, failure boundary, replacing or removing the app; Claude Code settings merge)
 
-- [ ] The scope/agent matrix, every row, including implicit updates; `--without-pet` refused for project scope or without Claude Code.
-- [ ] Update replaces only the bundle directory; state directory kept (marker updated); hook entries updated in place without duplicates.
-- [ ] Removal deletes bundle, state and exactly the owned hook entries (dropping matcher groups or event keys only when empty) from the recorded settings file; a user hook mentioning the pet script path survives.
-- [ ] Before replace or remove: "updating" flag set, running app asked to quit, force-stopped after a short timeout, flag cleared afterwards; a flag left by an interrupted run is cleared by the next install; concurrent installs serialized by a lock.
-- [ ] Re-running after an apply failure (for example after the bundle swap but before the settings write) completes the change.
-- [ ] Seam 1 tests: matrix; update preserves token, session records and ownership; removal after a `CLAUDE_CONFIG_DIR` change; settings changed between read and write not overwritten; app stub asked to quit and force-stopped when it doesn't; stale flag; concurrent install refused or serialized; rerun completes an interrupted apply.
-- [ ] `npm test` passes.
+- [x] The scope/agent matrix, every row, including implicit updates; `--without-pet` refused for project scope or without Claude Code.
+- [x] Update replaces only the bundle directory; state directory kept (marker updated); hook entries updated in place without duplicates.
+- [x] Removal deletes bundle, state and exactly the owned hook entries (dropping matcher groups or event keys only when empty) from the recorded settings file; a user hook mentioning the pet script path survives.
+- [x] Before replace or remove: "updating" flag set, running app asked to quit, force-stopped after a short timeout, flag cleared afterwards; a flag left by an interrupted run is cleared by the next install; concurrent installs serialized by a lock.
+- [x] Re-running after an apply failure (for example after the bundle swap but before the settings write) completes the change.
+- [x] Seam 1 tests: matrix; update preserves token, session records and ownership; removal after a `CLAUDE_CONFIG_DIR` change; settings changed between read and write not overwritten; app stub asked to quit and force-stopped when it doesn't; stale flag; concurrent install refused or serialized; rerun completes an interrupted apply.
+- [x] `npm test` passes.
+
+## Comments
+
+- 2026-10-29: Implemented on the integration branch `feat/pet` (review fixes merged at bba2cbf); `npm test` 333/333 and the Rust build and tests pass.

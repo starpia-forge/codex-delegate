@@ -4,10 +4,14 @@
 
 **Blocked by:** 07, 11
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet/spec.md` (Doctor user stories; Claude Code settings merge; Pet configuration and artwork)
 
-- [ ] Each check as above, with fail or warn levels consistent with existing `doctor` checks.
-- [ ] Seam 1 tests for each check, in the style of the existing doctor tests, plus a run without the pet showing no pet lines.
-- [ ] `npm test` passes.
+- [x] Each check as above, with fail or warn levels consistent with existing `doctor` checks.
+- [x] Seam 1 tests for each check, in the style of the existing doctor tests, plus a run without the pet showing no pet lines.
+- [x] `npm test` passes.
+
+## Comments
+
+- 2026-10-29: Implemented on the integration branch `feat/pet` (review fixes merged at bba2cbf); `npm test` 333/333 and the Rust build and tests pass.

@@ -4,15 +4,19 @@
 
 **Blocked by:** 01, 03, 04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet/spec.md` (Installer behaviour, Claude Code settings merge, Testing seam 1)
 
-- [ ] `--with-pet` and `--without-pet` parsed; contradictory together; `--with-pet` refused for project scope, for an agent selection without Claude Code, and off Windows (test-only platform override).
-- [ ] Pet pin (release tag, asset, SHA-256) shipped in the package's published files; download base URL overridable by environment variable; checksum mismatch refused.
-- [ ] Bundle unpacked to staging on the destination volume, then moved into place; state directory created with token and marker (bundle version, settings path, owned hook commands).
-- [ ] Settings: created if missing; unparseable file aborts; backup before writing; our hook entries added for the events 01 confirmed; written via temp file and rename after checking it hasn't changed since it was read.
-- [ ] Failure boundary: preflight failures leave skills, pet and settings unchanged; an apply failure reports exactly what was applied and where the backup is.
-- [ ] `--dry-run` reports every pet action and changes nothing; `list` shows pet state and version.
-- [ ] Seam 1 tests with a fake release server: fresh install; unrelated settings and user hooks survive; checksum mismatch, download failure and unparseable settings each change nothing; each refused combination changes nothing; dry-run; list.
-- [ ] `npm test` passes.
+- [x] `--with-pet` and `--without-pet` parsed; contradictory together; `--with-pet` refused for project scope, for an agent selection without Claude Code, and off Windows (test-only platform override).
+- [x] Pet pin (release tag, asset, SHA-256) shipped in the package's published files; download base URL overridable by environment variable; checksum mismatch refused.
+- [x] Bundle unpacked to staging on the destination volume, then moved into place; state directory created with token and marker (bundle version, settings path, owned hook commands).
+- [x] Settings: created if missing; unparseable file aborts; backup before writing; our hook entries added for the events 01 confirmed; written via temp file and rename after checking it hasn't changed since it was read.
+- [x] Failure boundary: preflight failures leave skills, pet and settings unchanged; an apply failure reports exactly what was applied and where the backup is.
+- [x] `--dry-run` reports every pet action and changes nothing; `list` shows pet state and version.
+- [x] Seam 1 tests with a fake release server: fresh install; unrelated settings and user hooks survive; checksum mismatch, download failure and unparseable settings each change nothing; each refused combination changes nothing; dry-run; list.
+- [x] `npm test` passes.
+
+## Comments
+
+- 2026-10-29: Implemented on the integration branch `feat/pet` (review fixes merged at bba2cbf); `npm test` 333/333 and the Rust build and tests pass.
