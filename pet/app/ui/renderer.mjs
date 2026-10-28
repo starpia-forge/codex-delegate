@@ -1,4 +1,5 @@
 import { createStage } from "./stage.mjs";
+import { createAnimationClock } from "./animation-clock.mjs";
 import { resolvePets } from "./pet-config.mjs";
 
 // Codex v1 row order and per-frame durations in milliseconds. These timings
@@ -58,6 +59,8 @@ const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async (
 })));
 files.clear();
 const stage = createStage({ now: () => Date.now() });
+const animation = createAnimationClock({ now: () => performance.now() });
+let paused = false;
 const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
 
@@ -84,12 +87,12 @@ function render() {
         const tag = document.createElement("span");
         tag.className = "tag";
         node.append(canvas, tag);
-        pets.set(character.id, { node, canvas, tag, began: performance.now() });
+        pets.set(character.id, { node, canvas, tag, began: animation.now() });
       }
       const pet = pets.get(character.id);
       // Reconcile order too: the leader may arrive after its workers.
       teams.get(team.key).append(pet.node);
-      if (pet.character?.state !== character.state) pet.began = performance.now();
+      if (pet.character?.state !== character.state) pet.began = animation.now();
       pet.character = character;
       pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
@@ -98,7 +101,10 @@ function render() {
   for (const [key, node] of teams) if (!liveTeams.has(key)) { node.remove(); teams.delete(key); }
 }
 
-function draw(time) {
+function draw() {
+  requestAnimationFrame(draw);
+  if (paused) return;
+  const time = animation.now();
   for (const pet of pets.values()) {
     const { state, role } = pet.character;
     const sheet = sheets.get(role) ?? sheets.get("implementer");
@@ -110,10 +116,20 @@ function draw(time) {
     ctx.clearRect(0, 0, 192, 208);
     ctx.drawImage(sheet, frame * 192, rows.indexOf(state) * 208, 192, 208, 0, 0, 192, 208);
   }
-  requestAnimationFrame(draw);
 }
 
-await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); render(); });
+function update() {
+  invoke("computer_use_live", { live: stage.computerUseLive() }).catch(() => {});
+  if (!paused) render();
+}
+await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
+await window.__TAURI__.event.listen("pet-fullscreen", ({ payload }) => {
+  paused = payload;
+  animation.setPaused(paused);
+  if (!paused) render();
+});
+paused = await invoke("fullscreen_paused");
+animation.setPaused(paused);
 await window.__TAURI__.core.invoke("renderer_ready");
-setInterval(() => { stage.tick(); render(); }, 250);
+setInterval(() => { stage.tick(); update(); }, 250);
 requestAnimationFrame(draw);

@@ -105,9 +105,87 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Later tickets own scenes, overflow, fullscreen, capture exclusion, process
-liveness, and production installation/release. This app accepts leader
+Later tickets own scenes, overflow, process liveness, and production
+installation/release. This app accepts leader
 and worker events on loopback; it does not implement those later features.
+
+## Window behaviour
+
+Fullscreen detection polls every 300 ms against the primary monitor's full
+physical bounds. It excludes captioned windows, the desktop and taskbar. The
+strip drops out of topmost and goes directly behind the fullscreen window;
+on exit it becomes topmost again. Sprite time pauses, while stage events and
+wall-time lifecycle deadlines continue. Work-area placement keeps running.
+
+For `computer-user`, the runner takes the computer-use lock, asks an already
+running app to exclude capture, and waits for acknowledgement for at most one
+second before starting Codex. No listener means no exclusion wait. This request
+never launches the app; ordinary worker events can still cold start it.
+The authenticated `POST /exclude` endpoint returns 200 only after Windows reports
+`WDA_EXCLUDEFROMCAPTURE` on the strip (503 if it cannot apply it). Every 500 ms,
+the shell checks for a live recorded runner or token-matched child process, or
+a live `computer-user` worker reported by the stage. It clears protection when
+none remain, allowing a two-second grace after an exclusion request. A cold
+start checks the lock before showing the strip. Dead, missing or unreadable lock
+records do not keep protection on.
+
+Run this checklist on Windows 10 and, if available, Windows 11. Rebuild and
+developer-install into the isolated home above, restart the app, and keep a
+leader pet visible (the registered hooks above or a synthetic leader event).
+Use the same home and port in every test terminal.
+
+1. **Fullscreen and z-order:** start a long-running worker, then put a video
+   player or borderless application into fullscreen on the primary monitor.
+   Within 300 ms the strip should disappear behind it and animation should stop.
+   Exit fullscreen: the strip should return above other windows and animate
+   without jumping forward through paused frames. Repeat with another topmost
+   window, switching focus several times. Fullscreen on a secondary monitor
+   alone must leave the strip active on the primary monitor.
+2. **Auto-hide taskbar:** enable taskbar auto-hide in Windows settings, maximize
+   a normal captioned window, and focus it. The strip should stay visible and
+   animate; maximizing must not trigger fullscreen. Enter real fullscreen and
+   exit again, then restore the taskbar setting.
+3. **DPI:** in Display settings select a primary-monitor scale other than 100%
+   (for example 150%). Repeat fullscreen entry/exit. The strip should fit the
+   primary work area's width and bottom edge, and full monitor coverage should
+   still trigger fullscreen. Restore the original scale.
+4. **Work area:** with pets visible, change taskbar auto-hide, taskbar size or
+   position where supported, or change the primary display resolution. Verify
+   the strip follows the new work-area bottom and width. Repeat while fullscreen
+   and confirm it stays behind the app, then returns correctly on exit.
+5. **Events and deadlines while fullscreen:** finish one worker and start another
+   from a second terminal while fullscreen. Exit and verify only the current
+   worker is shown. With a leader in `review`, remain fullscreen for over 60 s:
+   it should be `idle` on return. Kill a runner and its worker process tree,
+   remain fullscreen for over 30 s, and confirm its expired pet is absent.
+6. **Capture boundary:** leave a leader visible and start continuous screen
+   recording with Windows Graphics Capture (or take repeated Snipping Tool
+   screenshots). Run `node skills/claude/codex-computer-use/scripts/codex-run.mjs
+   computer-user --prompt-file <prompt.md> --cwd <repository>` in the isolated
+   terminal, using a task that lasts long enough to inspect. Watch
+   `<home>/.codex-delegate/computer-use.lock/holder.json` and `child.json`.
+   The strip should stay visible on the desktop but be absent from capture
+   before the worker starts, throughout computer use, and while either recorded
+   process is alive. After worker exit, it should reappear in capture within
+   about one second (or the remaining two-second request grace for a short run).
+   Hard-kill only the runner while leaving its recorded child alive: capture
+   exclusion must remain until that child exits and the stage's worker expires.
+   Also quit the pet, start a computer-user worker, and let its first event cold
+   start the app: its first visible frame should already be excluded.
+7. **Stale lock:** after all computer-user processes have exited and their pets
+   have expired, create the isolated home's `computer-use.lock` directory with
+   `holder.json` containing `{"token":"manual-stale","runnerPid":<dead-pid>}`
+   and `child.json` containing `{"token":"manual-stale","childPid":<dead-pid>}`.
+   Use PIDs of processes you started and have confirmed exited with Task Manager.
+   The visible strip must remain present in screenshots after one second; the
+   stale directory alone must not enable exclusion. Remove only these synthetic
+   records afterward. Do not overwrite a live lock.
+8. **Acknowledgement and token:** with no computer-user activity, POST `/exclude`
+   using `$petHeaders` from above. A 200 response should coincide with exclusion
+   already active; screenshots should show it again after the two-second grace.
+   Repeat with a wrong token: expect 401 and no new protection interval.
+
+These desktop checks are manual and have not been run by the Node test suite.
 
 ## Leader hooks (manual registration)
 

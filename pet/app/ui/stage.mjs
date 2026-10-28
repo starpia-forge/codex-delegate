@@ -65,6 +65,10 @@ export function createStage({ now }) {
         if (!team.leader && !team.workers.size) teams.delete(key);
       }
     },
+    computerUseLive() {
+      return [...teams.values()].some(team => [...team.workers.values()]
+        .some(worker => worker.role === "computer-user"));
+    },
     snapshot() {
       return { teams: [...teams].map(([key, team]) => ({ key,
         leader: team.leader ? { ...team.leader } : null,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createStage } from "../pet/app/ui/stage.mjs";
+import { createAnimationClock } from "../pet/app/ui/animation-clock.mjs";
 
 function harness() {
   let time = 1000;
@@ -11,6 +12,53 @@ const event = (fields = {}) => ({ v: 1, source: "worker", team: "123", session: 
   worker: "worker-a", role: "implementer", label: "task-a", at: 1000, seq: 1, type: "start", ...fields });
 const leader = (type, at = 1000, fields = {}) => ({ v: 1, source: "leader", team: "123",
   session: "session-a", at, type, ...fields });
+
+test("wall-time lifecycle deadlines advance and events apply while the animation clock is paused", () => {
+  let time = 1000;
+  const stage = createStage({ now: () => time });
+  const animation = createAnimationClock({ now: () => time });
+  stage.apply(leader("stop"));
+  stage.apply(event());
+  time = 1500;
+  animation.setPaused(true);
+  const frameTime = animation.now();
+  time = 30999;
+  stage.tick();
+  assert.equal(stage.snapshot().teams[0].workers.length, 1);
+  time = 31000;
+  stage.tick();
+  assert.equal(stage.snapshot().teams[0].workers.length, 0);
+  assert.equal(stage.snapshot().teams[0].leader.state, "review");
+  time = 61000;
+  stage.tick();
+  assert.equal(stage.snapshot().teams[0].leader.state, "idle");
+  stage.apply(event({ worker: "arrived-while-paused", at: time }));
+  assert.equal(stage.snapshot().teams[0].workers[0].worker, "arrived-while-paused");
+  assert.equal(animation.now(), frameTime);
+  animation.setPaused(false);
+  assert.equal(animation.now(), frameTime);
+  time += 250;
+  assert.equal(animation.now(), frameTime + 250);
+});
+
+test("computer use stays live until its last worker ends or expires, including leaderless teams", () => {
+  const { stage, at } = harness();
+  stage.apply(event());
+  assert.equal(stage.computerUseLive(), false);
+  stage.apply(event({ worker: "computer-a", role: "computer-user", team: null }));
+  stage.apply(event({ worker: "computer-b", role: "computer-user" }));
+  assert.equal(stage.computerUseLive(), true);
+  stage.apply(event({ worker: "computer-a", role: "computer-user", team: null, seq: 2, type: "end" }));
+  assert.equal(stage.computerUseLive(), true);
+  at(30999);
+  assert.equal(stage.computerUseLive(), true);
+  at(31000);
+  assert.equal(stage.computerUseLive(), false);
+  stage.apply(event({ worker: "computer-b", role: "computer-user", seq: 2, type: "heartbeat", at: 31000 }));
+  assert.equal(stage.computerUseLive(), true);
+  stage.apply(event({ worker: "computer-b", role: "computer-user", seq: 3, type: "end", at: 31000 }));
+  assert.equal(stage.computerUseLive(), false);
+});
 
 test("a session starts an idle leader beside its workers without changing team appearance order", () => {
   const { stage } = harness();
