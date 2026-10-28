@@ -132,10 +132,9 @@ A throwaway prototype on branch `prototype/tauri-overlay` (commits `6be7cbd`, `0
 
 ### Team identity (verify first)
 
-A team must survive `/clear` and similar in-window restarts, and workers must find their leader's team. The draft assumption that the hook input's `session_id` equals `CLAUDE_CODE_SESSION_ID` seen by commands is doubtful: on this machine, after a `/clear`, commands still saw the pre-clear session id while background task output used a different id.
+A team must survive `/clear` and similar in-window restarts, and workers must find their leader's team. The session id can't do this: `/clear` ends the session and starts a new one with a new id in the same window.
 
-- **Team key**: the Claude Code process id, if both hook commands and commands the leader runs can see it. Commands see `CLAUDE_PID` on this machine; the first ticket confirms that hook commands see the same value (or can find it, for example as their parent process), across `/clear`, on Windows. The session id is kept as an attribute for display and debugging only.
-- If no reliable shared key exists, the first ticket reports back before any other pet ticket starts; the team design is revisited with the user.
+- **Team key**: the Claude Code process id from the `CLAUDE_PID` environment variable, which hook commands and commands the leader runs both see, unchanged across `/clear` (verified in ticket 01, see Findings). The session id changes on `/clear`, so it is kept as an attribute for display and debugging only.
 - A worker event whose team key is missing or unknown to the stage goes into a **leaderless team** of its own. Worker events never create a leader pet.
 
 ### Installer behaviour
@@ -162,7 +161,7 @@ A team must survive `/clear` and similar in-window restarts, and workers must fi
 ### Claude Code settings merge
 
 - Target: the user settings file in the Claude Code config directory (`CLAUDE_CONFIG_DIR` when set, else `~/.claude`). Created if missing.
-- Hook events (confirm names and payloads against the current Claude Code hooks documentation in the first ticket): `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `Notification`, `Stop`, and `PostToolUse` as the signal that the user approved or answered and the leader is working again. `PostToolUse` runs after every tool call, so if Claude Code supports command hooks that run without blocking the session, it is registered that way; otherwise it runs normally and costs one Node start (about 0.05–0.1 s on Windows) per tool call, which the user accepted. If Claude Code offers a hook for a turn ending in an API error, it is registered too and maps to leader `failed`.
+- Hook events (verified in ticket 01): `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest` (fires immediately for every approval prompt, including `AskUserQuestion`), `Notification` (only for MCP elicitation), `Stop`, `StopFailure` (a turn ending in an API error; present in Claude Code 2.1.312, payload not yet observed), and `PostToolUse` as the signal that the user approved or answered and the leader is working again. `PostToolUse` runs after every tool call, so it is registered with `"async": true`, which Claude Code accepts and runs.
 - Each registration is a command hook running the leader hook script with Node, with a short timeout. Ownership is by exact match on the command strings recorded in the pet marker, never by a substring. Install replaces our recorded entries in place; removal deletes exactly those leaf entries from the recorded settings file (and drops matcher groups or event keys only if they become empty), leaving every other key and hook untouched.
 - A backup copy of the settings file is written next to it before each modification.
 - If the file exists but is not valid JSON, abort with nothing changed and say so.
@@ -186,7 +185,7 @@ One JSON shape for both producers, sent as an HTTP POST to the pet app on `127.0
 | `outcome` | — | on `end`: `success` (exit code 0) or `failed` |
 
 - Every worker event carries `team`, `role` and `label`, so a `heartbeat` or `end` whose `start` was lost still produces a correct pet.
-- Hook mapping: `SessionStart` → `session-start`; `UserPromptSubmit` → `prompt`; `Notification` → `waiting` only for notification types meaning a permission prompt or a question for the user, ignored otherwise (idle reminders, auth messages); `PostToolUse` → `resumed`; `Stop` → `stop`; `SessionEnd` → `session-end`.
+- Hook mapping: `SessionStart` → `session-start`, except with source `clear` (and other in-window restarts such as `compact`), which sends nothing; `UserPromptSubmit` → `prompt`; `PermissionRequest` → `waiting`; `Notification` → `waiting` only for `elicitation_dialog`, ignored otherwise (`permission_prompt` duplicates `PermissionRequest` about 6 seconds late, `idle_prompt` arrives 60 seconds after `Stop`); `PostToolUse` → `resumed`; `Stop` → `stop`; `StopFailure` → `failed`; `SessionEnd` → `session-end`, except with reason `clear`, which sends nothing, because the same window continues with a new session.
 - **Authentication and identity**: the installer generates a random per-user token stored in the pet state directory, kept across updates. Every request carries it; the app rejects requests without it. The health endpoint returns an app identifier, the bundle version and the protocol version; the client delivers only to a listener that identifies as a compatible pet app, and treats anything else on the port as unavailable (no launch loop). Request bodies are size-limited and schema-checked.
 - **Delivery never blocks a producer**: a producer tries one direct POST with a short timeout (a few hundred milliseconds). If that fails because nothing is listening, it writes the event to the delivery spool in the pet state directory, starts a detached, hidden delivery helper and returns. Only one helper runs at a time (an exclusive lock in the spool): it launches the pet app (unless the "updating" flag is set), waits for it to become healthy for a bounded time, delivers every spooled event in timestamp order, and exits; events spooled while it runs are picked up before it exits. Because only the helper holding the lock launches the app, concurrent producers launch at most one app. As a backstop, a second app instance that can't bind the port exits. Spooled events older than a few minutes are discarded.
 - The runner sends nothing about the pet to stdout or stderr, never changes its exit code or output, and caps the time spent on `end` so exit is not noticeably delayed. Its heartbeat timer never keeps the process alive.
@@ -311,3 +310,25 @@ The pet shell gets a manual verification checklist in its ticket, run against th
 - The bundled default pet artwork is being drawn by the maintainer; tickets should not block on it.
 - Unsigned executables downloaded by Node carry no Mark-of-the-Web, so SmartScreen is not expected to prompt; antivirus false positives remain possible. Neither has been tested.
 - Glossary terms used: **Leader**, **Worker**, **Role**, **Computer use**, **Task directory**, **Pet**, **Pet state**, **Team**.
+
+## Findings
+
+From ticket 01, 2026-10-29, Claude Code 2.1.312 on Windows 10. Two sessions (A and B) in a test folder with a recording hook on every event below and a recording command run through the leader's shell tool.
+
+**Verdict: go.** `CLAUDE_PID` is a team key shared by hooks and leader-run commands that survives `/clear`.
+
+| Question | Observation |
+|---|---|
+| Same Claude process id in hooks and commands? | Yes. Every hook and command in session A saw `CLAUDE_PID=40768`, in B `20052`. |
+| Survives `/clear`? | Yes. A kept `40768` before and after `/clear`. |
+| Distinct across concurrent sessions? | Yes (`40768` vs `20052`). |
+| Parent process as key? | No. Each hook and command has a different intermediate parent process. |
+| Hook `session_id` vs `CLAUDE_CODE_SESSION_ID` | Equal within each session, in hooks and commands alike. `/clear` changes both to a new id (A: `93bde627…` → `204274c8…`), so the session id can't be the team key. |
+| `/clear` sequence | `SessionEnd` (reason `clear`) then `SessionStart` (source `clear`), same process. |
+| Approval prompt | `PermissionRequest` fires immediately (also for `AskUserQuestion`); `Notification` with `permission_prompt` follows only if the prompt stays open, about 6 s later. No `elicitation_dialog` seen for `AskUserQuestion`. |
+| After approval or answer | `PostToolUse` fires, and so does the same hook registered with `"async": true`. |
+| Idle reminder | `Notification` with `idle_prompt` about 60 s after `Stop`. |
+| `/exit` | `SessionEnd` with reason `prompt_input_exit`. |
+| Terminal window closed | No `SessionEnd` at all, so process liveness is required to remove the leader pet. |
+| Turn failure | `StopFailure` exists in this Claude Code build; not triggered. |
+| Unexpected | A `SubagentStop` with an empty agent type fired right after a `Stop` in A. Pets don't register subagent events, so it has no effect. |
