@@ -18,6 +18,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const USER_ROLES = join(homedir(), ".codex-delegate", "roles.json");
+const PET_CLIENT = join(homedir(), ".codex-delegate", "pet", "client", "pet-client.mjs");
 
 const PRINT_LIMIT = 6000;
 const BUSY_EXIT_CODE = 75;
@@ -27,34 +28,34 @@ const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
 const HOLDER = join(LOCK, "holder.json");
 const CHILD = join(LOCK, "child.json");
 
-async function excludePetCapture() {
-  const path = join(homedir(), ".codex-delegate", "pet", "client", "pet-client.mjs");
-  if (!existsSync(path)) return;
+async function withTimeout(promise, milliseconds) {
   let timer;
   try {
-    await Promise.race([
-      import(pathToFileURL(path).href).then(module => module.requestCaptureExclusion?.()).catch(() => {}),
-      new Promise(resolve => { timer = setTimeout(resolve, 1000); }),
+    return await Promise.race([
+      promise,
+      new Promise(resolve => { timer = setTimeout(resolve, milliseconds); }),
     ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function excludePetCapture() {
+  if (!existsSync(PET_CLIENT)) return;
+  try {
+    await withTimeout(import(pathToFileURL(PET_CLIENT).href).then(module => module.requestCaptureExclusion?.()), 1000);
   } catch { /* Optional installed client. */ }
-  finally { clearTimeout(timer); }
 }
 
 // Loading and delivery are optional, silent, and bounded even for a broken
-// installed client. Serialize events so a short run cannot overtake its start.
-function reportPet(child, role, label) {
-  const path = join(homedir(), ".codex-delegate", "pet", "client", "pet-client.mjs");
-  if (!existsSync(path)) return async () => {};
-  let ready = import(pathToFileURL(path).href)
-    .then(module => module.createWorker({ role, label })).catch(() => null);
+// installed client. Invoke sends in seq order without awaiting earlier delivery;
+// the stage handles out-of-order, self-contained events by seq.
+function reportPet(child, role, taskDirectoryName) {
+  if (!existsSync(PET_CLIENT)) return async () => {};
+  const ready = import(pathToFileURL(PET_CLIENT).href)
+    .then(module => module.createWorker({ role, label: taskDirectoryName })).catch(() => null);
   let heartbeat;
-  const send = (type, outcome) => {
-    ready = ready.then(async client => {
-      try { await client?.send(type, outcome); } catch { /* Optional client. */ }
-      return client;
-    });
-    return ready;
-  };
+  const send = (type, outcome) => ready.then(async client => {
+    try { await client?.send(type, outcome); } catch { /* Optional client. */ }
+  });
   child.once("spawn", () => {
     send("start");
     heartbeat = setInterval(() => send("heartbeat"), 10000);
@@ -62,9 +63,7 @@ function reportPet(child, role, label) {
   });
   return async outcome => {
     clearInterval(heartbeat);
-    let timer;
-    await Promise.race([send("end", outcome), new Promise(resolve => { timer = setTimeout(resolve, 350); })]);
-    clearTimeout(timer);
+    await withTimeout(send("end", outcome), 350);
   };
 }
 
@@ -277,7 +276,7 @@ console.log(`codex-run: role=${role} model=${config.model} effort=${config.effor
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);
-if (role === "computer-user") await excludePetCapture();
+if (config.exclusive) await excludePetCapture();
 child = !config.exclusive
   ? (process.platform === "win32"
     ? spawn(["codex", ...args.map(quote)].join(" "), { cwd, env, shell: true })
@@ -285,7 +284,8 @@ child = !config.exclusive
   : process.platform === "win32"
     ? spawn(process.execPath, [fileURLToPath(new URL("./windows-codex.mjs", import.meta.url)), ["codex", ...args.map(quote)].join(" ")], { cwd, env, detached: true, windowsHide: true })
     : spawn("codex", args, { cwd, env, detached: true });
-finishPet = reportPet(child, role, basename(dirname(promptFile)));
+const taskDirectoryName = basename(dirname(promptFile));
+finishPet = reportPet(child, role, taskDirectoryName);
 if (config.exclusive && child.pid) {
   canRelease = false;
   lock?.setChild(child.pid);
@@ -307,6 +307,8 @@ child.on("close", async (code) => {
   closed = true;
   log.end();
   if (stopping) return;
+  // Close owns the exit now, including while the bounded pet report is pending.
+  stopping = true;
   canRelease = true;
   console.log(`codex-run: exit=${code} result=${out} log=${out}.log`);
   if (existsSync(out)) {

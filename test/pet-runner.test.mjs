@@ -27,7 +27,8 @@ process.stdin.on("end", () => setTimeout(() => {
   Object.assign(env, { CLAUDE_PID: "43210", CLAUDE_CODE_SESSION_ID: "test-session" });
   const startedFile = join(root, "codex-started");
   env.FAKE_CODEX_STARTED = startedFile;
-  const events = [], requests = [];
+  const events = [], requests = [], deliveries = [];
+  let startPending = false;
   const exclusions = [];
   const sockets = new Set();
   const server = createServer((req, res) => {
@@ -51,7 +52,17 @@ process.stdin.on("end", () => setTimeout(() => {
     } else if (req.url === "/event" && req.method === "POST") {
       let body = "";
       req.on("data", chunk => body += chunk);
-      req.on("end", () => { events.push(JSON.parse(body)); res.end("{}"); });
+      req.on("end", () => {
+        const event = JSON.parse(body);
+        events.push(event);
+        deliveries.push({ type: event.type, startPending });
+        if (mode === "blocked-start" && event.type === "start") {
+          startPending = true;
+          res.on("close", () => { startPending = false; });
+          return;
+        }
+        res.end("{}");
+      });
     } else { res.statusCode = 404; res.end(); }
   });
   server.on("connection", socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
@@ -67,7 +78,7 @@ process.stdin.on("end", () => setTimeout(() => {
   mkdirSync(task);
   const prompt = join(task, "prompt.md"), result = join(task, "result.md");
   writeFileSync(prompt, "Do the task");
-  return { events, requests, exclusions, env, home, root, startedFile,
+  return { events, requests, deliveries, exclusions, env, home, root, startedFile,
     installedRunner() {
       const installed = join(home, ".claude", "skills", "codex-implement");
       cpSync(fileURLToPath(new URL("../skills/claude/codex-implement", import.meta.url)), installed, { recursive: true });
@@ -165,6 +176,20 @@ test("other roles never request capture exclusion", async t => {
   assert.equal(h.exclusions.length, 0);
 });
 
+test("a role made exclusive by configuration excludes capture before spawning", async t => {
+  const h = await harness(t);
+  h.install();
+  writeFileSync(join(h.home, ".codex-delegate", "roles.json"), JSON.stringify({ implementer: { exclusive: true } }));
+  const result = await h.run();
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(h.exclusions.length, 1);
+  const request = h.exclusions[0];
+  assert.equal(request.holder.role, "implementer");
+  assert.equal(request.childRecorded, false);
+  assert.equal(request.spawned, false);
+  assert.ok(Number(readFileSync(h.startedFile, "utf8")) >= request.ack);
+});
+
 test("a broken capture client cannot hold computer use before spawn beyond one second", async t => {
   const h = await harness(t);
   const runner = h.installedRunner();
@@ -187,6 +212,44 @@ test("an installed pet client reports a successful worker without changing outpu
   assert.deepEqual({ ...actual, elapsed: 0 }, { ...baseline, elapsed: 0 });
   assert.deepEqual(h.events.map(e => e.type), ["start", "end"]);
   checkEvents(h.events, "success");
+});
+
+test("a worker reports end while its start delivery is still pending", async t => {
+  const h = await harness(t, "blocked-start");
+  h.install();
+  const result = await h.run();
+  assert.equal(result.code, 0, result.stderr);
+  checkEvents(h.events, "success");
+  assert.equal(h.deliveries.find(event => event.type === "end").startPending, true);
+});
+
+for (const exit of [0, 7]) test(`SIGINT during the pet end report preserves worker exit ${exit}`, async t => {
+  const h = await harness(t);
+  const signalClient = join(h.root, "signal-client.mjs");
+  h.env.PET_TEST_EVENTS = join(h.root, "pet-events.jsonl");
+  writeFileSync(signalClient, `
+import { appendFileSync } from "node:fs";
+export function createWorker() {
+  let interrupted = false;
+  return { async send(type, outcome) {
+    appendFileSync(process.env.PET_TEST_EVENTS, JSON.stringify({ type, outcome }) + "\\n");
+    if (type === "end" && !interrupted) {
+      interrupted = true;
+      // Inject the Node signal event while close is awaiting this delivery.
+      // process.kill would forcibly terminate the runner on Windows.
+      setImmediate(() => process.emit("SIGINT"));
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  } };
+}
+`);
+  const baseline = await h.run({ role: "computer-user", exit });
+  h.install(signalClient);
+  const actual = await h.run({ role: "computer-user", exit });
+  assert.deepEqual({ ...actual, elapsed: 0 }, { ...baseline, elapsed: 0 });
+  const events = readFileSync(h.env.PET_TEST_EVENTS, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  assert.deepEqual(events, [{ type: "start" }, { type: "end", outcome: exit === 0 ? "success" : "failed" }]);
+  assert.equal(existsSync(join(h.home, ".codex-delegate", "computer-use.lock")), false);
 });
 
 test("failed workers report failed and concurrent same-role runs have distinct identities", async t => {
