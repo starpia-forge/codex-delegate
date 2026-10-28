@@ -94,7 +94,7 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Later tickets own scenes, overflow, authentication, fullscreen,
+Later tickets own scenes, authentication, fullscreen,
 capture exclusion, process liveness, quit, automatic launch, spool delivery,
 and production installation/release. This app accepts leader
 and worker events on loopback; it does not implement those later features.
@@ -183,3 +183,60 @@ fake HTTP listener with isolated homes, including concurrent deliveries replayed
 out of order. Seam 3 tests drive leader activity, wall-time review expiry,
 timestamp ordering, generations, team tombstones and worker grouping directly.
 The existing worker tests remain unchanged.
+
+## Layout and overflow manual check
+
+Rebuild and install into the isolated home above. Run these checks once with
+`scale: 0.3` and again with `scale: 1.0` in that home's
+`.codex-delegate/pet.json`, restarting the app after each configuration change.
+Keep any existing `pets` mapping when editing the file. Scale is read on startup;
+work-area and DPI changes update the fit limit through window resize events.
+
+The fit calculation reserves the 192 * scale + 24 CSS-pixel pet/name-tag width,
+a 48px worker badge with a 4px gap for every possible visible team, 16px team
+gaps, 8px side padding, and a trailing 96px sessions badge. Reservations are
+conservative even when badges are absent: at 1920 CSS pixels the limit is 12
+at scale 0.3, 8 at 0.6, and 6 at 1.0, always capped at 16. A strip too narrow
+for a pet has limit zero. A fully hidden leaderless team counts in the sessions
+badge; partially visible leaderless teams show their own worker badge.
+
+Use a fresh app instance without real sessions, with the isolated environment
+and pet port configured as above. Send synthetic events from PowerShell:
+
+```powershell
+$petDemoUrl = "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/event"
+function Send-PetDemo($eventFields) {
+  Invoke-RestMethod -Method Post -Uri $petDemoUrl -ContentType 'application/json' `
+    -Body ($eventFields | ConvertTo-Json -Compress) | Out-Null
+}
+function Add-PetDemoSession($team) {
+  Send-PetDemo @{ v = 1; source = 'leader'; type = 'session-start'; team = $team;
+    session = $team; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+}
+Add-PetDemoSession 'layout-0'
+# Rerun this worker loop to refresh their 30-second leases during inspection.
+1..30 | ForEach-Object {
+  $petDemoAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  Send-PetDemo @{ v = 1; source = 'worker'; type = 'heartbeat'; team = 'layout-0';
+    session = 'layout-0'; worker = "layout-worker-$_"; role = 'implementer';
+    label = "worker-$_ with a long name tag to check truncation";
+    at = $petDemoAt; seq = $petDemoAt }
+}
+```
+
+1. Confirm the leader stays visible, the oldest workers fit beside it, long
+   name tags truncate within their pets, and the team's trailing `+N` equals
+   30 minus the visible worker count. Neither pets nor badges shrink or overlap.
+2. Change display resolution/work-area width or DPI while workers are live.
+   Confirm the visible count changes immediately, newest workers disappear
+   first, and widening restores them in order. Refresh the worker loop if needed.
+3. Run `1..20 | ForEach-Object { Add-PetDemoSession "layout-$_" }`.
+   Confirm leaders take every slot before workers: the oldest sessions remain,
+   `layout-0` shows `+30` while those workers are live, and the single trailing
+   `+N sessions` equals 21 minus the visible leader count. No team's workers
+   appear after its leader is hidden. On a very wide display, still show at most
+   16 pets.
+4. Remove the added sessions and confirm the original workers reappear if live:
+   `1..20 | ForEach-Object { Send-PetDemo @{ v = 1; source = 'leader'; type = 'session-end'; team = "layout-$_"; session = "layout-$_"; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() } }`.
+   Stop the app via Task Manager to clear synthetic sessions before using it
+   with real leaders. Repeat the checks at the other scale.

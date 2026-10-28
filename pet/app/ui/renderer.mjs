@@ -1,5 +1,6 @@
 import { createStage } from "./stage.mjs";
 import { resolvePets } from "./pet-config.mjs";
+import { fitLimit } from "./layout.mjs";
 
 // Codex v1 row order and per-frame durations in milliseconds. These timings
 // are provisional: exact Codex timings were not supplied with the v1 contract.
@@ -33,9 +34,6 @@ try {
   console.warn("Pet configuration unavailable; using bundled pets", error);
   config = await resolvePets({ home: "", readFile: async () => null });
 }
-document.documentElement.style.setProperty("--pet-scale", String(config.scale));
-try { await invoke("set_pet_scale", { scale: config.scale }); }
-catch (error) { console.warn("Pet strip size unavailable", error); }
 const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async ([slot, artwork]) => {
   const image = new Image();
   const fallback = `./assets/${slot}/spritesheet.png`;
@@ -60,6 +58,8 @@ files.clear();
 const stage = createStage({ now: () => Date.now() });
 const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
+const sessionsBadge = document.createElement("span");
+sessionsBadge.className = "overflow sessions-overflow";
 
 function render() {
   const snapshot = stage.snapshot();
@@ -72,6 +72,8 @@ function render() {
       root.append(node);
       teams.set(team.key, node);
     }
+    // Restore appearance order when a previously hidden team becomes visible.
+    root.append(teams.get(team.key));
     const characters = team.workers.map(worker => ({ ...worker, id: `worker:${worker.worker}` }));
     if (team.leader) characters.unshift({ ...team.leader, id: `leader:${team.key}`, role: "leader" });
     for (const character of characters) {
@@ -93,10 +95,42 @@ function render() {
       pet.character = character;
       pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
+    const teamNode = teams.get(team.key);
+    let badge = teamNode.querySelector(".worker-overflow");
+    if (team.hiddenWorkers) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "overflow worker-overflow";
+      }
+      badge.textContent = `+${team.hiddenWorkers}`;
+      badge.title = `${team.hiddenWorkers} hidden workers`;
+      teamNode.append(badge);
+    } else badge?.remove();
   }
   for (const [id, pet] of pets) if (!livePets.has(id)) { pet.node.remove(); pets.delete(id); }
   for (const [key, node] of teams) if (!liveTeams.has(key)) { node.remove(); teams.delete(key); }
+  if (snapshot.hiddenSessions) {
+    sessionsBadge.textContent = `+${snapshot.hiddenSessions} sessions`;
+    sessionsBadge.title = sessionsBadge.textContent;
+    root.append(sessionsBadge);
+  } else sessionsBadge.remove();
 }
+
+function updateFitLimit() {
+  stage.setFitLimit(fitLimit({ width: window.innerWidth, scale: config.scale }));
+  render();
+}
+
+async function setScale(scale) {
+  config.scale = scale;
+  document.documentElement.style.setProperty("--pet-scale", String(scale));
+  updateFitLimit();
+  try { await invoke("set_pet_scale", { scale }); }
+  catch (error) { console.warn("Pet strip size unavailable", error); }
+}
+
+window.addEventListener("resize", updateFitLimit);
+await setScale(config.scale);
 
 function draw(time) {
   for (const pet of pets.values()) {

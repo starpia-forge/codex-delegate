@@ -12,6 +12,78 @@ const event = (fields = {}) => ({ v: 1, source: "worker", team: "123", session: 
 const leader = (type, at = 1000, fields = {}) => ({ v: 1, source: "leader", team: "123",
   session: "session-a", at, type, ...fields });
 
+test("a team's newest workers collapse behind its badge after reserving leader slots", () => {
+  const { stage } = harness();
+  stage.apply(leader("session-start", 1000));
+  stage.apply(event({ worker: "oldest", at: 1001 }));
+  stage.apply(event({ worker: "middle", at: 1002 }));
+  stage.apply(event({ worker: "newest", at: 1003 }));
+  stage.setFitLimit(2);
+  const snapshot = stage.snapshot();
+  assert.equal(snapshot.hiddenSessions, 0);
+  assert.deepEqual(snapshot.teams.map(t => [t.key, t.leader.state, t.workers.map(w => w.worker), t.hiddenWorkers]), [
+    ["123", "idle", ["oldest"], 2],
+  ]);
+});
+
+test("newest sessions and their workers collapse when leaders alone exceed the limit", () => {
+  const { stage } = harness();
+  stage.apply(leader("session-start", 1000, { team: "old" }));
+  stage.apply(leader("session-start", 1001, { team: "middle" }));
+  stage.apply(leader("session-start", 1002, { team: "new" }));
+  stage.apply(event({ team: "new", at: 1003 }));
+  stage.setFitLimit(1);
+  assert.deepEqual(stage.snapshot(), {
+    teams: [{ key: "old", leader: { state: "idle", session: "session-a" }, workers: [], hiddenWorkers: 0 }],
+    hiddenSessions: 2,
+  });
+  stage.setFitLimit(4);
+  assert.deepEqual(stage.snapshot().teams.map(t => [t.key, t.workers.map(w => w.worker), t.hiddenWorkers]), [
+    ["old", [], 0], ["middle", [], 0], ["new", ["worker-a"], 0],
+  ]);
+  assert.equal(stage.snapshot().hiddenSessions, 0);
+});
+
+test("workers share remaining slots by appearance across teams, including leaderless teams", () => {
+  const { stage, at } = harness();
+  stage.apply(event({ team: "orphan", worker: "first", at: 1000 }));
+  stage.apply(leader("session-start", 1001, { team: "session" }));
+  stage.apply(event({ team: "session", worker: "second", at: 1002 }));
+  stage.apply(event({ team: "orphan", worker: "third", at: 1003 }));
+  stage.apply(event({ team: "hidden-orphan", worker: "fourth", at: 1004 }));
+  at(2000);
+  stage.apply(event({ team: "orphan", worker: "first", type: "heartbeat", seq: 2, at: 2000 }));
+  stage.setFitLimit(3);
+  assert.deepEqual(stage.snapshot().teams.map(t => [t.key, t.workers.map(w => w.worker), t.hiddenWorkers]), [
+    ["orphan", ["first"], 1], ["session", ["second"], 0],
+  ]);
+  assert.equal(stage.snapshot().hiddenSessions, 1);
+});
+
+test("changing the fit limit immediately restores hidden state and clamps to zero through sixteen", () => {
+  const { stage, at } = harness();
+  stage.apply(leader("session-start", 1000));
+  for (let i = 0; i < 18; i++) stage.apply(event({ worker: `w${i}`, at: 1001 + i }));
+  assert.equal(stage.snapshot().teams[0].workers.length, 15); // default 16, including leader
+  stage.setFitLimit(-2);
+  assert.deepEqual(stage.snapshot(), { teams: [], hiddenSessions: 1 });
+  at(2000);
+  stage.apply(leader("waiting", 2000));
+  stage.apply(event({ worker: "w17", type: "heartbeat", seq: 2, at: 2000, label: "updated while hidden" }));
+  stage.setFitLimit(3.9);
+  assert.deepEqual(stage.snapshot().teams[0].workers.map(w => w.worker), ["w0", "w1"]);
+  assert.equal(stage.snapshot().teams[0].hiddenWorkers, 16);
+  stage.setFitLimit(100);
+  assert.equal(stage.snapshot().teams[0].workers.length, 15);
+  assert.equal(stage.snapshot().teams[0].leader.state, "waiting");
+  stage.setFitLimit(1);
+  assert.equal(stage.snapshot().teams[0].hiddenWorkers, 18);
+  at(31018); // all workers except the refreshed w17 have expired, even while hidden
+  stage.setFitLimit(2);
+  assert.deepEqual(stage.snapshot().teams[0].workers.map(w => [w.worker, w.label]), [["w17", "updated while hidden"]]);
+  assert.equal(stage.snapshot().teams[0].hiddenWorkers, 0);
+});
+
 test("a session starts an idle leader beside its workers without changing team appearance order", () => {
   const { stage } = harness();
   stage.apply(event());
@@ -156,7 +228,7 @@ test("any activity event recovers a missing leader and worker expiry keeps its t
     stage.apply(leader(type));
     stage.apply(event());
     at(31000);
-    assert.deepEqual(stage.snapshot(), { teams: [{ key: "123", leader: { state, session: "session-a" }, workers: [] }] }, type);
+    assert.deepEqual(stage.snapshot(), { teams: [{ key: "123", leader: { state, session: "session-a" }, workers: [], hiddenWorkers: 0 }], hiddenSessions: 0 }, type);
   }
 });
 
@@ -165,7 +237,7 @@ test("a worker starts running with its role and task label in a leaderless team"
   stage.apply(event());
   assert.deepEqual(stage.snapshot(), { teams: [{ key: "123", leader: null, workers: [{
     worker: "worker-a", role: "implementer", label: "task-a", state: "running", lastSeen: 1000,
-  }] }] });
+  }], hiddenWorkers: 0 }], hiddenSessions: 0 });
 });
 
 test("a heartbeat can recover a lost start and refreshes the 30-second lease", () => {
@@ -176,7 +248,7 @@ test("a heartbeat can recover a lost start and refreshes the 30-second lease", (
   at(59999);
   assert.equal(stage.snapshot().teams[0].workers[0].label, "task-a");
   at(60000);
-  assert.deepEqual(stage.snapshot(), { teams: [] });
+  assert.deepEqual(stage.snapshot(), { teams: [], hiddenSessions: 0 });
 });
 
 test("older sequences and duplicates cannot change a pet or renew its lease", () => {
@@ -187,7 +259,7 @@ test("older sequences and duplicates cannot change a pet or renew its lease", ()
   stage.apply(event({ seq: 4, type: "heartbeat", label: "duplicate" }));
   assert.equal(stage.snapshot().teams[0].workers[0].label, "current");
   at(31000);
-  assert.deepEqual(stage.snapshot(), { teams: [] });
+  assert.deepEqual(stage.snapshot(), { teams: [], hiddenSessions: 0 });
 });
 
 for (const outcome of ["success", "failed"]) test(`end ${outcome} removes a worker and tombstones even an unseen start`, () => {
@@ -199,7 +271,7 @@ for (const outcome of ["success", "failed"]) test(`end ${outcome} removes a work
   stage.apply(event({ type: "start", seq: 5 }));
   stage.apply(event({ worker: "unseen", type: "end", outcome, seq: 2 }));
   stage.apply(event({ worker: "unseen", type: "heartbeat", seq: 3 }));
-  assert.deepEqual(stage.snapshot(), { teams: [] });
+  assert.deepEqual(stage.snapshot(), { teams: [], hiddenSessions: 0 });
 });
 
 test("unknown team keys group same-role workers separately; unkeyed workers get their own team", () => {
@@ -239,7 +311,7 @@ test("expiry keeps the sequence floor but a fresh heartbeat can recover a worker
   stage.apply(event({ seq: 3 }));
   at(31000);
   stage.apply(event({ type: "heartbeat", seq: 2 }));
-  assert.deepEqual(stage.snapshot(), { teams: [] });
+  assert.deepEqual(stage.snapshot(), { teams: [], hiddenSessions: 0 });
   stage.apply(event({ type: "heartbeat", seq: 4, at: 31000 }));
   assert.equal(stage.snapshot().teams[0].workers[0].state, "running");
 });
