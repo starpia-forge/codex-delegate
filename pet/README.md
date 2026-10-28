@@ -60,7 +60,8 @@ Invoke-RestMethod "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/quit" -Method P
 
 Manual checks for this ticket:
 
-1. Health returns `app: codex-delegate-pet`, `protocol: 1`, `version: 0.1.0`.
+1. Health returns `app: codex-delegate-pet`, `protocol: 1`, and the bundle version
+   set at build time by `CODEX_DELEGATE_PET_VERSION` (Cargo version if unset locally).
 2. A real worker shows a running pet with `researcher · task-one` above the
    primary monitor's taskbar. Transparent pixels reveal the desktop; clicking
    the pet reaches the window below. It never takes keyboard focus or adds a
@@ -69,7 +70,7 @@ Manual checks for this ticket:
    pets appear with their own labels; finishing one removes just that pet.
 4. Kill a runner and its worker process tree. Its pet disappears within about
    30 seconds of the last report. Ordinary success and failure play a report
-   scene, then remove the pet after it exits.
+   scene, then remove the pet after it exits off the strip's left edge.
 5. Check a non-100% DPI, change the primary work area, and confirm the strip follows.
 6. Stop the app via `/quit` and run again. Output, results and exit status
    match a run with the installed client removed; nothing pet-related is printed.
@@ -84,7 +85,8 @@ Tests: `npm.cmd test`. The runner tests use fake Codex, a fake HTTP listener,
 isolated homes and a runner copied from the generated `codex-implement` skill.
 The delivery tests launch a delayed stub app and replay cold-start events into
 the real stage. The stage tests inject wall time. Expiry removes a missing worker but permits
-a newer heartbeat to recover it; an explicit `end` permanently tombstones its id.
+a newer heartbeat to recover it; an explicit `end` tombstones its id until
+inactive metadata expires after ten minutes.
 
 Optional configuration: `<home>/.codex-delegate/pet.json`:
 
@@ -95,17 +97,20 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 }
 ```
 
-`scale` accepts numbers from 0.3 through 1.0. `pets` accepts `leader`,
-`researcher`, `critic`, `implementer`, and `computer-user`; values are pet folder
-names. Unknown keys and invalid values are ignored. Missing or invalid JSON
-uses defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic
-issues alongside the selected pets.
+`scale` accepts numbers from 0.3 through 1.0. `pets` accepts any role name
+matching `[a-z][a-z0-9-]*`, including user roles; values are pet folder names.
+Unknown keys and invalid values are ignored. Missing or invalid JSON uses
+defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic issues
+alongside the selected pets. The renderer reads configuration and packages once
+at startup; restart the app to load changes. `doctor` resolves them on each run.
 
 Lookup is `<home>/.codex-delegate/pets/<name>/`, then
 `$CODEX_HOME/pets/<name>/` (default `<home>/.codex/pets/<name>/`), then the bundled
 name or the slot's default. A folder without `pet.json` is absent. The first
 present package must have the Codex v1 manifest and a transparency-capable
 1536×1872 PNG or WebP; rejection falls back to that slot's bundled default.
+The five built-in roles have matching defaults; other roles fall back to
+`implementer` art when no pet is configured or their package is rejected.
 Header validation does not check animation frame contents.
 
 Manual configuration check: in the isolated home above, copy a valid package
@@ -133,7 +138,8 @@ build does not regenerate placeholders.
    ```
 
 3. Wait for the **Pet release** GitHub Actions workflow. It tests the shipped
-   package, builds on Windows with the locked Rust dependencies, and creates
+   package, sets `CODEX_DELEGATE_PET_VERSION` to the tag without `pet-v` for
+   `/health`, builds on Windows with the locked Rust dependencies, and creates
    a GitHub Release with `codex-delegate-pet-windows-x64.zip` and its `.sha256`
    file. Verify the release bundle installs before updating the package pin.
 4. Copy the pin JSON from the workflow job summary into the repository's
@@ -147,6 +153,7 @@ build does not regenerate placeholders.
 To preview the bundle locally after building the release executable:
 
 ```powershell
+$env:CODEX_DELEGATE_PET_VERSION = '1.2.3'
 cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
 node scripts/pet-bundle.mjs --tag pet-v1.2.3 --out dist
 ```
@@ -348,8 +355,9 @@ The pure `app/ui/scenes.mjs` timelines use injected wall time, starting when
 an event is received so queued short workers still get a scene. Snapshot
 `state` remains the activity; `displayState`, `x`, and `facing` describe playback.
 Positions are team-relative slot units: leader home `0`, worker homes `1, 2, ...`,
-beside the leader `0.5`, exit through the team's left boundary `-1`. The renderer
-translates pets from their flex slots; layout and overflow hide pets after scenes are computed.
+beside the leader `0.5`. Exit phases use `-1` for pacing; the renderer projects
+them beyond the strip's left edge. It translates pets from their flex slots;
+layout and overflow hide pets after scenes are computed.
 Idle wander stays within a quarter slot of the leader's home.
 
 Manual scene checks with the rebuilt app, isolated home, and real leader hooks

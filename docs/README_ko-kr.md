@@ -119,7 +119,7 @@ npx github:starpia-forge/codex-delegate doctor
 
 실행 중인 Leader 세션과 워커마다 하나씩 나타나는 선택 기능인 데스크톱 펫입니다. 펫은 주 모니터 아래쪽, 작업 표시줄 바로 위의 띠에 살면서 자기 세션이나 워커가 하는 일을 보여줍니다. Leader가 작업 중이면 `running`, 승인 요청이나 질문에서 기다리면 `waiting`, 턴이 끝나면 `review`(1분 뒤 `idle`로 돌아감), 오류가 나면 `failed`입니다. 워커 펫에는 역할과 작업 디렉터리 이름(예: `researcher · task-one`)이 붙고, 자기를 시작한 Leader의 펫 옆에 서며, 시작할 때와 결과를 보고할 때 Leader 펫과 짧은 장면을 연출합니다. 같은 역할의 워커가 동시에 돌면 펫도 따로 나타납니다. Claude Code 창이 여러 개면 열린 순서대로 왼쪽부터 별도의 팀으로 표시되고, 띠가 가득 차면 가장 최근 펫부터 `+N` 배지로 접힙니다.
 
-띠는 포커스를 가져가지 않고 모든 클릭을 아래 창으로 통과시킵니다. 다른 창보다 위에 머물고, 전체 화면 앱이 있으면 멈춘 채 그 뒤로 내려가며, `computer-user` 워커가 실행되는 동안에는 화면 캡처에서 숨겨지므로 그 워커의 스크린샷에 찍히지 않습니다.
+워커는 결과를 보고한 뒤 띠의 왼쪽 가장자리 밖으로 떠납니다. 띠는 포커스를 가져가지 않고 모든 클릭을 아래 창으로 통과시킵니다. 다른 창보다 위에 머물고, 전체 화면 앱이 있으면 멈춘 채 그 뒤로 내려가며, `computer-user` 워커가 실행되는 동안에는 화면 캡처에서 숨겨지므로 그 워커의 스크린샷에 찍히지 않습니다.
 
 ### 켜고 끄기
 
@@ -145,9 +145,9 @@ npx github:starpia-forge/codex-delegate uninstall               # 스킬과 펫 
 
 - **펫 번들**: 설치 프로그램은 이 저장소의 GitHub Releases에서 고정된 릴리스 파일 `codex-delegate-pet-windows-x64.zip` 하나를 내려받고, SHA-256이 패키지에 포함된 pin과 다르면 거부합니다. 번들에는 펫 앱(`codex-delegate-pet.exe`), 이벤트를 보고하는 클라이언트, Leader hook 스크립트, 기본 펫이 들어 있으며 `~/.codex-delegate/pet/`에 풀립니다. 업데이트하면 이 디렉터리를 통째로 교체합니다.
 - **펫 상태**: `~/.codex-delegate/pet-state/`에는 펫이 켜져 있음을 기록하는 표시 파일(번들 버전, 설정 파일, 등록한 hook 명령 원문), 앱이 모든 요청에 요구하는 사용자별 무작위 토큰, 열려 있는 세션 기록, 아직 전달되지 않은 이벤트가 있습니다. 업데이트해도 유지됩니다.
-- **Claude Code 설정**: 사용자 설정 파일(`$CLAUDE_CONFIG_DIR/settings.json`, 없으면 `~/.claude/settings.json`. 파일이 없으면 만듭니다)의 `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `PostToolUse`에 Leader hook 스크립트 `~/.codex-delegate/pet/hook/leader-hook.mjs`를 Node로 실행하는 command hook을 추가합니다. 바꾸기 전마다 기존 파일을 옆에 `settings.json.codex-delegate-backup-<시각>-<id>`로 복사해 둡니다. 다시 설치하면 중복으로 추가하지 않고 같은 항목을 그 자리에서 갱신합니다. 제거할 때는 설치 프로그램이 기록한 항목만, 그 항목을 쓴 설정 파일에서 지우고 다른 키와 hook은 그대로 둡니다.
+- **Claude Code 설정**: 사용자 설정 파일(`$CLAUDE_CONFIG_DIR/settings.json`, 없으면 `~/.claude/settings.json`. 파일이 없으면 만듭니다)의 `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `PostToolUse`에 Leader hook 스크립트 `~/.codex-delegate/pet/hook/leader-hook.mjs`를 Node로 실행하는 command hook을 추가합니다. UTF-8 BOM이 있는 설정도 읽습니다. 바꾸기 전마다 기존 파일을 옆에 `settings.json.codex-delegate-backup-<시각>-<id>`로 복사해 둡니다. 다시 설치하면 소유한 항목을 그 자리에서 갱신하며, 기존에 있던 동일한 명령은 그대로 두고 소유권을 가져오지 않습니다. 제거할 때는 설치 프로그램이 기록한 항목만, 그 항목을 쓴 설정 파일에서 지우고 다른 키와 hook은 그대로 둡니다.
 
-다운로드, 번들 검증, 설정 파일 읽기는 아무것도 바꾸기 전에 합니다. 이 중 하나라도 실패하면(예: 설정 파일이 올바른 JSON이 아님) 아무것도 바꾸지 않고 중단합니다. 번들을 교체하거나 제거하는 동안에는 실행 중인 펫 앱을 멈추고, hook이나 워커가 앱을 다시 띄우지 못하게 합니다. 그 이후 단계가 실패하면 적용된 단계와 적용되지 않은 단계, 설정 백업 위치를 알려줍니다. 같은 명령을 다시 실행하면 마저 끝납니다.
+다운로드, 번들 검증, 설정 파일 읽기는 아무것도 바꾸기 전에 합니다. 이 중 하나라도 실패하면(예: 설정 파일이 올바른 JSON이 아님) 아무것도 바꾸지 않고 중단합니다. `uninstall` 사전 점검 오류는 `Nothing was changed.`를 출력하고 종료 코드 1을 반환합니다. 번들을 교체하거나 제거하는 동안에는 실행 중인 펫 앱을 멈추고, hook이나 워커가 앱을 다시 띄우지 못하게 합니다. health가 응답하지 않으면 실행 파일을 확인한 경우에만 응답이 멈춘 앱을 종료합니다. 확인할 수 없으면 설치나 제거가 실패하고 앱을 닫거나 포트 충돌을 해결한 뒤 재시도하라는 메시지를 표시합니다. 그 이후 단계가 실패하면 적용된 단계와 적용되지 않은 단계, 설정 백업 위치를 알려줍니다. 같은 명령을 다시 실행하면 마저 끝납니다.
 
 제거(`--without-pet` 또는 `uninstall`)하면 hook과 함께 `~/.codex-delegate/pet/`과 `~/.codex-delegate/pet-state/`를 삭제합니다.
 
@@ -165,9 +165,9 @@ npx github:starpia-forge/codex-delegate uninstall               # 스킬과 펫 
 ```
 
 - `scale`: 192 × 208 스프라이트 칸 대비 펫 크기. 0.3부터 1.0까지(기본값 0.6).
-- `pets`: `leader`, `researcher`, `critic`, `implementer`, `computer-user`에 보여줄 펫을 펫 폴더 이름으로 지정합니다. 지정하지 않은 항목은 같은 이름의 기본 펫을 씁니다.
+- `pets`: 사용자 역할을 포함해 `[a-z][a-z0-9-]*`에 맞는 모든 역할의 펫 폴더 이름을 지정합니다. 기본 역할 다섯 개는 같은 이름의 기본 펫을 쓰고, 그 외 역할에 펫을 지정하지 않으면 기본 `implementer` 그림을 씁니다.
 
-모르는 키와 잘못된 값은 무시하고, JSON이 잘못되면 기본값을 씁니다. 펫 앱은 시작할 때 이 파일을 읽습니다.
+모르는 키와 잘못된 값은 무시하고, JSON이 잘못되면 기본값을 씁니다. 앱은 시작할 때 이 파일과 펫 패키지를 한 번 읽습니다. 변경 사항을 반영하려면 앱을 재시작합니다.
 
 펫 이름은 다음 순서로 찾습니다.
 
@@ -181,11 +181,11 @@ npx github:starpia-forge/codex-delegate uninstall               # 스킬과 펫 
 
 펫이 설치되어 있을 때만 `doctor`가 다음도 알려줍니다.
 
-- 설치된 번들이 이 codex-delegate가 기대하는 버전인지
-- 모든 펫 hook이 펫을 설치한 설정 파일에 아직 등록되어 있는지. 그 파일이 현재와 다른 설정 디렉터리에 있으면 경고
-- WebView2 Runtime이 있는지(Windows 10)
-- 잘못된 `pet.json` 설정, 찾을 수 없거나 Codex 펫 형식에 맞지 않는 지정 펫
-- 펫 포트를 펫 앱이 아닌 다른 프로그램이 쓰고 있는지
+- pin이 잘못되었거나 번들/실행 파일이 없으면 `FAIL`, 표시 파일의 태그·SHA-256·버전이 pin과 다르면 `WARN`
+- 기록된 hook이 없거나 설정 파일을 읽을 수 없으면 `FAIL`, 그 파일이 현재와 다른 설정 디렉터리에 있으면 `WARN`
+- WebView2 Runtime이 없으면 `FAIL`(Windows)
+- 잘못된 `pet.json` 설정은 `WARN`, 없거나 잘못되었거나 읽을 수 없는 펫 패키지는 항목별 경고와 기본 펫 대체 안내
+- 포트를 다른 프로그램이 쓰거나 실행 중인 앱의 버전이 pin과 다르면 `WARN`, 앱이 실행 중이 아니면 `OK`
 
 ## 워크플로우
 

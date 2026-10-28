@@ -119,7 +119,7 @@ Prerequisites:
 
 An optional desktop pet for each running leader session and each worker. Pets live in a strip along the bottom of the primary monitor, just above the taskbar, and show what their session or worker is doing: `running` while the leader works, `waiting` at an approval prompt or question, `review` when a turn ends (back to `idle` after a minute), `failed` after an error. A worker's pet carries its role and task directory name, for example `researcher · task-one`, sits beside the pet of the leader that started it, and plays a short scene with it when it starts and when it reports back. Concurrent workers of the same role are separate pets. Several Claude Code windows appear as separate teams, left to right in the order they opened; when the strip is full, the newest pets collapse into `+N` badges.
 
-The strip never takes focus and lets every click through to the window below. It stays above other windows, pauses and drops behind any fullscreen app, and is hidden from screen capture while a `computer-user` worker runs, so it never appears in that worker's screenshots.
+Workers leave off the strip's left edge after reporting back. The strip never takes focus and lets every click through to the window below. It stays above other windows, pauses and drops behind any fullscreen app, and is hidden from screen capture while a `computer-user` worker runs, so it never appears in that worker's screenshots.
 
 ### Turning it on and off
 
@@ -145,9 +145,9 @@ Requirements: Windows (the first version supports nothing else), the Microsoft E
 
 - **Pet bundle**: the installer downloads one pinned release asset, `codex-delegate-pet-windows-x64.zip`, from this repository's GitHub Releases and refuses it unless its SHA-256 matches the pin shipped with the package. It holds the pet app (`codex-delegate-pet.exe`), the client that reports events, the leader hook script and the bundled default pets, and is unpacked to `~/.codex-delegate/pet/`. Updates replace this directory whole.
 - **Pet state**: `~/.codex-delegate/pet-state/` holds the marker that records the pet as enabled (bundle version, settings file and the exact hook commands), a random per-user token that the app requires on every request, open session records and pending events. It survives updates.
-- **Claude Code settings**: command hooks that run the leader hook script, `~/.codex-delegate/pet/hook/leader-hook.mjs`, with Node are added to the user settings file (`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`, created if missing) for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure` and `PostToolUse`. Before every change the old file is copied next to it as `settings.json.codex-delegate-backup-<time>-<id>`. Reinstalling updates these entries in place instead of adding duplicates. Removal deletes exactly the entries the installer recorded, from the settings file they were written to, and leaves every other key and hook untouched.
+- **Claude Code settings**: command hooks that run the leader hook script, `~/.codex-delegate/pet/hook/leader-hook.mjs`, with Node are added to the user settings file (`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`, created if missing) for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure` and `PostToolUse`. UTF-8 BOM settings are accepted. Before every change the old file is copied next to it as `settings.json.codex-delegate-backup-<time>-<id>`. Reinstalling updates owned entries in place; identical pre-existing commands are left alone and never taken over. Removal deletes exactly the entries the installer recorded, from the settings file they were written to, and leaves every other key and hook untouched.
 
-Downloading, checking the bundle and reading the settings file happen before anything is changed: if any of them fails (for example, the settings file is not valid JSON), the installer stops with nothing changed. While it replaces or removes the bundle, it stops a running pet app and keeps hooks and workers from starting it again. If a later step fails, it lists which steps were and weren't applied and where the settings backup is; run the same command again to finish.
+Downloading, checking the bundle and reading the settings file happen before anything is changed: if any of them fails (for example, the settings file is not valid JSON), the installer stops with nothing changed. Uninstall preflight errors print `Nothing was changed.` and exit 1. While it replaces or removes the bundle, it stops a running pet app and keeps hooks and workers from starting it again. If health is unavailable, it stops a hung app only after verifying its executable; otherwise install or uninstall fails with a message to close the app or resolve the port conflict and retry. If a later step fails, it lists which steps were and weren't applied and where the settings backup is; run the same command again to finish.
 
 Removal (`--without-pet` or `uninstall`) deletes `~/.codex-delegate/pet/` and `~/.codex-delegate/pet-state/` as well as the hooks.
 
@@ -165,9 +165,9 @@ Optional, in `~/.codex-delegate/pet.json`:
 ```
 
 - `scale`: pet size relative to a 192 × 208 sprite cell, from 0.3 to 1.0 (default 0.6).
-- `pets`: which pet to show for `leader`, `researcher`, `critic`, `implementer` and `computer-user`, by pet folder name. Unset slots use the bundled pet of the same name.
+- `pets`: pet folder names for any role matching `[a-z][a-z0-9-]*`, including user roles. The five built-in roles default to their matching bundled pets; other roles without a configured pet use bundled `implementer` art.
 
-Unknown keys and invalid values are ignored, and invalid JSON falls back to the defaults. The pet app reads this file when it starts.
+Unknown keys and invalid values are ignored, and invalid JSON falls back to the defaults. The app reads this file and pet packages once at startup; restart it to load changes.
 
 A pet name is looked up in this order:
 
@@ -181,11 +181,11 @@ A pet folder uses the Codex pet package format: a `pet.json` manifest with `id`,
 
 Only when the pet is installed, `doctor` also reports:
 
-- whether the installed bundle is the version this codex-delegate expects;
-- whether every pet hook is still registered in the settings file the pet was installed into, and warns when that file is in a different config directory than the current one;
-- whether the WebView2 Runtime is present (Windows 10);
-- invalid `pet.json` settings, and named pets that can't be found or don't match the Codex pet format;
-- whether the pet port is held by something other than the pet app.
+- `FAIL` for an invalid pin or missing bundle/executable; `WARN` if the marker's tag, SHA-256 or version differs from the pin;
+- `FAIL` for missing recorded hooks or unreadable settings; `WARN` when that file is in a different config directory than the current one;
+- `FAIL` for a missing WebView2 Runtime (Windows);
+- `WARN` for invalid `pet.json` settings, and per-slot warnings for missing, invalid or unreadable pet packages, with bundled fallback;
+- `WARN` if the port is held by something other than the pet app, or the running app's version differs from the pin; an app that is not running is `OK`.
 
 ## Workflow
 
