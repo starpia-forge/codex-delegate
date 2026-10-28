@@ -27,7 +27,7 @@ const teams = new Map(), pets = new Map();
 
 function render() {
   const snapshot = stage.snapshot();
-  const liveWorkers = new Set(), liveTeams = new Set();
+  const livePets = new Set(), liveTeams = new Set();
   for (const team of snapshot.teams) {
     liveTeams.add(team.key);
     if (!teams.has(team.key)) {
@@ -36,9 +36,11 @@ function render() {
       root.append(node);
       teams.set(team.key, node);
     }
-    for (const worker of team.workers) {
-      liveWorkers.add(worker.worker);
-      if (!pets.has(worker.worker)) {
+    const characters = team.workers.map(worker => ({ ...worker, id: `worker:${worker.worker}` }));
+    if (team.leader) characters.unshift({ ...team.leader, id: `leader:${team.key}`, role: "leader" });
+    for (const character of characters) {
+      livePets.add(character.id);
+      if (!pets.has(character.id)) {
         const node = document.createElement("div");
         node.className = "pet";
         const canvas = document.createElement("canvas");
@@ -46,21 +48,23 @@ function render() {
         const tag = document.createElement("span");
         tag.className = "tag";
         node.append(canvas, tag);
-        pets.set(worker.worker, { node, canvas, tag, began: performance.now() });
+        pets.set(character.id, { node, canvas, tag, began: performance.now() });
       }
-      const pet = pets.get(worker.worker);
-      if (pet.node.parentNode !== teams.get(team.key)) teams.get(team.key).append(pet.node);
-      pet.worker = worker;
-      pet.tag.textContent = `${worker.role} · ${worker.label}`;
+      const pet = pets.get(character.id);
+      // Reconcile order too: the leader may arrive after its workers.
+      teams.get(team.key).append(pet.node);
+      if (pet.character?.state !== character.state) pet.began = performance.now();
+      pet.character = character;
+      pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
   }
-  for (const [id, pet] of pets) if (!liveWorkers.has(id)) { pet.node.remove(); pets.delete(id); }
+  for (const [id, pet] of pets) if (!livePets.has(id)) { pet.node.remove(); pets.delete(id); }
   for (const [key, node] of teams) if (!liveTeams.has(key)) { node.remove(); teams.delete(key); }
 }
 
 function draw(time) {
   for (const pet of pets.values()) {
-    const { state, role } = pet.worker;
+    const { state, role } = pet.character;
     const sheet = sheets.get(role) ?? sheets.get("implementer");
     if (!sheet.complete || !sheet.naturalWidth) continue;
     const timings = CODEX_V1_FRAME_TIMINGS_MS[state];

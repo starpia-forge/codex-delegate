@@ -80,6 +80,12 @@ fn watch_window(win: WebviewWindow) {
 }
 
 fn valid_event(e: &Value) -> bool {
+    if e["v"] == 1 && e["source"] == "leader" {
+        return matches!(e["type"].as_str(), Some("session-start" | "prompt" | "waiting" | "resumed" | "stop" | "failed" | "session-end"))
+            && e["team"].as_str().is_some_and(|s| !s.is_empty())
+            && e["at"].is_number()
+            && e.get("session").is_some_and(|v| v.is_null() || v.is_string());
+    }
     e["v"] == 1 && e["source"] == "worker"
         && matches!(e["type"].as_str(), Some("start" | "heartbeat" | "end"))
         && ["team", "session"].iter().all(|k| e.get(k).is_some_and(|v| v.is_null() || v.is_string()))

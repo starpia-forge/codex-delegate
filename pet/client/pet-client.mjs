@@ -25,6 +25,20 @@ function exchange(port, path, body, deadline) {
   });
 }
 
+async function deliver(event) {
+  try {
+    const port = Number(process.env.CODEX_DELEGATE_PET_PORT ?? DEFAULT_PORT);
+    const deadline = Date.now() + DELIVERY_TIMEOUT_MS;
+    const health = JSON.parse(await exchange(port, "/health", null, deadline));
+    if (health.app !== "codex-delegate-pet" || health.protocol !== 1) return;
+    await exchange(port, "/event", JSON.stringify(event), deadline);
+  } catch { /* Pets must never affect a producer. No logging or retries. */ }
+}
+
+export async function sendLeader({ type, team, session, at = Date.now() }) {
+  await deliver({ v: 1, source: "leader", team, session, at, type });
+}
+
 export function createWorker({ role, label }) {
   const worker = randomUUID();
   let seq = 0;
@@ -33,13 +47,7 @@ export function createWorker({ role, label }) {
       const event = { v: 1, source: "worker", team: process.env.CLAUDE_PID ?? null,
         session: process.env.CLAUDE_CODE_SESSION_ID ?? null, worker, role, label,
         at: Date.now(), seq: ++seq, type, ...(outcome ? { outcome } : {}) };
-      try {
-        const port = Number(process.env.CODEX_DELEGATE_PET_PORT ?? DEFAULT_PORT);
-        const deadline = Date.now() + DELIVERY_TIMEOUT_MS;
-        const health = JSON.parse(await exchange(port, "/health", null, deadline));
-        if (health.app !== "codex-delegate-pet" || health.protocol !== 1) return;
-        await exchange(port, "/event", JSON.stringify(event), deadline);
-      } catch { /* Pets must never affect a worker. No logging or retries. */ }
+      await deliver(event);
     },
   };
 }
