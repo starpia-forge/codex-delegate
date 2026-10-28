@@ -1,4 +1,5 @@
 import { createStage } from "./stage.mjs";
+import { resolvePets } from "./pet-config.mjs";
 
 // Codex v1 row order and per-frame durations in milliseconds. These timings
 // are provisional: exact Codex timings were not supplied with the v1 contract.
@@ -15,12 +16,47 @@ const CODEX_V1_FRAME_TIMINGS_MS = {
   review: [180, 120, 120, 180, 120, 240],
 };
 const rows = Object.keys(CODEX_V1_FRAME_TIMINGS_MS);
-const roles = ["leader", "researcher", "critic", "implementer", "computer-user"];
-const sheets = new Map(roles.map(role => {
+const invoke = window.__TAURI__.core.invoke;
+// Retain the same bytes that the resolver validated, including the sheet MIME.
+const files = new Map();
+async function readPetFile(path) {
+  if (!files.has(path)) {
+    try { files.set(path, new Uint8Array(await invoke("read_pet_file", { path }))); }
+    catch { files.set(path, null); }
+  }
+  return files.get(path);
+}
+let config;
+try {
+  config = await resolvePets({ ...await invoke("pet_paths"), readFile: readPetFile });
+} catch (error) {
+  console.warn("Pet configuration unavailable; using bundled pets", error);
+  config = await resolvePets({ home: "", readFile: async () => null });
+}
+document.documentElement.style.setProperty("--pet-scale", String(config.scale));
+try { await invoke("set_pet_scale", { scale: config.scale }); }
+catch (error) { console.warn("Pet strip size unavailable", error); }
+const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async ([slot, artwork]) => {
   const image = new Image();
-  image.src = `./assets/${role}/spritesheet.png`;
-  return [role, image];
-}));
+  const fallback = `./assets/${slot}/spritesheet.png`;
+  if (artwork.source === "bundled") image.src = `./assets/${artwork.name}/spritesheet.png`;
+  else {
+    const bytes = await readPetFile(artwork.sheetPath);
+    if (bytes === null) image.src = fallback;
+    else {
+      const url = URL.createObjectURL(new Blob([bytes], { type: artwork.mime }));
+      image.onload = () => URL.revokeObjectURL(url);
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        image.onload = image.onerror = null;
+        image.src = fallback;
+      };
+      image.src = url;
+    }
+  }
+  return [slot, image];
+})));
+files.clear();
 const stage = createStage({ now: () => Date.now() });
 const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
