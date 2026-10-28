@@ -51,7 +51,8 @@ Manual checks for this ticket:
 3. Start two workers of the same role with different task directories. Both
    pets appear with their own labels; finishing one removes just that pet.
 4. Kill a runner and its worker process tree. Its pet disappears within about
-   30 seconds of the last report. Ordinary success and failure remove it immediately.
+   30 seconds of the last report. Ordinary success and failure play a report
+   scene, then remove the pet after it exits.
 5. Check a non-100% DPI, change the primary work area, and confirm the strip follows.
 6. Stop the app via Task Manager and run again. Output, results and exit status
    match a run with the installed client removed; nothing pet-related is printed.
@@ -59,7 +60,8 @@ Manual checks for this ticket:
 Five original placeholder PNGs follow Codex v1: 1536×1872, cells 192×208,
 8 columns, 9 rows, frame counts 6/8/8/4/5/8/6/6/6. Playback defaults to scale 0.6.
 Exact Codex frame durations were not available: provisional per-frame timings
-are collected in `CODEX_V1_FRAME_TIMINGS_MS` in `app/ui/renderer.mjs`.
+are collected in `CODEX_V1_FRAME_TIMINGS_MS` in `app/ui/animations.mjs`, shared
+by playback and the pure scene timelines.
 
 Tests: `npm.cmd test`. The runner tests use fake Codex, a fake HTTP listener,
 isolated homes and a runner copied from the generated `codex-implement` skill.
@@ -94,7 +96,7 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Later tickets own scenes, overflow, authentication, fullscreen,
+Later tickets own overflow, authentication, fullscreen,
 capture exclusion, process liveness, quit, automatic launch, spool delivery,
 and production installation/release. This app accepts leader
 and worker events on loopback; it does not implement those later features.
@@ -183,3 +185,31 @@ fake HTTP listener with isolated homes, including concurrent deliveries replayed
 out of order. Seam 3 tests drive leader activity, wall-time review expiry,
 timestamp ordering, generations, team tombstones and worker grouping directly.
 The existing worker tests remain unchanged.
+
+## Scenes
+
+The pure `app/ui/scenes.mjs` timelines use injected wall time, starting when
+an event is received so queued short workers still get a scene. Snapshot
+`state` remains the activity; `displayState`, `x`, and `facing` describe playback.
+Positions are team-relative slot units: leader home `0`, worker homes `1, 2, ...`,
+beside the leader `0.5`, exit through the team's left boundary `-1`. The current
+renderer translates flex slots; strip layout and overflow remain a later ticket.
+Idle wander stays within a quarter slot of the leader's home.
+
+Manual scene checks with the rebuilt app, isolated home, and real leader hooks
+above (for a human to run):
+
+1. Have the leader start a real worker that succeeds. The leader waves once;
+   the worker runs right to its spot and works, then runs left back, jumps,
+   pauses while the leader shows `review` once, and exits left. A busy leader
+   returns to `running` after its pose.
+2. Run a real worker whose process exits with a failure. Its pet shows `failed`
+   twice, pauses while its leader shows `failed` once, then exits left.
+3. While a worker is running, leave the leader at an approval prompt or
+   question. During the worker's report the leader keeps `waiting`; other
+   workers keep working. Answer the prompt and confirm it resumes `running`.
+4. Run a worker from a terminal without `CLAUDE_PID` or
+   `CLAUDE_CODE_SESSION_ID`. Its pet delegates and reports without a leader or
+   the leader's acknowledgement pause. Repeat with a failing run.
+5. Leave a leader idle: it pauses and wanders slowly both ways, facing its
+   movement. Submit a prompt and confirm `running` replaces wandering.

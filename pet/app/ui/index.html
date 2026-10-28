@@ -9,7 +9,8 @@
       pointer-events: none; font: 12px/1.3 "Segoe UI", sans-serif; }
     #stage { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 16px; padding: 0 8px 4px; }
     .team { display: flex; gap: 4px; align-items: flex-end; }
-    .pet { width: calc(192px * var(--pet-scale) + 24px); display: flex; flex-direction: column; align-items: center; }
+    .pet { width: calc(192px * var(--pet-scale) + 24px); display: flex; flex-direction: column; align-items: center;
+      transform: translateX(calc(var(--scene-offset, 0) * (192px * var(--pet-scale) + 28px))); }
     canvas { width: calc(192px * var(--pet-scale)); height: calc(208px * var(--pet-scale)); }
     .tag { max-width: calc(192px * var(--pet-scale) + 14px); overflow: hidden; text-overflow: ellipsis; color: white;
       background: rgba(20,20,30,.65); padding: 2px 5px; border-radius: 8px; white-space: nowrap; }

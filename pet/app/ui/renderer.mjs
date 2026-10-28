@@ -1,20 +1,8 @@
 import { createStage } from "./stage.mjs";
 import { resolvePets } from "./pet-config.mjs";
 
-// Codex v1 row order and per-frame durations in milliseconds. These timings
-// are provisional: exact Codex timings were not supplied with the v1 contract.
-// Replace this single table when verified upstream values are available.
-const CODEX_V1_FRAME_TIMINGS_MS = {
-  idle: [240, 160, 180, 240, 160, 200],
-  "running-right": [80, 80, 80, 80, 80, 80, 80, 80],
-  "running-left": [80, 80, 80, 80, 80, 80, 80, 80],
-  waving: [160, 120, 160, 220],
-  jumping: [120, 100, 180, 100, 160],
-  failed: [140, 100, 100, 140, 100, 100, 180, 240],
-  waiting: [240, 160, 160, 240, 160, 240],
-  running: [100, 100, 100, 100, 100, 160],
-  review: [180, 120, 120, 180, 120, 240],
-};
+import { CODEX_V1_FRAME_TIMINGS_MS } from "./animations.mjs";
+
 const rows = Object.keys(CODEX_V1_FRAME_TIMINGS_MS);
 const invoke = window.__TAURI__.core.invoke;
 // Retain the same bytes that the resolver validated, including the sheet MIME.
@@ -72,8 +60,8 @@ function render() {
       root.append(node);
       teams.set(team.key, node);
     }
-    const characters = team.workers.map(worker => ({ ...worker, id: `worker:${worker.worker}` }));
-    if (team.leader) characters.unshift({ ...team.leader, id: `leader:${team.key}`, role: "leader" });
+    const characters = team.workers.map((worker, index) => ({ ...worker, home: index + 1, id: `worker:${worker.worker}` }));
+    if (team.leader) characters.unshift({ ...team.leader, home: 0, id: `leader:${team.key}`, role: "leader" });
     for (const character of characters) {
       livePets.add(character.id);
       if (!pets.has(character.id)) {
@@ -89,7 +77,9 @@ function render() {
       const pet = pets.get(character.id);
       // Reconcile order too: the leader may arrive after its workers.
       teams.get(team.key).append(pet.node);
-      if (pet.character?.state !== character.state) pet.began = performance.now();
+      if (pet.character?.displayState !== character.displayState) pet.began = performance.now();
+      // Flex owns the home slots; scenes only translate within the team.
+      pet.node.style.setProperty("--scene-offset", String(character.x - character.home));
       pet.character = character;
       pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
@@ -99,8 +89,10 @@ function render() {
 }
 
 function draw(time) {
+  stage.tick();
+  render();
   for (const pet of pets.values()) {
-    const { state, role } = pet.character;
+    const { displayState: state, role } = pet.character;
     const sheet = sheets.get(role) ?? sheets.get("implementer");
     if (!sheet.complete || !sheet.naturalWidth) continue;
     const timings = CODEX_V1_FRAME_TIMINGS_MS[state];
@@ -115,5 +107,6 @@ function draw(time) {
 
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); render(); });
 await window.__TAURI__.core.invoke("renderer_ready");
+// Lifecycle runs on wall time even when animation frames are paused.
 setInterval(() => { stage.tick(); render(); }, 250);
 requestAnimationFrame(draw);
