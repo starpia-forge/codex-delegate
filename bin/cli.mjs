@@ -8,7 +8,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { listPet, preparePet, readPetMarker } from "./pet.mjs";
+import { listPet, preparePet, preparePetRemoval, readPetMarker, withInstallerLock } from "./pet.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -32,7 +32,7 @@ Options:
   --force                 Overwrite skills with the same name that this tool did not install
   --dry-run               Show what would change without changing anything
   --with-pet              Install the pinned Windows pet and Claude Code hooks (user scope)
-  --without-pet           Install skills without a pet (removal is not available yet)
+  --without-pet           Remove the pet and its owned hooks, keeping skills
   -h, --help              Show this help`;
 
 function parseArgs(argv) {
@@ -133,10 +133,6 @@ function installedSkills(dir) {
 }
 
 async function install(opts) {
-  if (opts.withoutPet) {
-    if (readPetMarker()) throw new Error("pet removal is not available yet; nothing was changed");
-    console.log("Pet: no pet installed");
-  }
   // Plan every agent before touching anything, so a conflict aborts cleanly.
   const plans = opts.agents.map((id) => {
     const agent = manifest.agents[id];
@@ -157,7 +153,10 @@ async function install(opts) {
 
   let pet;
   try {
-    if (opts.withPet) pet = await preparePet({ root, pkg, dryRun: opts.dryRun });
+    if (opts.withoutPet) pet = preparePetRemoval({ dryRun: opts.dryRun });
+    if (opts.withPet || (!opts.withoutPet && opts.scope === "user" && opts.agents.includes("claude-code") && readPetMarker())) {
+      pet = await preparePet({ root, pkg, dryRun: opts.dryRun });
+    }
   } catch (error) {
     console.error(`codex-delegate: ${error.message.replace(/; nothing was changed$/, "")}\nNothing was changed.`);
     process.exitCode = 1;
@@ -188,35 +187,47 @@ async function install(opts) {
     console.log("\nDry run: nothing was changed.");
     return;
   }
-  steps.push(...(pet?.steps ?? []));
-  try {
-    for (const step of steps) {
-      step.status = "failed (may be partially applied)";
-      step.apply();
-      step.status = "applied";
-    }
-  } catch (error) {
-    console.error(`Install apply failed: ${error.message}`);
-    for (const step of steps) console.error(`  ${step.status}: ${step.label}`);
-    console.error(`Settings backup: ${pet?.backup() ?? "none (settings were not changed)"}`);
-    process.exitCode = 1;
-    return;
-  } finally { pet?.cleanup(); }
-  if (pet) console.log("Restart Claude Code so the pet hooks take effect.");
+  if (!await applySteps(steps, pet, "Install")) return;
   console.log(`\nInstalled codex-delegate ${pkg.version}. Restart Claude Code and Codex to pick up the skills.\n`);
   doctor();
 }
 
-function uninstall(opts) {
+async function applySteps(steps, pet, operation) {
+  steps.push(...(pet?.steps ?? []));
+  try {
+    for (const step of steps) {
+      step.status = "failed (may be partially applied)";
+      await step.apply();
+      step.status = "applied";
+    }
+  } catch (error) {
+    console.error(`${operation} apply failed: ${error.message}`);
+    for (const step of steps) console.error(`  ${step.status}: ${step.label}`);
+    console.error(`Settings backup: ${pet?.backup() ?? "none (settings were not changed)"}`);
+    process.exitCode = 1;
+    return false;
+  } finally { pet?.cleanup(); }
+  if (pet) console.log("Restart Claude Code so the pet hooks take effect.");
+  return true;
+}
+
+async function uninstall(opts) {
+  const pet = opts.scope === "user" && opts.agents.includes("claude-code")
+    ? preparePetRemoval({ dryRun: opts.dryRun }) : undefined;
+  const steps = [];
   for (const id of opts.agents) {
     const agent = manifest.agents[id];
     const dir = targetDir(agent, opts.scope);
     const names = installedSkills(dir).map((i) => i.name);
     console.log(`${agent.name} -> ${dir}`);
     console.log(names.length ? `  remove ${names.length}: ${names.join(", ")}` : "  nothing installed");
-    if (!opts.dryRun) for (const name of names) rmSync(join(dir, name), { recursive: true, force: true });
+    if (!opts.dryRun) for (const name of names) steps.push({
+      label: `remove skill ${join(dir, name)}`, status: "not applied",
+      apply: () => rmSync(join(dir, name), { recursive: true, force: true }),
+    });
   }
   if (opts.dryRun) console.log("\nDry run: nothing was changed.");
+  else await applySteps(steps, pet, "Uninstall");
 }
 
 function list(opts) {
@@ -321,7 +332,9 @@ try {
   const opts = parseArgs(process.argv.slice(2));
   const commands = { install: () => install(opts), uninstall: () => uninstall(opts), list: () => list(opts), doctor, help: () => console.log(HELP) };
   if (!commands[opts.command]) throw new Error(`unknown command: ${opts.command}`);
-  await commands[opts.command]();
+  if (["install", "uninstall"].includes(opts.command) && !opts.dryRun) {
+    await withInstallerLock(commands[opts.command], { recoverPet: opts.scope === "user" && opts.agents.includes("claude-code") });
+  } else await commands[opts.command]();
 } catch (err) {
   console.error(`codex-delegate: ${err.message}\n\n${HELP}`);
   process.exitCode = 2;

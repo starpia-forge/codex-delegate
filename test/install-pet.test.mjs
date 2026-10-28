@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomInt } from "node:crypto";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,16 +65,20 @@ else process.exitCode = 1;
   const env = { ...fake.env, CODEX_DELEGATE_TEST_PLATFORM: "win32" };
   const settingsPath = join(fake.claudeHome, "settings.json");
   writeFileSync(settingsPath, '{ "theme": "dark" }\n');
-  const run = (args, extraEnv = {}, onOutput = () => {}) => new Promise((resolve, reject) => {
+  const run = (args, extraEnv = {}, onOutput = () => {}) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd: root, env: { ...env, ...extraEnv }, windowsHide: true,
     });
-    let stdout = "", stderr = "";
-    child.stdout.on("data", chunk => { stdout += chunk; onOutput(stdout); });
-    child.stderr.on("data", chunk => { stderr += chunk; });
-    child.on("error", reject);
-    child.on("close", code => resolve({ code, stdout, stderr, output: stdout + stderr }));
-  });
+    const completion = new Promise((resolve, reject) => {
+      let stdout = "", stderr = "";
+      child.stdout.on("data", chunk => { stdout += chunk; onOutput(stdout); });
+      child.stderr.on("data", chunk => { stderr += chunk; });
+      child.on("error", reject);
+      child.on("close", code => resolve({ code, stdout, stderr, output: stdout + stderr }));
+    });
+    completion.child = child;
+    return completion;
+  };
   return { root, ...fake, env, run, settingsPath, petRoot: join(fake.home, ".codex-delegate") };
 }
 
@@ -83,6 +87,241 @@ function snapshot(dir) {
   return Object.fromEntries(readdirSync(dir, { withFileTypes: true }).map(entry => [entry.name,
     entry.isDirectory() ? snapshot(join(dir, entry.name)) : readFileSync(join(dir, entry.name)).toString("base64")
   ]));
+}
+
+async function appStub(t, f, { ignoreQuit = false, foreign = false } = {}) {
+  const log = join(f.root, "app-quit.json");
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    import { createServer } from "node:http";
+    import { existsSync, readFileSync, writeFileSync } from "node:fs";
+    const state = ${JSON.stringify(join(f.petRoot, "pet-state"))};
+    const server = createServer((req, res) => {
+      if (req.headers["x-codex-delegate-pet-token"] !== readFileSync(state + "/token", "utf8").trim()) {
+        res.writeHead(401); return res.end();
+      }
+      if (req.url === "/health") return res.end(JSON.stringify({ app: ${JSON.stringify(foreign ? "other-app" : "codex-delegate-pet")}, protocol: 1, version: "1", pid: process.pid }));
+      if (req.url === "/quit" && req.method === "POST") {
+        writeFileSync(${JSON.stringify(log)}, JSON.stringify({ updating: existsSync(state + "/updating"), bundle: existsSync(${JSON.stringify(join(f.petRoot, "pet", "codex-delegate-pet.exe"))}) }));
+        res.end("{}", () => { if (!${ignoreQuit}) server.close(() => process.exit(0)); });
+      } else { res.writeHead(404); res.end(); }
+    });
+    server.listen(0, "127.0.0.1", () => console.log(server.address().port));
+  `], { env: f.env, windowsHide: true });
+  const exited = new Promise(resolve => child.once("close", resolve));
+  t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); await exited; });
+  const port = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.stdout.once("data", chunk => resolve(Number(chunk.toString().trim())));
+    child.once("exit", code => reject(new Error(`app stub exited ${code}`)));
+  });
+  return { child, exited, log, env: { CODEX_DELEGATE_PET_PORT: String(port), CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS: "150" } };
+}
+
+for (const args of [
+  ["install", "--scope", "project"],
+  ["install", "--agent", "codex"],
+  ["uninstall", "--scope", "project"],
+  ["uninstall", "--agent", "codex"],
+]) {
+  test(`${args.join(" ")} leaves an enabled pet untouched`, async t => {
+    const f = fixture(t);
+    const r = await release(t, f);
+    const installed = await f.run(["install", "--with-pet"]);
+    assert.equal(installed.code, 0, installed.output);
+    const state = join(f.petRoot, "pet-state");
+    writeFileSync(join(f.petRoot, "pet", "keep.txt"), "keep the installed bundle intact");
+    mkdirSync(join(state, "sessions"));
+    writeFileSync(join(state, "sessions", "leader.json"), '{"team":"1234"}\n');
+    mkdirSync(join(state, "spool"));
+    writeFileSync(join(state, "spool", "event.json"), '{"type":"prompt"}\n');
+    const app = await appStub(t, f);
+    const before = snapshot(f.petRoot);
+    const settings = readFileSync(f.settingsPath);
+    const requests = [...r.requests];
+    const flagEvents = [];
+    // Observe transient writes too: a final snapshot alone misses a flag
+    // that was created and then cleared during the command.
+    const watcher = watch(state, (event, filename) => {
+      if (filename?.toString() === "updating") flagEvents.push(event);
+    });
+    t.after(() => watcher.close());
+
+    const result = await f.run(args, app.env);
+
+    assert.equal(result.code, 0, result.output);
+    assert.deepEqual(r.requests, requests, "no pet download");
+    assert.deepEqual(snapshot(f.petRoot), before, "bundle and state remain byte-identical");
+    assert.deepEqual(readFileSync(f.settingsPath), settings, "Claude settings remain byte-identical");
+    assert.equal(existsSync(app.log), false, "app must not be asked to quit");
+    assert.doesNotThrow(() => process.kill(app.child.pid, 0), "app remains running");
+    assert.deepEqual(flagEvents, [], "no updating flag is written, even transiently");
+    assert.equal(existsSync(join(state, "updating")), false);
+  });
+}
+
+for (const args of [["install"], ["install", "--without-pet"], ["uninstall"]]) {
+  for (const ignoreQuit of [false, true]) {
+    test(`${args.join(" ")} suppresses relaunch before asking the app to quit${ignoreQuit ? " and force-stops it" : ""}`, async t => {
+      const f = fixture(t);
+      await release(t, f);
+      assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+      const app = await appStub(t, f, { ignoreQuit });
+      const result = await f.run(args, app.env);
+      assert.equal(result.code, 0, result.output);
+      assert.equal(existsSync(app.log), true, "app must be asked to quit");
+      assert.deepEqual(JSON.parse(readFileSync(app.log)), { updating: true, bundle: true });
+      assert.throws(() => process.kill(app.child.pid, 0), { code: "ESRCH" });
+      await app.exited;
+      assert.equal(existsSync(join(f.petRoot, "pet-state", "updating")), false);
+    });
+  }
+}
+
+test("a concurrent installer is refused while the first installer waits for the app to stop", { timeout: 15_000 }, async t => {
+  const f = fixture(t);
+  const r = await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const app = await appStub(t, f, { ignoreQuit: true });
+  const first = f.run(["install"], { ...app.env, CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS: "1800" });
+  const deadline = Date.now() + 5000;
+  while (!existsSync(app.log) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(existsSync(app.log), true);
+  const before = snapshot(f.petRoot);
+  const requests = r.requests.length;
+  const contenders = await Promise.all([
+    ["install", "--without-pet"], ["install", "--scope", "project"], ["install", "--agent", "codex"],
+  ].map(args => f.run(args)));
+  const afterSecond = snapshot(f.petRoot);
+  const firstResult = await first;
+  for (const second of contenders) {
+    assert.notEqual(second.code, 0, second.output);
+    assert.match(second.output, /another.*install|install.*lock/i);
+  }
+  assert.deepEqual(afterSecond, before);
+  assert.equal(r.requests.length, requests);
+  assert.equal(firstResult.code, 0, firstResult.output);
+  assert.deepEqual(readdirSync(f.petRoot).sort(), ["pet", "pet-state"]);
+});
+
+for (const enabled of [false, true]) {
+  test(`rerunning ${enabled ? "implicit update" : "with-pet"} completes a failure after the bundle swap`, async t => {
+    const f = fixture(t);
+    const r = await release(t, f);
+    const state = join(f.petRoot, "pet-state");
+    let token;
+    if (enabled) {
+      assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+      token = readFileSync(join(state, "token"));
+      const markerPath = join(state, ".codex-delegate.json");
+      const marker = JSON.parse(readFileSync(markerPath));
+      const settings = JSON.parse(readFileSync(f.settingsPath));
+      // Exercise ownership across an interrupted command migration.
+      marker.hooks.Stop = 'node "old leader-hook.mjs"';
+      settings.hooks.Stop[0].hooks[0].command = marker.hooks.Stop;
+      writeFileSync(markerPath, JSON.stringify(marker));
+      writeFileSync(f.settingsPath, JSON.stringify(settings));
+      writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, version: "1.2.4" }));
+    }
+    const args = enabled ? ["install"] : ["install", "--with-pet"];
+    const originalSettings = readFileSync(f.settingsPath);
+    const failed = await f.run(args, { CODEX_DELEGATE_PET_TEST_FAIL_AFTER_SWAP: "1" });
+    assert.notEqual(failed.code, 0, failed.output);
+    assert.match(failed.output, /applied: install pet bundle/);
+    assert.match(failed.output, /not applied: write Claude Code settings/);
+    assert.match(failed.output, /Settings backup: none/);
+    assert.deepEqual(readFileSync(f.settingsPath), originalSettings);
+    assert.equal(existsSync(join(f.petRoot, "pet", "codex-delegate-pet.exe")), true);
+    assert.equal(existsSync(join(state, "updating")), false);
+    const rerun = await f.run(args);
+    assert.equal(rerun.code, 0, rerun.output);
+    if (token) assert.deepEqual(readFileSync(join(state, "token")), token);
+    const settings = JSON.parse(readFileSync(f.settingsPath));
+    for (const event of events) assert.equal(settings.hooks[event].length, 1);
+    assert.doesNotMatch(readFileSync(f.settingsPath, "utf8"), /old leader-hook/);
+    const marker = JSON.parse(readFileSync(join(state, ".codex-delegate.json")));
+    assert.equal(marker.bundle.version, enabled ? "1.2.4" : "1.2.3");
+    assert.equal(marker.settingsPath, f.settingsPath);
+    assert.equal(marker.pendingHooks, undefined);
+    assert.deepEqual(readdirSync(f.petRoot).sort(), ["pet", "pet-state"]);
+  });
+}
+
+test("the same install recovers the lock and updating flag after a hard interruption", async t => {
+  const f = fixture(t);
+  await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const app = await appStub(t, f, { ignoreQuit: true });
+  const running = f.run(["install"], { ...app.env, CODEX_DELEGATE_PET_QUIT_TIMEOUT_MS: "5000" });
+  const deadline = Date.now() + 5000;
+  while (!existsSync(app.log) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(existsSync(app.log), true);
+  running.child.kill("SIGKILL");
+  await running;
+  assert.equal(existsSync(join(f.petRoot, "install.lock")), true);
+  assert.equal(existsSync(join(f.petRoot, "pet-state", "updating")), true);
+  const result = await f.run(["install"], app.env);
+  assert.equal(result.code, 0, result.output);
+  assert.equal(existsSync(join(f.petRoot, "install.lock")), false);
+  assert.equal(existsSync(join(f.petRoot, "pet-state", "updating")), false);
+  assert.deepEqual(readdirSync(f.petRoot).sort(), ["pet", "pet-state"]);
+});
+
+test("a stale updating flag is cleared even when the next install fails preflight", async t => {
+  const f = fixture(t);
+  const r = await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const flag = join(f.petRoot, "pet-state", "updating");
+  writeFileSync(flag, "interrupted");
+  writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, sha256: "0".repeat(64) }));
+  const result = await f.run(["install"]);
+  assert.notEqual(result.code, 0);
+  assert.match(result.output, /checksum/i);
+  assert.equal(existsSync(flag), false);
+  assert.equal(existsSync(join(f.petRoot, "install.lock")), false);
+});
+
+for (const args of [["install"], ["uninstall"]]) {
+  test(`${args.join(" ")} never asks a foreign listener to quit or kills its process`, async t => {
+    const f = fixture(t);
+    await release(t, f);
+    assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+    const app = await appStub(t, f, { foreign: true });
+    const result = await f.run(args, app.env);
+    assert.equal(result.code, 0, result.output);
+    assert.equal(existsSync(app.log), false);
+    assert.equal(process.kill(app.child.pid, 0), true);
+  });
+}
+
+for (const scope of ["user", "project"]) {
+  for (const agents of [[], ["claude-code"], ["codex"]]) {
+    for (const enabled of [false, true]) {
+      for (const command of ["install", "uninstall"]) {
+        test(`matrix: ${command}, ${scope}, ${agents.join() || "both agents"}, pet ${enabled ? "enabled" : "disabled"}`, async t => {
+          const f = fixture(t);
+          const r = await release(t, f);
+          if (enabled) assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+          r.requests.length = 0;
+          const before = snapshot(f.petRoot);
+          const settings = readFileSync(f.settingsPath);
+          const args = [command, "--scope", scope, ...agents.flatMap(agent => ["--agent", agent])];
+          const result = await f.run(args);
+          assert.equal(result.code, 0, result.output);
+          const eligible = scope === "user" && !agents.includes("codex");
+          assert.equal(r.requests.length, eligible && enabled && command === "install" ? 1 : 0);
+          if (!eligible || !enabled) {
+            assert.deepEqual(snapshot(f.petRoot), before);
+            assert.deepEqual(readFileSync(f.settingsPath), settings);
+          } else if (command === "uninstall") {
+            assert.equal(existsSync(join(f.petRoot, "pet")), false);
+            assert.equal(existsSync(join(f.petRoot, "pet-state")), false);
+          } else {
+            assert.equal(existsSync(join(f.petRoot, "pet", "codex-delegate-pet.exe")), true);
+          }
+        });
+      }
+    }
+  }
 }
 
 test("contradictory pet options are refused without changing anything", async t => {
@@ -252,7 +491,7 @@ test("skill conflicts abort before the pet download", async t => {
   assert.deepEqual(snapshot(f.root), before);
 });
 
-test("plain install never downloads or changes enabled pet files or settings", async t => {
+test("plain install downloads nothing when disabled and updates an enabled pet with its original ownership", async t => {
   const f = fixture(t);
   const r = await release(t, f);
   assert.equal((await f.run(["install"])).code, 0);
@@ -261,13 +500,24 @@ test("plain install never downloads or changes enabled pet files or settings", a
   assert.equal(readFileSync(f.settingsPath, "utf8"), '{ "theme": "dark" }\n');
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   r.requests.length = 0;
-  const beforePet = snapshot(f.petRoot);
-  const beforeSettings = readFileSync(f.settingsPath);
-  const result = await f.run(["install"]);
+  const state = join(f.petRoot, "pet-state");
+  const token = readFileSync(join(state, "token"));
+  writeFileSync(join(state, "sessions.json"), "keep sessions");
+  writeFileSync(join(f.petRoot, "pet", "obsolete.txt"), "old bundle");
+  writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, version: "1.2.4" }));
+  const otherConfig = join(f.root, "other config");
+  const result = await f.run(["install"], { CLAUDE_CONFIG_DIR: otherConfig });
   assert.equal(result.code, 0, result.output);
-  assert.deepEqual(r.requests, []);
-  assert.deepEqual(snapshot(f.petRoot), beforePet);
-  assert.deepEqual(readFileSync(f.settingsPath), beforeSettings);
+  assert.deepEqual(r.requests, ["/pet-v1.2.3/pet.zip"]);
+  assert.equal(existsSync(join(f.petRoot, "pet", "obsolete.txt")), false);
+  assert.deepEqual(readFileSync(join(state, "token")), token);
+  assert.equal(readFileSync(join(state, "sessions.json"), "utf8"), "keep sessions");
+  const marker = JSON.parse(readFileSync(join(state, ".codex-delegate.json")));
+  assert.equal(marker.bundle.version, "1.2.4");
+  assert.equal(marker.settingsPath, f.settingsPath);
+  assert.equal(existsSync(join(otherConfig, "settings.json")), false);
+  const settings = JSON.parse(readFileSync(f.settingsPath));
+  for (const event of events) assert.equal(settings.hooks[event].length, 1);
 });
 
 test("dry run reports every pet action without downloading or changing files", async t => {
@@ -297,7 +547,7 @@ test("dry run reports every pet action without downloading or changing files", a
   assert.deepEqual(snapshot(f.root), installed);
 });
 
-test("without-pet installs normally when disabled and refuses enabled removal before changing anything", async t => {
+test("without-pet installs skills normally when disabled", async t => {
   const f = fixture(t);
   const r = await release(t, f);
   const initialSettings = readFileSync(f.settingsPath);
@@ -307,17 +557,104 @@ test("without-pet installs normally when disabled and refuses enabled removal be
   assert.deepEqual(r.requests, []);
   assert.deepEqual(readFileSync(f.settingsPath), initialSettings);
   assert.equal(existsSync(f.petRoot), false);
-  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
-  r.requests.length = 0;
-  const before = snapshot(f.root);
-  for (const args of [["install", "--without-pet"], ["install", "--without-pet", "--dry-run"]]) {
-    const enabled = await f.run(args);
-    assert.notEqual(enabled.code, 0, enabled.output);
-    assert.match(enabled.output, /pet removal is not available yet/i);
-    assert.deepEqual(snapshot(f.root), before);
-  }
-  assert.deepEqual(r.requests, []);
 });
+
+for (const args of [["install", "--without-pet"], ["uninstall"]]) {
+  test(`${args.join(" ")} removes only owned hooks from the recorded settings path`, async t => {
+    const f = fixture(t);
+    const r = await release(t, f);
+    assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+    const marker = JSON.parse(readFileSync(join(f.petRoot, "pet-state", ".codex-delegate.json")));
+    const userLeaf = { type: "command", command: `${marker.hooks.Stop} --user`, timeout: 77 };
+    const userGroup = { matcher: "user", hooks: [userLeaf] };
+    const settings = JSON.parse(readFileSync(f.settingsPath));
+    settings.hooks.Stop[0].hooks.push(userLeaf);
+    settings.hooks.Stop[0].matcher = "keep matcher";
+    settings.hooks.SessionStart.push(userGroup);
+    settings.hooks.PreToolUse = [userGroup];
+    writeFileSync(f.settingsPath, JSON.stringify(settings));
+    writeFileSync(join(f.petRoot, "pet.json"), '{"scale":0.5}');
+    const config = join(f.root, "new config");
+    mkdirSync(config);
+    writeFileSync(join(config, "settings.json"), '{"new":true}');
+    r.requests.length = 0;
+    const before = snapshot(f.root);
+    const dry = await f.run([...args, "--dry-run"], { CLAUDE_CONFIG_DIR: config });
+    assert.equal(dry.code, 0, dry.output);
+    assert.match(dry.output, /remove pet bundle/i);
+    assert.ok(dry.output.includes(f.settingsPath));
+    assert.deepEqual(snapshot(f.root), before);
+    const result = await f.run(args, { CLAUDE_CONFIG_DIR: config });
+    assert.equal(result.code, 0, result.output);
+    assert.equal(existsSync(join(f.petRoot, "pet")), false);
+    assert.equal(existsSync(join(f.petRoot, "pet-state")), false);
+    assert.equal(readFileSync(join(f.petRoot, "pet.json"), "utf8"), '{"scale":0.5}');
+    assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)), {
+      theme: "dark", hooks: { Stop: [{ matcher: "keep matcher", hooks: [userLeaf] }], SessionStart: [userGroup], PreToolUse: [userGroup] },
+    });
+    assert.equal(readFileSync(join(config, "settings.json"), "utf8"), '{"new":true}');
+    const backups = readdirSync(f.claudeHome).filter(name => name.includes("backup"));
+    assert.ok(backups.some(name => readFileSync(join(f.claudeHome, name), "utf8") === JSON.stringify(settings)));
+    assert.deepEqual(r.requests, []);
+    const again = await f.run(args, { CLAUDE_CONFIG_DIR: config });
+    assert.equal(again.code, 0, again.output);
+    const skill = join(config, "skills", "codex-implement", ".codex-delegate.json");
+    assert.equal(existsSync(skill), args[0] === "install");
+  });
+}
+
+for (const args of [["install", "--without-pet"], ["uninstall"]]) {
+  test(`${args.join(" ")} retries cleanup even after an interrupted removal deleted the state marker`, async t => {
+    const f = fixture(t);
+    await release(t, f);
+    assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+    const failed = await f.run(args, { CODEX_DELEGATE_PET_TEST_FAIL_AFTER_REMOVAL: "1" });
+    assert.notEqual(failed.code, 0, failed.output);
+    assert.match(failed.output, /applied: remove pet state/);
+    assert.equal(existsSync(join(f.petRoot, "pet-state")), false);
+    const result = await f.run(args);
+    assert.equal(result.code, 0, result.output);
+    assert.deepEqual(readdirSync(f.petRoot), []);
+    assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)), { theme: "dark", hooks: {} });
+  });
+
+  test(`${args.join(" ")} refuses changed settings during apply and can be rerun`, async t => {
+    const f = fixture(t);
+    await release(t, f);
+    assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+    const edited = JSON.parse(readFileSync(f.settingsPath));
+    edited.theme = "concurrent user edit";
+    let changed = false;
+    const result = await f.run(args, {}, output => {
+      if (!changed && output.includes("Claude Code (Leader) ->")) {
+        changed = true;
+        writeFileSync(f.settingsPath, JSON.stringify(edited));
+      }
+    });
+    assert.ok(changed);
+    assert.notEqual(result.code, 0, result.output);
+    assert.match(result.output, /settings changed since preflight/i);
+    assert.equal(readFileSync(f.settingsPath, "utf8"), JSON.stringify(edited));
+    assert.equal(existsSync(join(f.petRoot, "pet", "codex-delegate-pet.exe")), true);
+    assert.equal(existsSync(join(f.petRoot, "pet-state", "updating")), false);
+    const rerun = await f.run(args);
+    assert.equal(rerun.code, 0, rerun.output);
+    assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)), { theme: "concurrent user edit", hooks: {} });
+    assert.equal(existsSync(join(f.petRoot, "pet-state")), false);
+  });
+
+  test(`${args.join(" ")} aborts before skills change when recorded settings are invalid`, async t => {
+    const f = fixture(t);
+    await release(t, f);
+    assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+    writeFileSync(f.settingsPath, "invalid JSON");
+    const before = snapshot(f.root);
+    const result = await f.run(args, { CLAUDE_CONFIG_DIR: join(f.root, "another config") });
+    assert.notEqual(result.code, 0);
+    assert.match(result.output, /cannot parse.*settings/i);
+    assert.deepEqual(snapshot(f.root), before);
+  });
+}
 
 test("user-scope list reports pet state, bundle version, and recorded settings path", async t => {
   const f = fixture(t);
@@ -353,6 +690,27 @@ test("commands recorded in the marker are replaced exactly, keeping surrounding 
   assert.deepEqual(stop, [{ matcher: "*", hooks: [user, { type: "command", command: `node "${join(f.petRoot, "pet", "hook", "leader-hook.mjs")}"`, timeout: 10 }] }]);
 });
 
+test("updating removes duplicate owned registrations while preserving their surrounding user hooks", async t => {
+  const f = fixture(t);
+  await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const settings = JSON.parse(readFileSync(f.settingsPath));
+  const owned = settings.hooks.Stop[0].hooks[0];
+  const user = { type: "command", command: "echo user" };
+  settings.hooks.Stop = [
+    { matcher: "first", hooks: [owned, user, owned] },
+    { matcher: "duplicate", hooks: [owned] },
+    { matcher: "keep", hooks: [owned, user] },
+  ];
+  writeFileSync(f.settingsPath, JSON.stringify(settings));
+  const result = await f.run(["install"]);
+  assert.equal(result.code, 0, result.output);
+  assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)).hooks.Stop, [
+    { matcher: "first", hooks: [owned, user] },
+    { matcher: "keep", hooks: [user] },
+  ]);
+});
+
 for (const change of ["modified", "appeared", "disappeared"]) {
   test(`settings ${change} during apply are not overwritten and applied steps are reported`, async t => {
     const f = fixture(t);
@@ -383,7 +741,7 @@ for (const change of ["modified", "appeared", "disappeared"]) {
   });
 }
 
-test("a state apply failure reports completed and pending steps and cleans staging", async t => {
+test("a blocked updating flag fails before the bundle swap and reports completed and pending steps", async t => {
   const f = fixture(t);
   await release(t, f);
   mkdirSync(f.petRoot);
@@ -392,14 +750,14 @@ test("a state apply failure reports completed and pending steps and cleans stagi
   const result = await f.run(["install", "--with-pet"]);
   assert.notEqual(result.code, 0, result.output);
   assert.match(result.output, /Install apply failed/);
-  assert.match(result.output, /applied: install pet bundle/);
-  assert.match(result.output, /failed.*create\/keep pet state directory/);
+  assert.match(result.output, /not applied: install pet bundle/);
+  assert.match(result.output, /failed.*set updating flag and stop pet app/);
   assert.match(result.output, /not applied: create\/keep pet token/);
   assert.match(result.output, /not applied: write pet marker/);
   assert.match(result.output, /not applied: write Claude Code settings/);
   assert.match(result.output, /Settings backup: none/);
   assert.deepEqual(readFileSync(f.settingsPath), originalSettings);
-  assert.deepEqual(readdirSync(f.petRoot).sort(), ["pet", "pet-state"]);
+  assert.deepEqual(readdirSync(f.petRoot).sort(), ["pet-state"]);
 });
 
 test("a locked settings destination reports the actual backup and leaves original settings intact", { skip: process.platform !== "win32", timeout: 20_000 }, async t => {

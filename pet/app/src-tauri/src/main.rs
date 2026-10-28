@@ -185,7 +185,7 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
         ("401 Unauthorized", json!({"error": "unauthorized"}))
     } else if request == "GET /health HTTP/1.1" {
         (if ready.load(Ordering::Acquire) { "200 OK" } else { "503 Service Unavailable" },
-            json!({"app": "codex-delegate-pet", "protocol": 1, "version": env!("CARGO_PKG_VERSION")}))
+            json!({"app": "codex-delegate-pet", "protocol": 1, "version": env!("CARGO_PKG_VERSION"), "pid": std::process::id()}))
     } else if quit {
         ("200 OK", json!({"ok": true}))
     } else if request == "POST /exclude HTTP/1.1" {
