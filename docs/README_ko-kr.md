@@ -51,13 +51,13 @@ Windows PowerShell에서 "이 시스템에서 스크립트를 실행할 수 없�
 ### 명령
 
 ```
-npx github:starpia-forge/codex-delegate install     [--scope user|project] [--agent <id>] [--force] [--dry-run]
+npx github:starpia-forge/codex-delegate install     [--scope user|project] [--agent <id>] [--force] [--dry-run] [--with-pet | --without-pet]
 npx github:starpia-forge/codex-delegate uninstall   [--scope user|project] [--agent <id>] [--dry-run]
 npx github:starpia-forge/codex-delegate list        [--scope user|project] [--agent <id>]
 npx github:starpia-forge/codex-delegate doctor
 ```
 
-- **업데이트**: `install`을 다시 실행합니다. 새 버전에서 빠진 스킬은 자동으로 제거됩니다.
+- **업데이트**: `install`을 다시 실행합니다. 새 버전에서 빠진 스킬은 자동으로 제거됩니다. 켜져 있는 [펫](#펫)은 유지되고 업데이트됩니다.
 - **안전 장치**: 설치한 스킬마다 `.codex-delegate.json` 표시 파일을 남깁니다. `install`, `uninstall`, 업데이트는 이 표시가 있는 스킬만 건드립니다.
 - **이름 충돌**: 같은 이름의 스킬이 이미 있고 이 도구가 설치한 것이 아니면(예: 원본 mattpocock-skills), **아무것도 바꾸지 않고 중단**합니다. 덮어쓰려면 `--force`를 붙입니다.
 - **Claude Code 내장 `/code-review`**: 설치한 `code-review` 스킬이 내장 스킬을 대체합니다. 내장 리뷰는 `/review`로 계속 쓸 수 있고, `/review`는 이 스킬을 실행하지 않습니다.
@@ -114,6 +114,78 @@ npx github:starpia-forge/codex-delegate doctor
 - 회수된 잠금은 삭제되지 않고 `computer-use.lock.stale-<hash>`로 이름이 바뀌므로 `~/.codex-delegate/`에 이런 사본이 쌓일 수 있습니다(해제할 때 완전히 지우지 못한 잠금도 `computer-use.lock.released-<id>`로 남습니다). 워커가 실행 중이 아닐 때 지우면 됩니다.
 - 불완전한 잠금(runner가 Codex PID를 기록하기 전에 종료됨)은 계속 busy로 취급됩니다. 실행 중인 워커가 없는 것을 확인한 뒤 `~/.codex-delegate/computer-use.lock/`을 직접 지워야 합니다.
 - 운영체제가 종료된 워커의 PID를 관련 없는 프로세스에 다시 할당할 수 있으며, 그러면 그 프로세스가 끝날 때까지 잠금이 busy로 남습니다.
+
+## 펫
+
+실행 중인 Leader 세션과 워커마다 하나씩 나타나는 선택 기능인 데스크톱 펫입니다. 펫은 주 모니터 아래쪽, 작업 표시줄 바로 위의 띠에 살면서 자기 세션이나 워커가 하는 일을 보여줍니다. Leader가 작업 중이면 `running`, 승인 요청이나 질문에서 기다리면 `waiting`, 턴이 끝나면 `review`(1분 뒤 `idle`로 돌아감), 오류가 나면 `failed`입니다. 워커 펫에는 역할과 작업 디렉터리 이름(예: `researcher · task-one`)이 붙고, 자기를 시작한 Leader의 펫 옆에 서며, 시작할 때와 결과를 보고할 때 Leader 펫과 짧은 장면을 연출합니다. 같은 역할의 워커가 동시에 돌면 펫도 따로 나타납니다. Claude Code 창이 여러 개면 열린 순서대로 왼쪽부터 별도의 팀으로 표시되고, 띠가 가득 차면 가장 최근 펫부터 `+N` 배지로 접힙니다.
+
+띠는 포커스를 가져가지 않고 모든 클릭을 아래 창으로 통과시킵니다. 다른 창보다 위에 머물고, 전체 화면 앱이 있으면 멈춘 채 그 뒤로 내려가며, `computer-user` 워커가 실행되는 동안에는 화면 캡처에서 숨겨지므로 그 워커의 스크린샷에 찍히지 않습니다.
+
+### 켜고 끄기
+
+```
+npx github:starpia-forge/codex-delegate install --with-pet      # 펫 설치 또는 업데이트
+npx github:starpia-forge/codex-delegate install --without-pet   # 펫만 제거하고 스킬은 유지
+npx github:starpia-forge/codex-delegate uninstall               # 스킬과 펫 모두 제거
+```
+
+펫을 켜거나 끈 뒤에는 hook 변경이 반영되도록 Claude Code를 재시작합니다.
+
+한 번 켜면 업데이트해도 유지됩니다. 이후 옵션 없이 user 범위로 `install`을 실행하면 펫을 그대로 두고 이 버전이 기대하는 번들로 업데이트합니다. `--dry-run`은 펫 관련 동작(다운로드, 번들 교체, hook 변경, 설정 백업)을 실행하지 않고 출력만 하며, `list`는 펫 사용 여부, 번들 버전, hook이 들어 있는 설정 파일을 보여줍니다.
+
+펫 변경은 user 범위이고 에이전트 선택에 Claude Code가 포함될 때만 일어납니다. project 범위로 실행하거나 Claude Code를 빼고 실행하면 켜져 있는 펫은 건드리지 않습니다. 다음 경우는 아무것도 바꾸지 않고 거부합니다.
+
+- `--with-pet`과 `--without-pet`을 함께 쓴 경우
+- 두 옵션 중 하나를 `install` 외의 명령, `--scope project`, 또는 `claude-code`가 빠진 `--agent` 선택과 함께 쓴 경우
+- Windows가 아닌 환경에서 `--with-pet`을 쓴 경우
+
+필요한 것: Windows(첫 버전은 다른 운영체제를 지원하지 않습니다), Microsoft Edge WebView2 Runtime(Windows 11에는 포함되어 있고, Windows 10에서 없으면 설치합니다), Claude Code가 hook을 실행할 때 쓰는 `PATH`에 있는 `node`.
+
+### 컴퓨터에서 바뀌는 것
+
+- **펫 번들**: 설치 프로그램은 이 저장소의 GitHub Releases에서 고정된 릴리스 파일 `codex-delegate-pet-windows-x64.zip` 하나를 내려받고, SHA-256이 패키지에 포함된 pin과 다르면 거부합니다. 번들에는 펫 앱(`codex-delegate-pet.exe`), 이벤트를 보고하는 클라이언트, Leader hook 스크립트, 기본 펫이 들어 있으며 `~/.codex-delegate/pet/`에 풀립니다. 업데이트하면 이 디렉터리를 통째로 교체합니다.
+- **펫 상태**: `~/.codex-delegate/pet-state/`에는 펫이 켜져 있음을 기록하는 표시 파일(번들 버전, 설정 파일, 등록한 hook 명령 원문), 앱이 모든 요청에 요구하는 사용자별 무작위 토큰, 열려 있는 세션 기록, 아직 전달되지 않은 이벤트가 있습니다. 업데이트해도 유지됩니다.
+- **Claude Code 설정**: 사용자 설정 파일(`$CLAUDE_CONFIG_DIR/settings.json`, 없으면 `~/.claude/settings.json`. 파일이 없으면 만듭니다)의 `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `PostToolUse`에 Leader hook 스크립트 `~/.codex-delegate/pet/hook/leader-hook.mjs`를 Node로 실행하는 command hook을 추가합니다. 바꾸기 전마다 기존 파일을 옆에 `settings.json.codex-delegate-backup-<시각>-<id>`로 복사해 둡니다. 다시 설치하면 중복으로 추가하지 않고 같은 항목을 그 자리에서 갱신합니다. 제거할 때는 설치 프로그램이 기록한 항목만, 그 항목을 쓴 설정 파일에서 지우고 다른 키와 hook은 그대로 둡니다.
+
+다운로드, 번들 검증, 설정 파일 읽기는 아무것도 바꾸기 전에 합니다. 이 중 하나라도 실패하면(예: 설정 파일이 올바른 JSON이 아님) 아무것도 바꾸지 않고 중단합니다. 번들을 교체하거나 제거하는 동안에는 실행 중인 펫 앱을 멈추고, hook이나 워커가 앱을 다시 띄우지 못하게 합니다. 그 이후 단계가 실패하면 적용된 단계와 적용되지 않은 단계, 설정 백업 위치를 알려줍니다. 같은 명령을 다시 실행하면 마저 끝납니다.
+
+제거(`--without-pet` 또는 `uninstall`)하면 hook과 함께 `~/.codex-delegate/pet/`과 `~/.codex-delegate/pet-state/`를 삭제합니다.
+
+펫 앱은 첫 이벤트에서 시작하고, 10분 동안 이벤트가 없으면 스스로 종료합니다. Leader와 워커의 보고는 Claude Code나 워커를 막지 않으며 출력도 바꾸지 않습니다.
+
+### 설정과 사용자 펫
+
+`~/.codex-delegate/pet.json`에 적습니다(선택).
+
+```json
+{
+  "scale": 0.6,
+  "pets": { "leader": "my-pet", "researcher": "critic" }
+}
+```
+
+- `scale`: 192 × 208 스프라이트 칸 대비 펫 크기. 0.3부터 1.0까지(기본값 0.6).
+- `pets`: `leader`, `researcher`, `critic`, `implementer`, `computer-user`에 보여줄 펫을 펫 폴더 이름으로 지정합니다. 지정하지 않은 항목은 같은 이름의 기본 펫을 씁니다.
+
+모르는 키와 잘못된 값은 무시하고, JSON이 잘못되면 기본값을 씁니다. 펫 앱은 시작할 때 이 파일을 읽습니다.
+
+펫 이름은 다음 순서로 찾습니다.
+
+1. `~/.codex-delegate/pets/<name>/`
+2. Codex 펫 폴더 `$CODEX_HOME/pets/<name>/`(기본값 `~/.codex/pets/<name>/`). Codex에서 쓰던 펫을 그대로 쓸 수 있습니다.
+3. 같은 이름의 기본 펫(`leader`, `researcher`, `critic`, `implementer`, `computer-user`)
+
+펫 폴더는 Codex 펫 패키지 형식을 따릅니다. `id`, `displayName`, `description`, `spritesheetPath`가 있는 `pet.json` 매니페스트와, 1536 × 1872 픽셀(192 × 208 칸 8 × 9개)의 투명 PNG 또는 WebP 스프라이트 시트입니다. 처음 찾은 폴더가 형식에 맞지 않거나 지정한 펫을 어디서도 찾지 못하면 그 항목은 기본 펫을 보여줍니다.
+
+### `doctor`의 펫 점검 항목
+
+펫이 설치되어 있을 때만 `doctor`가 다음도 알려줍니다.
+
+- 설치된 번들이 이 codex-delegate가 기대하는 버전인지
+- 모든 펫 hook이 펫을 설치한 설정 파일에 아직 등록되어 있는지. 그 파일이 현재와 다른 설정 디렉터리에 있으면 경고
+- WebView2 Runtime이 있는지(Windows 10)
+- 잘못된 `pet.json` 설정, 찾을 수 없거나 Codex 펫 형식에 맞지 않는 지정 펫
+- 펫 포트를 펫 앱이 아닌 다른 프로그램이 쓰고 있는지
 
 ## 워크플로우
 
@@ -208,6 +280,8 @@ scripts/build.mjs           skills/ 생성
 skills/                     빌드 산출물. 직접 수정하지 말 것
   claude/                   mattpocock 기본 스킬 전부(진입점 5개와 code-review는 패치본) + src/skills. Claude Code 전용
   codex/                    워커에게 필요한 원본 스킬만, 워커 역할에 맞게 패치. Codex 전용
+pet/                        선택 기능인 Windows 펫: 앱, 클라이언트, Leader hook (pet/README.md 참고)
+pet-pin.json                설치 프로그램이 내려받는 펫 번들의 릴리스 태그, 파일 이름, SHA-256
 docs/                       번역 문서
 ```
 

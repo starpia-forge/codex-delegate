@@ -51,13 +51,13 @@ A skill both agents use, such as `tdd`, is installed as two separate copies. Eac
 ### Commands
 
 ```
-npx github:starpia-forge/codex-delegate install     [--scope user|project] [--agent <id>] [--force] [--dry-run]
+npx github:starpia-forge/codex-delegate install     [--scope user|project] [--agent <id>] [--force] [--dry-run] [--with-pet | --without-pet]
 npx github:starpia-forge/codex-delegate uninstall   [--scope user|project] [--agent <id>] [--dry-run]
 npx github:starpia-forge/codex-delegate list        [--scope user|project] [--agent <id>]
 npx github:starpia-forge/codex-delegate doctor
 ```
 
-- **Updating**: run `install` again. Skills dropped in the new version are removed automatically.
+- **Updating**: run `install` again. Skills dropped in the new version are removed automatically. An enabled [pet](#pet) is kept and updated.
 - **Safety**: every installed skill gets a `.codex-delegate.json` marker file. `install`, `uninstall` and updates only touch skills that carry this marker.
 - **Name conflicts**: if a skill with the same name already exists and this tool did not install it (for example, the original mattpocock-skills), installation **stops without changing anything**. Add `--force` to overwrite.
 - **Claude Code's built-in `/code-review`**: the installed `code-review` skill replaces it. The built-in review stays available as `/review`, which never runs this skill.
@@ -114,6 +114,78 @@ Prerequisites:
 - each reclaimed lock is renamed to `computer-use.lock.stale-<hash>` rather than deleted, so these copies can accumulate in `~/.codex-delegate/` (a released lock that could not be fully deleted is left as `computer-use.lock.released-<id>`); delete them when no worker is running;
 - a lock left incomplete (the runner died before recording the Codex PID) counts as busy forever; delete `~/.codex-delegate/computer-use.lock/` by hand once you are sure no worker is running;
 - the operating system can reuse a dead worker's PID for an unrelated process, and the lock then stays busy until that process ends.
+
+## Pet
+
+An optional desktop pet for each running leader session and each worker. Pets live in a strip along the bottom of the primary monitor, just above the taskbar, and show what their session or worker is doing: `running` while the leader works, `waiting` at an approval prompt or question, `review` when a turn ends (back to `idle` after a minute), `failed` after an error. A worker's pet carries its role and task directory name, for example `researcher · task-one`, sits beside the pet of the leader that started it, and plays a short scene with it when it starts and when it reports back. Concurrent workers of the same role are separate pets. Several Claude Code windows appear as separate teams, left to right in the order they opened; when the strip is full, the newest pets collapse into `+N` badges.
+
+The strip never takes focus and lets every click through to the window below. It stays above other windows, pauses and drops behind any fullscreen app, and is hidden from screen capture while a `computer-user` worker runs, so it never appears in that worker's screenshots.
+
+### Turning it on and off
+
+```
+npx github:starpia-forge/codex-delegate install --with-pet      # install or update the pet
+npx github:starpia-forge/codex-delegate install --without-pet   # remove the pet, keep the skills
+npx github:starpia-forge/codex-delegate uninstall               # remove the skills and the pet
+```
+
+Restart Claude Code after turning the pet on or off, so the hook changes take effect.
+
+Once enabled, the pet stays on across updates: a later user-scope `install` without either option keeps it and updates it to the bundle this version expects. `--dry-run` prints every pet action (download, bundle swap, hook changes, settings backup) without doing it, and `list` shows whether the pet is enabled, its bundle version and which settings file holds its hooks.
+
+Pet changes happen only for user scope with Claude Code in the agent selection; a project-scope run or one that leaves out Claude Code leaves an enabled pet untouched. These are refused with nothing changed:
+
+- `--with-pet` together with `--without-pet`;
+- either option with a command other than `install`, with `--scope project`, or with an `--agent` selection that leaves out `claude-code`;
+- `--with-pet` on anything other than Windows.
+
+Requirements: Windows (the first version supports nothing else), the Microsoft Edge WebView2 Runtime (part of Windows 11; install it on Windows 10 if it is missing), and `node` on the `PATH` Claude Code runs hooks with.
+
+### What it changes on your machine
+
+- **Pet bundle**: the installer downloads one pinned release asset, `codex-delegate-pet-windows-x64.zip`, from this repository's GitHub Releases and refuses it unless its SHA-256 matches the pin shipped with the package. It holds the pet app (`codex-delegate-pet.exe`), the client that reports events, the leader hook script and the bundled default pets, and is unpacked to `~/.codex-delegate/pet/`. Updates replace this directory whole.
+- **Pet state**: `~/.codex-delegate/pet-state/` holds the marker that records the pet as enabled (bundle version, settings file and the exact hook commands), a random per-user token that the app requires on every request, open session records and pending events. It survives updates.
+- **Claude Code settings**: command hooks that run the leader hook script, `~/.codex-delegate/pet/hook/leader-hook.mjs`, with Node are added to the user settings file (`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`, created if missing) for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure` and `PostToolUse`. Before every change the old file is copied next to it as `settings.json.codex-delegate-backup-<time>-<id>`. Reinstalling updates these entries in place instead of adding duplicates. Removal deletes exactly the entries the installer recorded, from the settings file they were written to, and leaves every other key and hook untouched.
+
+Downloading, checking the bundle and reading the settings file happen before anything is changed: if any of them fails (for example, the settings file is not valid JSON), the installer stops with nothing changed. While it replaces or removes the bundle, it stops a running pet app and keeps hooks and workers from starting it again. If a later step fails, it lists which steps were and weren't applied and where the settings backup is; run the same command again to finish.
+
+Removal (`--without-pet` or `uninstall`) deletes `~/.codex-delegate/pet/` and `~/.codex-delegate/pet-state/` as well as the hooks.
+
+The pet app starts on the first event and quits on its own after ten minutes without any. Leader and worker reporting never blocks Claude Code or a worker and never changes their output.
+
+### Configuration and custom pets
+
+Optional, in `~/.codex-delegate/pet.json`:
+
+```json
+{
+  "scale": 0.6,
+  "pets": { "leader": "my-pet", "researcher": "critic" }
+}
+```
+
+- `scale`: pet size relative to a 192 × 208 sprite cell, from 0.3 to 1.0 (default 0.6).
+- `pets`: which pet to show for `leader`, `researcher`, `critic`, `implementer` and `computer-user`, by pet folder name. Unset slots use the bundled pet of the same name.
+
+Unknown keys and invalid values are ignored, and invalid JSON falls back to the defaults. The pet app reads this file when it starts.
+
+A pet name is looked up in this order:
+
+1. `~/.codex-delegate/pets/<name>/`
+2. your Codex pets folder, `$CODEX_HOME/pets/<name>/` (default `~/.codex/pets/<name>/`), so pets you already have for Codex work as-is
+3. the bundled pet of that name (`leader`, `researcher`, `critic`, `implementer`, `computer-user`)
+
+A pet folder uses the Codex pet package format: a `pet.json` manifest with `id`, `displayName`, `description` and `spritesheetPath`, and a transparent PNG or WebP sprite sheet of 1536 × 1872 pixels (8 × 9 cells of 192 × 208). If the first folder found doesn't match, or a named pet isn't found anywhere, that slot shows its bundled default.
+
+### What `doctor` checks for the pet
+
+Only when the pet is installed, `doctor` also reports:
+
+- whether the installed bundle is the version this codex-delegate expects;
+- whether every pet hook is still registered in the settings file the pet was installed into, and warns when that file is in a different config directory than the current one;
+- whether the WebView2 Runtime is present (Windows 10);
+- invalid `pet.json` settings, and named pets that can't be found or don't match the Codex pet format;
+- whether the pet port is held by something other than the pet app.
 
 ## Workflow
 
@@ -208,6 +280,8 @@ scripts/build.mjs           generates skills/
 skills/                     build output; do not edit by hand
   claude/                   every mattpocock skill (5 entry points and code-review patched) + src/skills; Claude Code only
   codex/                    only the upstream skills workers need, patched for the worker role; Codex only
+pet/                        the optional Windows pet: app, client, leader hook (see pet/README.md)
+pet-pin.json                release tag, asset and SHA-256 of the pet bundle the installer downloads
 docs/                       translated documentation
 ```
 
