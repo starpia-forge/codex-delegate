@@ -20,6 +20,18 @@ _Avoid_: profile, persona
 Operating a native desktop application through its screen: taking screenshots, clicking, typing. Driving a web browser is not computer use.
 _Avoid_: desktop automation, GUI automation
 
+**Pet**:
+An optional desktop character that stands for one leader session or one worker, and shows what it is doing. Every running leader and worker has its own pet, so concurrent workers of the same role appear as separate pets.
+_Avoid_: buddy, mascot, avatar, overlay
+
+**Pet state**:
+What a pet is currently showing, using the Codex Pet states: `idle`, `running`, `running-left`, `running-right`, `waving`, `jumping`, `waiting`, `review`, `failed`.
+_Avoid_: animation, mood
+
+**Team**:
+A leader together with the workers it started; workers whose leader can't be identified form a team without a leader. Pets interact only within their team.
+_Avoid_: group, squad, party
+
 **Task directory**:
 A temporary directory the leader creates for one delegation to a worker. It holds the brief and the worker's result, and is removed once its result has been consumed; a failed delegation's task directory is kept until the user decides what to do with the failure.
 _Avoid_: scratch dir, work folder
