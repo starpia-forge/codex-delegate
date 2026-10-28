@@ -114,8 +114,62 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Later tickets own production installation/release. This app accepts leader
-and worker events on loopback; it does not implement those later features.
+## Releasing the pet bundle
+
+Cut a pet release only when the pet app, client, hook, or default pets change.
+Package-only changes can keep the existing bundle pin. The bundle contains
+`codex-delegate-pet.exe`, all of `client/`, `hook/leader-hook.mjs`, and
+`default-pets/` from `app/ui/assets/`. The assets are committed, so the release
+build does not regenerate placeholders.
+
+1. Choose `pet-vX.Y.Z`. If desired, bump the app version in
+   `app/src-tauri/tauri.conf.json` and `app/src-tauri/Cargo.toml` (and refresh
+   `Cargo.lock`). Commit the source changes normally and run `npm.cmd test`.
+2. Tag that commit and push the tag, for example:
+
+   ```powershell
+   git tag pet-v1.2.3
+   git push origin pet-v1.2.3
+   ```
+
+3. Wait for the **Pet release** GitHub Actions workflow. It tests the shipped
+   package, builds on Windows with the locked Rust dependencies, and creates
+   a GitHub Release with `codex-delegate-pet-windows-x64.zip` and its `.sha256`
+   file. Verify the release bundle installs before updating the package pin.
+4. Copy the pin JSON from the workflow job summary into the repository's
+   `pet-pin.json`. Its fields are `tag`, `asset`, `sha256`, and `version`; the
+   version is the tag without `pet-v`. You can also download the release's
+   `.sha256` file to get the checksum of the published zip. Commit the pin as a
+   normal commit, for example `chore(pet): pin bundle pet-v1.2.3`.
+5. Run `npm.cmd test` and release the npm package as usual. Its shipped pin
+   selects this pet release; pet and npm versions are independent.
+
+To preview the bundle locally after building the release executable:
+
+```powershell
+cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
+node scripts/pet-bundle.mjs --tag pet-v1.2.3 --out dist
+```
+
+The script accepts `--exe <path>` for another executable, writes the zip,
+`<asset>.sha256`, and `pet-pin.json` into `dist/`, and prints the pin JSON.
+Local output is a preview: use the checksum of the zip actually attached to
+the release when committing the pin, since a locally built executable can
+differ from the workflow's executable.
+
+For a real release, `CODEX_DELEGATE_PET_BASE_URL` is not needed. With the new
+pin, `codex-delegate install --with-pet` downloads and verifies the pinned
+asset from GitHub Releases. To verify it before the npm release, run
+`node bin/cli.mjs install --scope user --agent claude-code --with-pet` with
+`HOME`, `USERPROFILE`, `CLAUDE_CONFIG_DIR`, and `CODEX_HOME` pointing to isolated
+test directories. Restart Claude Code to load the installed hooks.
+
+The offline shipped-package smoke test runs `npm pack`, checks the pin and
+generated runner files, installs the extracted package and a test bundle into
+an isolated home, then checks that the installed runner sends `start` and
+successful `end` events to an authenticated fake pet listener. It uses a fake
+executable and Codex CLI; the real Windows app and a test-tag workflow run
+still need human verification.
 
 ## Window behaviour
 
