@@ -57,7 +57,7 @@ Manual checks for this ticket:
    match a run with the installed client removed; nothing pet-related is printed.
 
 Five original placeholder PNGs follow Codex v1: 1536×1872, cells 192×208,
-8 columns, 9 rows, frame counts 6/8/8/4/5/8/6/6/6. Playback is at scale 0.6.
+8 columns, 9 rows, frame counts 6/8/8/4/5/8/6/6/6. Playback defaults to scale 0.6.
 Exact Codex frame durations were not available: provisional per-frame timings
 are collected in `CODEX_V1_FRAME_TIMINGS_MS` in `app/ui/renderer.mjs`.
 
@@ -66,9 +66,37 @@ isolated homes and a runner copied from the generated `codex-implement` skill.
 The stage tests inject wall time. Expiry removes a missing worker but permits
 a newer heartbeat to recover it; an explicit `end` permanently tombstones its id.
 
+Optional configuration: `<home>/.codex-delegate/pet.json`:
+
+```json
+{
+  "scale": 0.6,
+  "pets": { "leader": "my-pet", "researcher": "critic" }
+}
+```
+
+`scale` accepts numbers from 0.3 through 1.0. `pets` accepts `leader`,
+`researcher`, `critic`, `implementer`, and `computer-user`; values are pet folder
+names. Unknown keys and invalid values are ignored. Missing or invalid JSON
+uses defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic
+issues alongside the selected pets.
+
+Lookup is `<home>/.codex-delegate/pets/<name>/`, then
+`$CODEX_HOME/pets/<name>/` (default `<home>/.codex/pets/<name>/`), then the bundled
+name or the slot's default. A folder without `pet.json` is absent. The first
+present package must have the Codex v1 manifest and a transparency-capable
+1536×1872 PNG or WebP; rejection falls back to that slot's bundled default.
+Header validation does not check animation frame contents.
+
+Manual configuration check: in the isolated home above, copy a valid package
+to `.codex-delegate/pets/my-pet/`, set `pets.researcher` to `my-pet` and `scale`
+to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork,
+192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
+Break its manifest and restart to confirm the researcher placeholder appears.
+
 Later tickets own scenes, overflow, authentication, fullscreen,
 capture exclusion, process liveness, quit, automatic launch, spool delivery,
-configuration, and production installation/release. This app accepts leader
+and production installation/release. This app accepts leader
 and worker events on loopback; it does not implement those later features.
 
 ## Leader hooks (manual registration)
