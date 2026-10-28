@@ -8,11 +8,13 @@ use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetDesktopWindow,
     GetForegroundWindow, GetShellWindow, GetWindowLongW, GetWindowRect, SetWindowPos,
     GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, WS_CAPTION};
 
-pub type Fullscreen = Arc<AtomicBool>;
+// Its own type: Tauri manages one state per type, and `Ready` is also an `Arc<AtomicBool>`.
+#[derive(Clone, Default)]
+pub struct Fullscreen(pub Arc<AtomicBool>);
 
 #[tauri::command]
 pub fn fullscreen_paused(state: tauri::State<Fullscreen>) -> bool {
-    state.load(Ordering::Acquire)
+    state.0.load(Ordering::Acquire)
 }
 
 // Monitor bounds and window rectangles are physical pixels. A captioned,
@@ -45,7 +47,7 @@ pub fn watch(win: WebviewWindow, state: Fullscreen) {
         unsafe {
             let foreground = GetForegroundWindow();
             let paused = fullscreen(foreground, own);
-            let was_paused = state.swap(paused, Ordering::AcqRel);
+            let was_paused = state.0.swap(paused, Ordering::AcqRel);
             let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
             if paused {
                 // Dropping topmost alone leaves the strip above the app.

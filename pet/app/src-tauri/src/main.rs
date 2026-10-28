@@ -102,7 +102,7 @@ fn main() {
             std::process::exit(0);
         }
     });
-    let fullscreen: window::Fullscreen = Arc::new(AtomicBool::new(false));
+    let fullscreen = window::Fullscreen::default();
     tauri::Builder::default()
         .manage(ready.clone())
         .manage(sessions.clone())
