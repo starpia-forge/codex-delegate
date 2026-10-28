@@ -1,13 +1,19 @@
 // The shell supplies wall time; this module has no I/O.
+import { applyOverflow } from "./layout.mjs";
+import { createScenes } from "./scenes.mjs";
+
 export function createStage({ now }) {
+  let fitLimit = 16;
   const teams = new Map();
   const sequences = new Map();
   const workerTimes = new Map();
+  const workerAppearance = new Map();
+  let nextAppearance = 0;
   const ended = new Set();
   // Kept after removal so late events cannot resurrect a closed team.
   const leaders = new Map();
   function teamFor(key) {
-    if (!teams.has(key)) teams.set(key, { leader: null, workers: new Map() });
+    if (!teams.has(key)) teams.set(key, { leader: null, workers: new Map(), scenes: createScenes({ now }) });
     return teams.get(key);
   }
   return {
@@ -17,6 +23,9 @@ export function createStage({ now }) {
       if (previous?.ended || at < (previous?.at ?? -Infinity)) return;
       leaders.set(team, { at, generation: previous?.generation, ended: true });
       teams.delete(team);
+    },
+    setFitLimit(n) {
+      fitLimit = Math.max(0, Math.min(16, Math.floor(n)));
     },
     apply(event) {
       if (event.source === "leader") {
@@ -32,7 +41,10 @@ export function createStage({ now }) {
         const team = teamFor(event.team);
         if (event.type === "session-start") {
           for (const id of team.workers.keys()) {
-            if (workerTimes.get(id) < event.at) team.workers.delete(id);
+            if (workerTimes.get(id) < event.at) {
+              team.workers.delete(id);
+              team.scenes.remove(id);
+            }
           }
         }
         let state = team.leader?.state ?? "idle";
@@ -55,27 +67,39 @@ export function createStage({ now }) {
       workerTimes.set(event.worker, event.at);
       if (event.type === "end") {
         ended.add(event.worker);
-        const team = teams.get(key);
-        team?.workers.delete(event.worker);
-        if (team && !team.leader && !team.workers.size) teams.delete(key);
+        const team = teamFor(key);
+        if (!team.workers.has(event.worker)) {
+          workerAppearance.set(event.worker, nextAppearance++);
+          team.workers.set(event.worker, { worker: event.worker, role: event.role,
+            label: event.label, state: "running", lastSeen: now() });
+        }
+        team.scenes.end(event.worker, [...team.workers.keys()].indexOf(event.worker) + 1, !!team.leader, event.outcome);
         return;
       }
-      teamFor(key).workers.set(event.worker, { worker: event.worker, role: event.role,
+      const team = teamFor(key);
+      if (!team.workers.has(event.worker)) workerAppearance.set(event.worker, nextAppearance++);
+      team.workers.set(event.worker, { worker: event.worker, role: event.role,
         label: event.label, state: "running", lastSeen: now() });
+      if (event.type === "start") team.scenes.start(event.worker, [...team.workers.keys()].indexOf(event.worker) + 1, !!team.leader);
     },
     tick() {
       for (const [key, team] of teams) {
+        for (const id of team.scenes.tick()) team.workers.delete(id);
         if (team.leader?.state === "review" && now() - team.reviewSince >= 60000) team.leader.state = "idle";
         for (const [id, worker] of team.workers) {
-          if (now() - worker.lastSeen >= 30000) team.workers.delete(id);
+          if (!ended.has(id) && now() - worker.lastSeen >= 30000) {
+            team.workers.delete(id);
+            team.scenes.remove(id);
+          }
         }
         if (!team.leader && !team.workers.size) teams.delete(key);
       }
     },
     snapshot() {
-      return { teams: [...teams].map(([key, team]) => ({ key,
-        leader: team.leader ? { ...team.leader } : null,
-        workers: [...team.workers.values()].map(worker => ({ ...worker })) })) };
+      return applyOverflow([...teams].map(([key, team]) => ({ key,
+        leader: team.leader ? { ...team.leader, ...team.scenes.leader(team.leader.state) } : null,
+        workers: [...team.workers.values()].map((worker, index) => ({ ...worker,
+          ...team.scenes.worker(worker.worker, index + 1) })) })), fitLimit, workerAppearance);
     },
   };
 }

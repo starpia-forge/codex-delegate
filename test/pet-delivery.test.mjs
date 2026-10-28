@@ -220,8 +220,9 @@ process.stdin.on('end', () => {
   assert.deepEqual(h.events().map(e => e.type), ["start", "end"]);
   const stages = h.lines("stages").map(line => JSON.parse(line));
   assert.deepEqual(stages[0].teams[0].workers.map(w => [w.role, w.label]), [["implementer", "quick-task"]]);
-  assert.deepEqual(stages[1], { teams: [] });
-  assert.deepEqual(JSON.parse(h.lines("late")[0]), { teams: [] });
+  // The ended worker stays only for its report scene, then leaves for good.
+  assert.equal(stages[1].teams[0].workers.length, 1);
+  assert.deepEqual(JSON.parse(h.lines("late")[0]), { teams: [], hiddenSessions: 0 });
 });
 
 for (const mode of ["foreign", "protocol", "missing-version", "unauthorized", "silent", "silent-post", "error-post"]) {
