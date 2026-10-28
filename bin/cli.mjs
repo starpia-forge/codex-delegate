@@ -8,6 +8,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listPet, preparePet, readPetMarker } from "./pet.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -22,7 +23,7 @@ Usage: npx github:<owner>/codex-delegate <command> [options]
 Commands:
   install     Install or update the skills (default)
   uninstall   Remove the skills this tool installed
-  list        Show the skills this tool installed
+  list        Show installed skills and user-scope pet state
   doctor      Check Codex, models and conflicting installs
 
 Options:
@@ -30,6 +31,8 @@ Options:
   --agent <id>            Only this agent: ${Object.keys(manifest.agents).join(", ")} (repeatable)
   --force                 Overwrite skills with the same name that this tool did not install
   --dry-run               Show what would change without changing anything
+  --with-pet              Install the pinned Windows pet and Claude Code hooks (user scope)
+  --without-pet           Install skills without a pet (removal is not available yet)
   -h, --help              Show this help`;
 
 function parseArgs(argv) {
@@ -42,6 +45,8 @@ function parseArgs(argv) {
     else if (arg === "--agent") opts.agents.push(args.shift());
     else if (arg === "--force") opts.force = true;
     else if (arg === "--dry-run") opts.dryRun = true;
+    else if (arg === "--with-pet") opts.withPet = true;
+    else if (arg === "--without-pet") opts.withoutPet = true;
     else if (arg === "-h" || arg === "--help") opts.command = "help";
     else throw new Error(`unknown option: ${arg}`);
   }
@@ -50,6 +55,15 @@ function parseArgs(argv) {
     if (!manifest.agents[id]) throw new Error(`unknown agent: ${id} (expected: ${Object.keys(manifest.agents).join(", ")})`);
   }
   if (!opts.agents.length) opts.agents = Object.keys(manifest.agents);
+  if (opts.withPet && opts.withoutPet) throw new Error("--with-pet and --without-pet are contradictory");
+  if (opts.withPet || opts.withoutPet) {
+    if (opts.command !== "install") throw new Error("pet options are only valid for install");
+    if (opts.scope !== "user") throw new Error("pet options require user scope");
+    if (!opts.agents.includes("claude-code")) throw new Error("pet options require Claude Code in the agent selection");
+    if (opts.withPet && (process.env.CODEX_DELEGATE_TEST_PLATFORM || process.platform) !== "win32") {
+      throw new Error("pet is not supported on this platform yet (Windows only)");
+    }
+  }
   return opts;
 }
 
@@ -118,7 +132,11 @@ function installedSkills(dir) {
     .map((e) => ({ name: e.name, marker: readMarker(join(dir, e.name)) }));
 }
 
-function install(opts) {
+async function install(opts) {
+  if (opts.withoutPet) {
+    if (readPetMarker()) throw new Error("pet removal is not available yet; nothing was changed");
+    console.log("Pet: no pet installed");
+  }
   // Plan every agent before touching anything, so a conflict aborts cleanly.
   const plans = opts.agents.map((id) => {
     const agent = manifest.agents[id];
@@ -137,6 +155,17 @@ function install(opts) {
     return;
   }
 
+  let pet;
+  try {
+    if (opts.withPet) pet = await preparePet({ root, pkg, dryRun: opts.dryRun });
+  } catch (error) {
+    console.error(`codex-delegate: ${error.message.replace(/; nothing was changed$/, "")}\nNothing was changed.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const steps = [];
+  const add = (label, apply) => steps.push({ label, apply, status: "not applied" });
   for (const p of plans) {
     console.log(`${p.agent.name} -> ${p.dir}`);
     console.log(`  install ${p.skills.length}: ${p.skills.map((s) => s.name).join(", ")}`);
@@ -144,14 +173,14 @@ function install(opts) {
     if (p.conflicts.length) console.log(`  overwrite (--force): ${p.conflicts.join(", ")}`);
     if (opts.dryRun) continue;
 
-    mkdirSync(p.dir, { recursive: true });
-    for (const name of p.stale) rmSync(join(p.dir, name), { recursive: true, force: true });
+    add(`create skill directory ${p.dir}`, () => mkdirSync(p.dir, { recursive: true }));
+    for (const name of p.stale) add(`remove stale skill ${join(p.dir, name)}`, () => rmSync(join(p.dir, name), { recursive: true, force: true }));
     for (const s of p.skills) {
       const dest = join(p.dir, s.name);
-      rmSync(dest, { recursive: true, force: true });
-      cpSync(s.src, dest, { recursive: true });
+      add(`remove previous skill ${dest}`, () => rmSync(dest, { recursive: true, force: true }));
+      add(`copy skill ${s.src} -> ${dest}`, () => cpSync(s.src, dest, { recursive: true }));
       const marker = { package: pkg.name, version: pkg.version, agent: p.id, installedAt: new Date().toISOString() };
-      writeFileSync(join(dest, MARKER), `${JSON.stringify(marker, null, 2)}\n`);
+      add(`write skill marker ${join(dest, MARKER)}`, () => writeFileSync(join(dest, MARKER), `${JSON.stringify(marker, null, 2)}\n`));
     }
   }
 
@@ -159,6 +188,21 @@ function install(opts) {
     console.log("\nDry run: nothing was changed.");
     return;
   }
+  steps.push(...(pet?.steps ?? []));
+  try {
+    for (const step of steps) {
+      step.status = "failed (may be partially applied)";
+      step.apply();
+      step.status = "applied";
+    }
+  } catch (error) {
+    console.error(`Install apply failed: ${error.message}`);
+    for (const step of steps) console.error(`  ${step.status}: ${step.label}`);
+    console.error(`Settings backup: ${pet?.backup() ?? "none (settings were not changed)"}`);
+    process.exitCode = 1;
+    return;
+  } finally { pet?.cleanup(); }
+  if (pet) console.log("Restart Claude Code so the pet hooks take effect.");
   console.log(`\nInstalled codex-delegate ${pkg.version}. Restart Claude Code and Codex to pick up the skills.\n`);
   doctor();
 }
@@ -184,6 +228,7 @@ function list(opts) {
     if (!installed.length) console.log("  nothing installed");
     for (const { name, marker } of installed) console.log(`  ${name}  ${marker.version}`);
   }
+  if (opts.scope === "user") listPet();
 }
 
 // Combined stdout and stderr of a successful command, else null. Some CLIs
@@ -276,7 +321,7 @@ try {
   const opts = parseArgs(process.argv.slice(2));
   const commands = { install: () => install(opts), uninstall: () => uninstall(opts), list: () => list(opts), doctor, help: () => console.log(HELP) };
   if (!commands[opts.command]) throw new Error(`unknown command: ${opts.command}`);
-  commands[opts.command]();
+  await commands[opts.command]();
 } catch (err) {
   console.error(`codex-delegate: ${err.message}\n\n${HELP}`);
   process.exitCode = 2;

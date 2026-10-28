@@ -15,7 +15,8 @@
     "bin",
     "skills",
     "src/runner",
-    "install-manifest.json"
+    "install-manifest.json",
+    "pet-pin.json"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
