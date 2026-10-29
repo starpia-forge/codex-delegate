@@ -1,4 +1,5 @@
 use crate::{messages::text, prefs::Lang};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{utils::config::WindowConfig, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn window_config(language: Lang) -> WindowConfig {
@@ -23,15 +24,34 @@ fn window_config(language: Lang) -> WindowConfig {
     }
 }
 
-// Tray callbacks are serialized on the UI thread. Closing uses Tauri's default
-// destruction, so the next click creates a fresh webview with current language.
-pub fn open(app: &AppHandle, language: Lang) -> tauri::Result<()> {
+static OPENING: AtomicBool = AtomicBool::new(false);
+struct Opening;
+impl Drop for Opening {
+    fn drop(&mut self) { OPENING.store(false, Ordering::Release); }
+}
+
+// Window creation must leave the synchronous tray handler on Windows. The
+// guard covers queued creation too, before get_webview_window can find it.
+pub fn open(app: &AppHandle) {
+    if OPENING.swap(true, Ordering::AcqRel) { return; }
+    let opening = Opening;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let _opening = opening;
+        if let Err(error) = open_window(&app) { eprintln!("cannot open licences: {error}"); }
+    });
+}
+
+fn open_window(app: &AppHandle) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window("licences") {
         window.unminimize()?;
         window.show()?;
         window.set_focus()?;
     } else {
+        let language = app.state::<crate::show::Visibility>().language();
         WebviewWindowBuilder::from_config(app, &window_config(language))?.build()?;
+        // A switch may have arrived while build waited for the UI thread.
+        set_language(app, app.state::<crate::show::Visibility>().language());
     }
     Ok(())
 }

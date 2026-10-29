@@ -45,12 +45,16 @@ impl Preferences {
     }
 }
 
-pub struct PreferenceStore { path: PathBuf, value: Preferences }
+pub struct PreferenceStore { path: PathBuf, value: Preferences, unknown: Map<String, Value> }
 impl PreferenceStore {
     pub fn load(path: PathBuf) -> Self {
-        let value = std::fs::read_to_string(&path).ok()
-            .map(|input| Preferences::parse(&input)).unwrap_or_default();
-        Self { path, value }
+        let input = std::fs::read_to_string(&path).unwrap_or_default();
+        let value = Preferences::parse(&input);
+        let mut unknown = serde_json::from_str::<Value>(&input).ok()
+            .and_then(|value| value.as_object().cloned()).unwrap_or_default();
+        unknown.remove("hidden");
+        unknown.remove("language");
+        Self { path, value, unknown }
     }
     pub fn current(&self) -> Preferences { self.value }
     pub fn set_hidden(&mut self, hidden: bool) -> std::io::Result<()> {
@@ -65,7 +69,9 @@ impl PreferenceStore {
     }
     fn save(&self) -> std::io::Result<()> {
         let temp = self.path.with_extension(format!("{}.tmp", std::process::id()));
-        let result = std::fs::write(&temp, self.value.json().to_string())
+        let mut fields = self.unknown.clone();
+        fields.extend(self.value.json().as_object().unwrap().clone());
+        let result = std::fs::write(&temp, Value::Object(fields).to_string())
             .and_then(|_| std::fs::rename(&temp, &self.path));
         if let Err(error) = &result {
             eprintln!("cannot save pet preferences: {error}");
@@ -78,6 +84,20 @@ impl PreferenceStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toggle_saves_preserve_unknown_top_level_preferences() {
+        let dir = TestDir::new();
+        let path = dir.0.join("pet-preferences.json");
+        std::fs::write(&path, r#"{"hidden":false,"future":{"mode":"auto","values":[1,true]}}"#).unwrap();
+        let mut store = PreferenceStore::load(path.clone());
+        store.set_hidden(true).unwrap();
+        store.toggle_language(0x0409).unwrap();
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(saved, serde_json::json!({
+            "hidden": true, "language": "ko", "future": {"mode": "auto", "values": [1, true]}
+        }));
+    }
 
     #[test]
     fn stored_language_wins_otherwise_follow_the_windows_user_ui_language() {

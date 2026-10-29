@@ -185,7 +185,12 @@ fn main() {
 fn exit_app(app: &EventApp) {
     let handle = app.lock().unwrap().clone();
     if let Some(app) = handle {
-        // Tauri removes its tray resources on exit; process::exit skips Drop.
+        // Give Tauri time to remove its tray resources. A stuck event loop
+        // must still terminate for idle exit and /quit.
+        std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_secs(2));
+            std::process::exit(0);
+        });
         app.exit(0);
     } else {
         std::process::exit(0);

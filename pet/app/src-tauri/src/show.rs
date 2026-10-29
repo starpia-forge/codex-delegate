@@ -5,6 +5,23 @@ use std::time::Duration;
 use tauri::{menu::{CheckMenuItem, Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewWindow};
 
+fn retry_delay(attempt: u32) -> Duration {
+    Duration::from_millis((100u64 << attempt.min(6)).min(5000))
+}
+
+struct TrayItems {
+    show: CheckMenuItem<tauri::Wry>,
+    licences: MenuItem<tauri::Wry>,
+    language: MenuItem<tauri::Wry>,
+}
+impl TrayItems {
+    fn relabel(&self, language: Lang) -> tauri::Result<()> {
+        self.show.set_text(text("tray.showPets", language))?;
+        self.licences.set_text(text("tray.licences", language))?;
+        self.language.set_text(text("tray.language", language))
+    }
+}
+
 // One owner serializes all preference writes and visibility transitions. The
 // generation invalidates queued UI work as well as an outstanding frame ack.
 #[derive(Clone)]
@@ -17,6 +34,7 @@ struct Transition {
     pending: bool,
     running: bool,
     retry_requested: bool,
+    retry_attempt: u32,
     frame: Option<mpsc::Sender<()>>,
 }
 impl Transition {
@@ -31,7 +49,7 @@ impl Visibility {
     pub fn new(preferences: PreferenceStore) -> Self {
         Self(Arc::new(Mutex::new(Transition { preferences, windows_language: prefs::windows_ui_language(),
             generation: 0, ready: false,
-            pending: true, running: false, retry_requested: false, frame: None })))
+            pending: true, running: false, retry_requested: false, retry_attempt: 0, frame: None })))
     }
 
     pub fn preferences(&self) -> Value {
@@ -44,15 +62,12 @@ impl Visibility {
 
     pub fn language(&self) -> Lang { self.0.lock().unwrap().language() }
 
-    fn toggle_language(&self, app: &AppHandle, show: &CheckMenuItem<tauri::Wry>,
-        licences: &MenuItem<tauri::Wry>, language: &MenuItem<tauri::Wry>) {
+    fn toggle_language(&self, app: &AppHandle, items: &TrayItems) {
         let mut state = self.0.lock().unwrap();
         let windows_language = state.windows_language;
         let _ = state.preferences.toggle_language(windows_language);
         let current = state.language();
-        let _ = show.set_text(text("tray.showPets", current));
-        let _ = licences.set_text(text("tray.licences", current));
-        let _ = language.set_text(text("tray.language", current));
+        let _ = items.relabel(current);
         licences::set_language(app, current);
         // Broadcast reaches both webviews. Keep the tray tooltip
         // as the untranslated app name and version.
@@ -75,6 +90,7 @@ impl Visibility {
             state.pending = !hidden;
             state.running = false;
             state.retry_requested = false;
+            state.retry_attempt = 0;
             state.frame = None; // Wake a cancelled ack wait immediately.
             if hidden {
                 if let Some(win) = app.get_webview_window("main") {
@@ -89,10 +105,17 @@ impl Visibility {
     }
 
     pub fn retry(&self, app: &AppHandle) {
+        self.retry_for(app, None);
+    }
+
+    fn retry_for(&self, app: &AppHandle, expected_generation: Option<u64>) {
         let Some(win) = app.get_webview_window("main") else { return };
         let (generation, receive) = {
             let mut state = self.0.lock().unwrap();
             if !state.ready || state.hidden() || !state.pending { return; }
+            // A sleeping retry must never start work for a later hide/show cycle
+            // or supersede an attempt started by a capture/tray trigger.
+            if expected_generation.is_some_and(|expected| state.generation != expected) { return; }
             if state.running {
                 state.retry_requested = true;
                 return;
@@ -126,15 +149,23 @@ impl Visibility {
                     Ok(())
                 })
             });
-            let retry = {
+            let delay = {
                 let mut state = visibility.0.lock().unwrap();
                 if state.generation != generation { return; }
                 state.running = false;
                 state.frame = None;
-                if let Err(error) = result { eprintln!("cannot show pets (will retry on capture or tray change): {error}"); }
-                std::mem::take(&mut state.retry_requested)
+                if let Err(error) = result { eprintln!("cannot show pets (will retry): {error}"); }
+                let requested = std::mem::take(&mut state.retry_requested);
+                if !state.pending || state.hidden() {
+                    state.retry_attempt = 0;
+                    return;
+                }
+                let delay = if requested { Duration::ZERO } else { retry_delay(state.retry_attempt) };
+                state.retry_attempt = state.retry_attempt.saturating_add(1);
+                delay
             };
-            if retry { visibility.retry(win.app_handle()); }
+            std::thread::sleep(delay);
+            visibility.retry_for(win.app_handle(), Some(generation));
         });
     }
 
@@ -170,11 +201,14 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         let state = visibility.0.lock().unwrap();
         (state.hidden(), state.language())
     };
-    let show = CheckMenuItem::with_id(app, "show-pets", text("tray.showPets", current), true, !hidden, None::<&str>)?;
-    let licences = MenuItem::with_id(app, "licences", text("tray.licences", current), true, None::<&str>)?;
-    let language = MenuItem::with_id(app, "language", text("tray.language", current), true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &licences, &language])?;
-    let click_show = show.clone();
+    let items = TrayItems {
+        show: CheckMenuItem::with_id(app, "show-pets", "", true, !hidden, None::<&str>)?,
+        licences: MenuItem::with_id(app, "licences", "", true, None::<&str>)?,
+        language: MenuItem::with_id(app, "language", "", true, None::<&str>)?,
+    };
+    items.relabel(current)?;
+    let menu = Menu::with_items(app, &[&items.show, &items.licences, &items.language])?;
+    let click_show = items.show.clone();
     let icon = app.default_window_icon().expect("pet app icon").clone();
     TrayIconBuilder::with_id("pets")
         .icon(icon)
@@ -192,15 +226,25 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(move |app, event| {
             if event.id.as_ref() == "show-pets" {
                 let hidden = app.state::<Visibility>().toggle(app);
-                let _ = show.set_checked(!hidden);
+                let _ = items.show.set_checked(!hidden);
             } else if event.id.as_ref() == "language" {
-                app.state::<Visibility>().toggle_language(app, &show, &licences, &language);
+                app.state::<Visibility>().toggle_language(app, &items);
             } else if event.id.as_ref() == "licences" {
-                if let Err(error) = licences::open(app, app.state::<Visibility>().language()) {
-                    eprintln!("cannot open licences: {error}");
-                }
+                licences::open(app);
             }
         })
         .build(app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_show_backoff_grows_to_a_five_second_cap_without_overflow() {
+        let delays: Vec<_> = (0..8).map(|attempt| retry_delay(attempt).as_millis()).collect();
+        assert_eq!(delays, [100, 200, 400, 800, 1600, 3200, 5000, 5000]);
+        assert_eq!(retry_delay(u32::MAX), Duration::from_secs(5));
+    }
 }
