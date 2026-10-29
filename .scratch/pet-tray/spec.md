@@ -126,6 +126,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 
 ### Pet shell (Rust)
 
+- Accepted deviation: the watcher re-asserts topmost whenever the visible, unpaused strip lacks it, not only on foreground changes. A native topmost refusal is retried as NOTOPMOST then TOPMOST and never blocks showing.
 - The tray uses Tauri v2's built-in tray icon and menu, enabled through Tauri's `tray-icon` feature. No renderer capability is added: the Rust side owns the tray and its events.
 - Tray contents: the icon is the app icon. The tooltip is `codex-delegate pet <version>`; only the prefix is a name, so it is not translated. The menu is a check item for Show pets, an item for Licences and an item showing the current language. A left click toggles visibility and doesn't open the menu; a right click opens the menu.
 - The tray is created in setup, before the strip's first show. When preferences say hidden, the strip is never shown.
