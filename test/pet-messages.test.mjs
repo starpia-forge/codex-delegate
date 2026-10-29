@@ -6,7 +6,7 @@ import { createMessages } from "../pet/app/ui/messages.mjs";
 const ui = new URL("../pet/app/ui/", import.meta.url);
 const catalogueUrl = new URL("../pet/app/messages.json", import.meta.url);
 
-test("every catalogue message has English and Korean text and every renderer id exists", async () => {
+test("every catalogue message has English and Korean text and every strip and licences window id exists", async () => {
   const catalogue = JSON.parse(await readFile(catalogueUrl, "utf8"));
   assert.ok(Object.keys(catalogue).length > 0);
   for (const [id, texts] of Object.entries(catalogue)) {
@@ -28,6 +28,10 @@ test("every catalogue message has English and Korean text and every renderer id 
   }
   await scan(ui);
   assert.ok(used.size > 0, "renderer message calls must be discoverable");
+  for (const id of ["licences.title", "licences.project", "licences.fanArt", "licences.thirdParty",
+    "licences.generatedByRelease", "licences.empty"]) {
+    assert.ok(used.has(id), `licences message calls must be discoverable: ${id}`);
+  }
   for (const id of used) assert.ok(Object.hasOwn(catalogue, id), `missing renderer message: ${id}`);
 });
 

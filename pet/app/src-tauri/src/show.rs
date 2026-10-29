@@ -1,4 +1,4 @@
-use crate::{capture, messages::text, prefs::{self, Lang, PreferenceStore}, window, BUNDLE_VERSION};
+use crate::{capture, licences, messages::text, prefs::{self, Lang, PreferenceStore}, window, BUNDLE_VERSION};
 use serde_json::{json, Value};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
@@ -42,6 +42,8 @@ impl Visibility {
         preferences
     }
 
+    pub fn language(&self) -> Lang { self.0.lock().unwrap().language() }
+
     fn toggle_language(&self, app: &AppHandle, show: &CheckMenuItem<tauri::Wry>,
         licences: &MenuItem<tauri::Wry>, language: &MenuItem<tauri::Wry>) {
         let mut state = self.0.lock().unwrap();
@@ -51,7 +53,8 @@ impl Visibility {
         let _ = show.set_text(text("tray.showPets", current));
         let _ = licences.set_text(text("tray.licences", current));
         let _ = language.set_text(text("tray.language", current));
-        // Broadcast also reaches a future licences window. Keep the tray tooltip
+        licences::set_language(app, current);
+        // Broadcast reaches both webviews. Keep the tray tooltip
         // as the untranslated app name and version.
         let _ = app.emit("pet-language", json!({ "language": current.code() }));
     }
@@ -168,8 +171,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         (state.hidden(), state.language())
     };
     let show = CheckMenuItem::with_id(app, "show-pets", text("tray.showPets", current), true, !hidden, None::<&str>)?;
-    // Ticket 07 will enable this item and open the licences window.
-    let licences = MenuItem::with_id(app, "licences", text("tray.licences", current), false, None::<&str>)?;
+    let licences = MenuItem::with_id(app, "licences", text("tray.licences", current), true, None::<&str>)?;
     let language = MenuItem::with_id(app, "language", text("tray.language", current), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &licences, &language])?;
     let click_show = show.clone();
@@ -193,6 +195,10 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = show.set_checked(!hidden);
             } else if event.id.as_ref() == "language" {
                 app.state::<Visibility>().toggle_language(app, &show, &licences, &language);
+            } else if event.id.as_ref() == "licences" {
+                if let Err(error) = licences::open(app, app.state::<Visibility>().language()) {
+                    eprintln!("cannot open licences: {error}");
+                }
             }
         })
         .build(app)?;

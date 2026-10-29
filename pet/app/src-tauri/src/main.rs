@@ -2,6 +2,7 @@
 
 mod capture;
 mod liveness;
+mod licences;
 mod messages;
 mod notices;
 mod prefs;
@@ -154,9 +155,16 @@ fn main() {
         .manage(fullscreen.clone())
         .manage(visibility)
         .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
-        .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale,
-            capture::computer_use_live, window::fullscreen_paused, show::pet_preferences, show::frame_ready,
-            messages::messages])
+        .invoke_handler(|invoke| {
+            if !licences::command_allowed(invoke.message.webview_ref().label(), invoke.message.command()) {
+                invoke.resolver.reject("command not available to this window");
+                return true;
+            }
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale,
+                capture::computer_use_live, window::fullscreen_paused, show::pet_preferences, show::frame_ready,
+                messages::messages, notices::notices];
+            handler(invoke)
+        })
         .setup(move |app| {
             let win = app.get_webview_window("main").unwrap();
             show::create_tray(app.handle())?;
