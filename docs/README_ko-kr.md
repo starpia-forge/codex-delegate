@@ -1,311 +1,71 @@
 # codex-delegate
 
+[![Release](https://img.shields.io/github/v/release/starpia-forge/codex-delegate?filter=v*&sort=semver)](https://github.com/starpia-forge/codex-delegate/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../LICENSE)
+
 [English](../README.md) | **한국어**
 
-## 목적과 철학
+## 개요
 
-codex-delegate는 [Matt Pocock의 스킬](https://github.com/mattpocock/skills) 철학을 그대로 따르면서, 각 에이전트가 가장 잘하는 일을 맡도록 합니다. 원본 스킬은 그대로 가져오고, 워크플로우 진입점 스킬 5개와 `code-review`에만 패치를 적용해 Codex 워커에게 위임하게 만들었습니다.
+codex-delegate는 [Matt Pocock의 스킬](https://github.com/mattpocock/skills) 워크플로우를 그대로 유지하면서, 각 에이전트에게 가장 잘하는 일을 맡깁니다. Claude가 리더로서 사용자와 대화하고, 스펙과 티켓을 작성하고, 모든 결과를 검증합니다. Codex 워커는 조사, 리뷰, 구현을 맡습니다.
 
-> mattpocock/skills를 기반으로 한 **비공식** 확장입니다. 원작자와 관련이 없으며, 원작자가 승인하지 않았습니다.
+업스트림 스킬은 그대로 가져오고, 다섯 개의 워크플로우 진입점과 `code-review`만 Codex에 위임하도록 패치합니다.
 
-### 누가 무엇을 하는가
-
-| 에이전트            | 강점                                                     | 약점                                                         | 이 저장소에서의 역할                                                                       |
-| ------------------- | -------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| Claude (Opus 5.5)   | 사용자 의도 파악, 코드 분석, 설계                        | 웹 검색                                                      | **Leader**: 사용자 인터뷰, spec과 티켓 작성, 워커에게 지시, 워커 결과 검증                 |
-| Codex (GPT 6.1 Sol) | 비용 대비 구현 성능                                      | 사용자 의도를 잘못 파악하는 경우가 많고, 작업을 일찍 완료 처리하는 경향 | **구현**: 티켓 하나씩, 테스트를 먼저 작성하며 구현                                         |
-| Codex (GPT 6 Astra) | 날카로운 비판자이자 코드 리뷰어. 특히 computer use에 강함 |                                                              | **공격적 검토**: spec과 티켓 분할안을 게시하기 전에 공격하고, Claude와 함께 코드 리뷰. **Computer use**: Leader 대신 데스크톱 앱 조작 |
-| Codex (GPT 6 Luna)  | 가성비가 좋고, Codex의 훌륭한 웹 검색 도구를 사용할 수 있음 |                                                              | **조사**: 외부 질문에 출처를 달아 답하며, Leader의 약점을 보완                             |
-
-### 원칙
-
-1. **워크플로우는 Matt Pocock의 것을 유지합니다.** 같은 명령, 같은 규율로 진행합니다. 설계를 끝까지 따져 묻고, spec을 쓰고, tracer-bullet 티켓으로 나누고, 테스트를 먼저 작성하며 구현합니다. 위임은 이 단계들 바깥이 아니라 안에 덧붙입니다.
-2. **의도는 Leader가 책임집니다.** 사용자와 대화하는 것은 Claude뿐입니다. 워커는 사용자의 뜻을 추측할 필요가 없습니다. 티켓, 수용 기준, 합의된 테스트 지점이 모두 담긴 지시를 받습니다.
-3. **"완료"는 믿지 않고 검증합니다.** 워커의 보고는 주장일 뿐입니다. Leader가 diff를 읽고, 타입체크와 테스트를 다시 돌리고, 수용 기준을 하나씩 확인한 뒤에야 커밋합니다.
-4. **확정하기 전에 비판받습니다.** 계획은 그 계획을 쓰지 않은 검토자가 공격합니다. 아직 바꾸는 비용이 적을 때 합니다.
+> mattpocock/skills의 **비공식** 확장이며, 원작자와 관련이 없고 원작자의 보증을 받지 않았습니다.
 
 ## 설치
 
-필요한 것: Node.js 18.18 이상, git, Codex CLI(`npm i -g @openai/codex` 후 `codex login`).
+Node.js 18.18 이상, git, Codex CLI(`npm i -g @openai/codex` 후 `codex login`)가 필요합니다.
 
-```
-npx github:starpia-forge/codex-delegate install             # 기본 브랜치 최신
-npx github:starpia-forge/codex-delegate#v0.3.0 install      # 태그 고정
-```
+```sh
+# 설치 (최신 버전, 또는 태그 고정)
+npx github:starpia-forge/codex-delegate install
+npx github:starpia-forge/codex-delegate#v0.3.0 install
 
-Windows PowerShell에서 "이 시스템에서 스크립트를 실행할 수 없으므로" 오류로 `npx`가 실행되지 않으면 `npx.cmd`를 쓰거나, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`로 로컬 스크립트 실행을 한 번 허용합니다.
+# 사용자 폴더 대신 현재 프로젝트에 설치
+npx github:starpia-forge/codex-delegate install --scope project
 
-명령 하나로 각 에이전트에 아래 구성이 설치됩니다. 구성은 [`install-manifest.json`](../install-manifest.json)에 정의되어 있습니다.
+# 업데이트: install을 다시 실행
 
-| 에이전트 | 설치 위치 (user / project) | 설치되는 스킬 |
-|---|---|---|
-| Claude Code (Leader) | `~/.claude/skills`¹ / `.claude/skills` | `skills/claude/*` 전부 (32개) |
-| Codex (워커) | `~/.codex/skills`¹ / `.agents/skills` | `skills/codex/*` 전부: `tdd`, `codebase-design`, `research` |
-
-¹ `CLAUDE_CONFIG_DIR`나 `CODEX_HOME`이 설정되어 있으면 user 범위 스킬은 각 에이전트가 스킬을 찾는 위치인 `$CLAUDE_CONFIG_DIR/skills`, `$CODEX_HOME/skills`에 설치됩니다.
-
-`tdd`처럼 두 에이전트가 모두 쓰는 스킬은 별개의 사본 두 개로 설치됩니다. 각 사본은 해당 에이전트의 역할에 맞게 작성되므로, 위임하는 에이전트와 위임받는 에이전트가 같은 지침을 읽는 일이 없습니다.
-
-설치가 끝나면 `doctor`가 자동으로 실행됩니다. Claude Code와 Codex를 재시작해야 새 스킬이 반영됩니다.
-
-### 명령
-
-```
-npx github:starpia-forge/codex-delegate install     [--scope user|project] [--agent <id>] [--force] [--dry-run] [--with-pet | --without-pet]
-npx github:starpia-forge/codex-delegate uninstall   [--scope user|project] [--agent <id>] [--dry-run]
-npx github:starpia-forge/codex-delegate list        [--scope user|project] [--agent <id>]
+# 설정 점검, 설치된 스킬 목록
 npx github:starpia-forge/codex-delegate doctor
+npx github:starpia-forge/codex-delegate list
+
+# 제거
+npx github:starpia-forge/codex-delegate uninstall
 ```
 
-- **업데이트**: `install`을 다시 실행합니다. 새 버전에서 빠진 스킬은 자동으로 제거됩니다. 켜져 있는 [펫](#펫)은 유지되고 업데이트됩니다.
-- **안전 장치**: 설치한 스킬마다 `.codex-delegate.json` 표시 파일을 남깁니다. `install`, `uninstall`, 업데이트는 이 표시가 있는 스킬만 건드립니다.
-- **이름 충돌**: 같은 이름의 스킬이 이미 있고 이 도구가 설치한 것이 아니면(예: 원본 mattpocock-skills), **아무것도 바꾸지 않고 중단**합니다. 덮어쓰려면 `--force`를 붙입니다.
-- **Claude Code 내장 `/code-review`**: 설치한 `code-review` 스킬이 내장 스킬을 대체합니다. 내장 리뷰는 `/review`로 계속 쓸 수 있고, `/review`는 이 스킬을 실행하지 않습니다.
-- **개인이 프로젝트보다 우선**: 같은 이름의 스킬이 양쪽에 있으면 Claude Code는 개인 스킬(`~/.claude/skills`)을 씁니다. 프로젝트 범위로 설치했더라도, 이 도구가 설치하지 않은 같은 이름의 개인 스킬이 있으면 프로젝트 쪽이 가려집니다.
-- **`doctor` 점검 항목**: Node 버전, Codex 설치와 로그인 상태, 역할별 모델과 effort를 현재 Codex 계정에서 쓸 수 있는지, Codex의 Computer Use 플러그인(`computer-use@openai-bundled`)이 활성화되어 있는지(비활성화되었거나 없으면 실패 없이 경고), Claude Code에 원본 mattpocock-skills 플러그인이 중복 설치되어 있는지, 개인 스킬이 현재 프로젝트에 설치한 스킬을 가리는지.
-
-### 대상 저장소 준비
-
-- 대상 저장소에서 `/setup-matt-pocock-skills`를 한 번 실행합니다.
-- `.gitignore`에 `.scratch/codex/`를 추가합니다. 성공한 위임 작업은 결과를 활용한 뒤 작업 디렉터리를 삭제하고, 실패한 작업은 사용자가 진행 방법을 선택할 때까지 진단을 위해 보관하며, 남은 디렉터리는 직접 삭제할 수 있습니다.
-
-## 워커 설정
-
-| 역할 | 모델 / effort | sandbox | 사용하는 스킬 |
-|---|---|---|---|
-| `researcher` (조사) | `gpt-6-luna` / max, 웹 검색 | read-only | `codex-research` |
-| `critic` (공격적 검토) | `gpt-6-astra` / medium | read-only | `codex-plan-review`, `codex-code-review` |
-| `implementer` (구현) | `gpt-6.1-sol` / high | workspace-write | `codex-implement` |
-| `computer-user` (computer use) | `gpt-6-astra` / medium | 없음: 승인과 sandbox 우회 | `codex-computer-use` |
-
-기본값은 [`src/runner/roles.json`](../src/runner/roles.json)에 있습니다. 사용자별로 바꾸려면 `~/.codex-delegate/roles.json`에 바꿀 필드만 적습니다. 이 파일은 재설치해도 유지됩니다.
-
-```json
-{ "implementer": { "model": "gpt-6-sol", "effort": "high" } }
-```
-
-없는 역할을 가리키는 키는 오류입니다. 고칠 때까지 runner는 어떤 워커도 시작하지 않고 `doctor`는 실패합니다.
-
-### 0.2.x에서 업그레이드
-
-역할 이름이 모델 이름 대신 하는 일을 나타내도록 바뀌었습니다. `~/.codex-delegate/roles.json`의 키를 바꿉니다.
-
-| 0.2.x | 현재 |
-|---|---|
-| `luna` | `researcher` |
-| `astra` | `critic` |
-| `sol` | `implementer` |
-| `astra-cu` | `computer-user` |
-
-### Computer use (`computer-user`)
-
-`codex-computer-use`는 데스크톱 앱 작업(Windows 앱 클릭, 대화상자에 입력, 앱 화면 확인)을 Codex 워커에게 맡깁니다. 웹사이트는 대상이 아니며 브라우저 도구가 계속 맡습니다. 워커는 마지막 스크린샷 `final.png`를 저장하고, Leader는 이 스크린샷을 완료 기준과 대조한 뒤에야 작업을 완료로 봅니다.
-
-필요한 것:
-
-- Codex 데스크톱 앱이 설치되어 있고, 스킬이 실행되는 동안 **켜져 있어야** 합니다(워커가 이 앱을 통해 화면에 접근합니다. 앱이 꺼져 있으면 `Computer Use native pipe is unavailable`로 실패합니다).
-- Codex에서 Computer Use 플러그인이 활성화되어 있어야 합니다(꺼져 있으면 `doctor`가 경고합니다).
-
-**sandbox가 없는 이유.** `codex exec`에서는 Computer Use 플러그인이 앱마다 승인을 요청하는데, 응답할 사람이 없어 요청이 거부됩니다(`Computer Use was not approved to use <app>`). 그래서 `computer-user`는 Codex를 `--dangerously-bypass-approvals-and-sandbox`로 실행합니다. 이 옵션은 승인뿐 아니라 셸 sandbox도 끕니다. 워커는 어떤 명령이든 실행하고, 사용자 계정이 쓸 수 있는 곳 어디에나 쓰고, 네트워크를 쓸 수 있으며, 데스크톱의 어떤 앱이든 조작할 수 있습니다. 끄려면 `~/.codex-delegate/roles.json`에 `{ "computer-user": { "dangerouslyBypassApprovalsAndSandbox": false } }`를 넣습니다. 그러면 computer use는 동작하지 않습니다.
-
-**워커는 한 번에 하나.** 데스크톱은 하나이므로, `computer-user` 워커가 실행되는 동안 runner가 사용자별 잠금 디렉터리 `~/.codex-delegate/computer-use.lock/`을 잡습니다. 모든 Claude 세션과 worktree에 공통으로 적용됩니다. 두 번째 실행은 Codex를 시작하지 않고 바로 종료 코드 75("computer use busy")로 끝납니다. 잠금에는 runner와 Codex 프로세스의 PID가 기록되고, 둘 다 종료되면 자동으로 회수됩니다. 남는 위험:
-
-- runner가 강제 종료되면(예: 작업 관리자에서) 셸의 손자 프로세스가 기록된 두 PID보다 오래 살아남아, 새 워커가 잠금을 잡은 뒤에도 데스크톱을 계속 조작할 수 있습니다.
-- 회수된 잠금은 삭제되지 않고 `computer-use.lock.stale-<hash>`로 이름이 바뀌므로 `~/.codex-delegate/`에 이런 사본이 쌓일 수 있습니다(해제할 때 완전히 지우지 못한 잠금도 `computer-use.lock.released-<id>`로 남습니다). 워커가 실행 중이 아닐 때 지우면 됩니다.
-- 불완전한 잠금(runner가 Codex PID를 기록하기 전에 종료됨)은 계속 busy로 취급됩니다. 실행 중인 워커가 없는 것을 확인한 뒤 `~/.codex-delegate/computer-use.lock/`을 직접 지워야 합니다.
-- 운영체제가 종료된 워커의 PID를 관련 없는 프로세스에 다시 할당할 수 있으며, 그러면 그 프로세스가 끝날 때까지 잠금이 busy로 남습니다.
+설치 후 Claude Code와 Codex를 재시작하세요. 이 도구가 설치한 스킬만 건드리며, 같은 이름의 기존 스킬이 있으면 `--force`를 주지 않는 한 설치를 중단합니다. Windows에서 PowerShell이 `npx`를 막으면 `npx.cmd`를 사용하세요.
 
 ## 펫
 
-실행 중인 Leader 세션과 워커마다 하나씩 나타나는 선택 기능인 데스크톱 펫입니다. 펫은 주 모니터 아래쪽, 작업 표시줄 바로 위의 띠에 살면서 자기 세션이나 워커가 하는 일을 보여줍니다. Leader가 작업 중이면 `running`, 승인 요청이나 질문에서 기다리면 `waiting`, 턴이 끝나면 `review`(1분 뒤 `idle`로 돌아감), 오류가 나면 `failed`입니다. 워커 펫에는 역할과 작업 디렉터리 이름(예: `researcher · task-one`)이 붙고, 자기를 시작한 Leader의 펫 옆에 서며, 시작할 때와 결과를 보고할 때 Leader 펫과 짧은 장면을 연출합니다. 같은 역할의 워커가 동시에 돌면 펫도 따로 나타납니다. Claude Code 창이 여러 개면 열린 순서대로 왼쪽부터 별도의 팀으로 표시되고, 띠가 가득 차면 가장 최근 펫부터 `+N` 배지로 접힙니다.
+<p align="center"><img src="images/pets.png" alt="기본 펫 다섯: momo, mikan, sion, shamiko, lico"></p>
 
-워커는 결과를 보고한 뒤 띠의 왼쪽 가장자리 밖으로 떠납니다. 띠는 포커스를 가져가지 않고 모든 클릭을 아래 창으로 통과시킵니다. 다른 창보다 위에 머물고, 전체 화면 앱이 있으면 멈춘 채 그 뒤로 내려가며, `computer-user` 워커가 실행되는 동안에는 화면 캡처에서 숨겨지므로 그 워커의 스크린샷에 찍히지 않습니다.
+Claude 세션과 Codex 워커마다 귀여운 데스크톱 펫이 하나씩 생깁니다. 작업 표시줄 바로 위에 앉아 담당 에이전트의 상태(`running`, `waiting`, `review`, `failed`)를 보여 주고, 워커는 시작할 때와 결과를 보고할 때 리더에게 인사합니다. 클릭은 펫을 그대로 통과합니다.
 
-### 켜고 끄기
-
-```
-npx github:starpia-forge/codex-delegate install --with-pet      # 펫 설치 또는 업데이트
-npx github:starpia-forge/codex-delegate install --without-pet   # 펫만 제거하고 스킬은 유지
-npx github:starpia-forge/codex-delegate uninstall               # 스킬과 펫 모두 제거
+```sh
+npx github:starpia-forge/codex-delegate install --with-pet      # 켜기
+npx github:starpia-forge/codex-delegate install --without-pet   # 끄기 (스킬은 유지)
 ```
 
-펫을 켜거나 끈 뒤에는 hook 변경이 반영되도록 Claude Code를 재시작합니다.
+Windows 전용이며 WebView2 Runtime이 필요합니다. 켜거나 끈 뒤에는 Claude Code를 재시작하세요. 크기와 사용자 펫은 `~/.codex-delegate/pet.json`에서 설정합니다. 자세한 내용은 [pet/README.md](../pet/README.md)를 참고하세요.
 
-한 번 켜면 업데이트해도 유지됩니다. 이후 옵션 없이 user 범위로 `install`을 실행하면 펫을 그대로 두고 이 버전이 기대하는 번들로 업데이트합니다. `--dry-run`은 펫 관련 동작(다운로드, 번들 교체, hook 변경, 설정 백업)을 실행하지 않고 출력만 하며, `list`는 펫 사용 여부, 번들 버전, hook이 들어 있는 설정 파일을 보여줍니다.
-
-펫 변경은 user 범위이고 에이전트 선택에 Claude Code가 포함될 때만 일어납니다. project 범위로 실행하거나 Claude Code를 빼고 실행하면 켜져 있는 펫은 건드리지 않습니다. 다음 경우는 아무것도 바꾸지 않고 거부합니다.
-
-- `--with-pet`과 `--without-pet`을 함께 쓴 경우
-- 두 옵션 중 하나를 `install` 외의 명령, `--scope project`, 또는 `claude-code`가 빠진 `--agent` 선택과 함께 쓴 경우
-- Windows가 아닌 환경에서 `--with-pet`을 쓴 경우
-
-필요한 것: Windows(첫 버전은 다른 운영체제를 지원하지 않습니다), Microsoft Edge WebView2 Runtime(Windows 11에는 포함되어 있고, Windows 10에서 없으면 설치합니다), Claude Code가 hook을 실행할 때 쓰는 `PATH`에 있는 `node`.
-
-### 컴퓨터에서 바뀌는 것
-
-- **펫 번들**: 설치 프로그램은 이 저장소의 GitHub Releases에서 고정된 릴리스 파일 `codex-delegate-pet-windows-x64.zip` 하나를 내려받고, SHA-256이 패키지에 포함된 pin과 다르면 거부합니다. 번들에는 펫 앱(`codex-delegate-pet.exe`), 이벤트를 보고하는 클라이언트, Leader hook 스크립트, 기본 펫이 들어 있으며 `~/.codex-delegate/pet/`에 풀립니다. 업데이트하면 이 디렉터리를 통째로 교체합니다.
-- **펫 상태**: `~/.codex-delegate/pet-state/`에는 펫이 켜져 있음을 기록하는 표시 파일(번들 버전, 설정 파일, 등록한 hook 명령 원문), 앱이 모든 요청에 요구하는 사용자별 무작위 토큰, 열려 있는 세션 기록, 아직 전달되지 않은 이벤트가 있습니다. 업데이트해도 유지됩니다.
-- **Claude Code 설정**: 사용자 설정 파일(`$CLAUDE_CONFIG_DIR/settings.json`, 없으면 `~/.claude/settings.json`. 파일이 없으면 만듭니다)의 `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `PostToolUse`에 Leader hook 스크립트 `~/.codex-delegate/pet/hook/leader-hook.mjs`를 Node로 실행하는 command hook을 추가합니다. UTF-8 BOM이 있는 설정도 읽습니다. 바꾸기 전마다 기존 파일을 옆에 `settings.json.codex-delegate-backup-<시각>-<id>`로 복사해 둡니다. 다시 설치하면 소유한 항목을 그 자리에서 갱신하며, 기존에 있던 동일한 명령은 그대로 두고 소유권을 가져오지 않습니다. 제거할 때는 설치 프로그램이 기록한 항목만, 그 항목을 쓴 설정 파일에서 지우고 다른 키와 hook은 그대로 둡니다.
-
-다운로드, 번들 검증, 설정 파일 읽기는 아무것도 바꾸기 전에 합니다. 이 중 하나라도 실패하면(예: 설정 파일이 올바른 JSON이 아님) 아무것도 바꾸지 않고 중단합니다. `uninstall` 사전 점검 오류는 `Nothing was changed.`를 출력하고 종료 코드 1을 반환합니다. 번들을 교체하거나 제거하는 동안에는 실행 중인 펫 앱을 멈추고, hook이나 워커가 앱을 다시 띄우지 못하게 합니다. health가 응답하지 않으면 실행 파일을 확인한 경우에만 응답이 멈춘 앱을 종료합니다. 확인할 수 없으면 설치나 제거가 실패하고 앱을 닫거나 포트 충돌을 해결한 뒤 재시도하라는 메시지를 표시합니다. 그 이후 단계가 실패하면 적용된 단계와 적용되지 않은 단계, 설정 백업 위치를 알려줍니다. 같은 명령을 다시 실행하면 마저 끝납니다.
-
-제거(`--without-pet` 또는 `uninstall`)하면 hook과 함께 `~/.codex-delegate/pet/`과 `~/.codex-delegate/pet-state/`를 삭제합니다.
-
-펫 앱은 첫 이벤트에서 시작하고, 10분 동안 이벤트가 없으면 스스로 종료합니다. Leader와 워커의 보고는 Claude Code나 워커를 막지 않으며 출력도 바꾸지 않습니다.
-
-### 설정과 사용자 펫
-
-`~/.codex-delegate/pet.json`에 적습니다(선택).
-
-```json
-{
-  "scale": 0.6,
-  "pets": { "leader": "my-pet", "researcher": "critic" }
-}
-```
-
-- `scale`: 192 × 208 스프라이트 칸 대비 펫 크기. 0.3부터 1.0까지(기본값 0.6).
-- `pets`: 사용자 역할을 포함해 `[a-z][a-z0-9-]*`에 맞는 모든 역할의 펫 폴더 이름을 지정합니다. 기본 역할 다섯 개는 같은 이름의 기본 펫을 쓰고, 그 외 역할에 펫을 지정하지 않으면 기본 `implementer` 그림을 씁니다.
-
-모르는 키와 잘못된 값은 무시하고, JSON이 잘못되면 기본값을 씁니다. 앱은 시작할 때 이 파일과 펫 패키지를 한 번 읽습니다. 변경 사항을 반영하려면 앱을 재시작합니다.
-
-펫 이름은 다음 순서로 찾습니다.
-
-1. `~/.codex-delegate/pets/<name>/`
-2. Codex 펫 폴더 `$CODEX_HOME/pets/<name>/`(기본값 `~/.codex/pets/<name>/`). Codex에서 쓰던 펫을 그대로 쓸 수 있습니다.
-3. 같은 이름의 기본 펫(`leader`, `researcher`, `critic`, `implementer`, `computer-user`)
-
-펫 폴더는 Codex 펫 패키지 형식을 따릅니다. `id`, `displayName`, `description`, `spritesheetPath`가 있는 `pet.json` 매니페스트와, 1536 × 1872 픽셀(192 × 208 칸 8 × 9개)의 투명 PNG 또는 WebP 스프라이트 시트입니다. 처음 찾은 폴더가 형식에 맞지 않거나 지정한 펫을 어디서도 찾지 못하면 그 항목은 기본 펫을 보여줍니다.
-
-### `doctor`의 펫 점검 항목
-
-펫이 설치되어 있을 때만 `doctor`가 다음도 알려줍니다.
-
-- pin이 잘못되었거나 번들/실행 파일이 없으면 `FAIL`, 표시 파일의 태그·SHA-256·버전이 pin과 다르면 `WARN`
-- 기록된 hook이 없거나 설정 파일을 읽을 수 없으면 `FAIL`, 그 파일이 현재와 다른 설정 디렉터리에 있으면 `WARN`
-- WebView2 Runtime이 없으면 `FAIL`(Windows)
-- 잘못된 `pet.json` 설정은 `WARN`, 없거나 잘못되었거나 읽을 수 없는 펫 패키지는 항목별 경고와 기본 펫 대체 안내
-- 포트를 다른 프로그램이 쓰거나 실행 중인 앱의 버전이 pin과 다르면 `WARN`, 앱이 실행 중이 아니면 `OK`
+> I Love まちカドまぞく
 
 ## 워크플로우
 
-사용자는 단계마다 명령 하나씩, 네 개의 명령을 입력합니다. 주황색 단계는 Claude(Leader)가, 파란색 단계는 Codex 워커가, 회색 단계는 사용자가 수행합니다. 점선 화살표는 위임과 그 결과입니다.
+`/grill-with-docs` → `/to-spec` → `/to-tickets` → `/implement` (또는 `/implement-spec`). 명령과 규율은 업스트림과 같고, 위임은 각 단계 안에서 일어납니다.
 
-```mermaid
-flowchart TD
-    subgraph grill["/grill-with-docs"]
-        direction LR
-        G1["설계를 따져 묻고<br/>용어집과 ADR 갱신"]
-        Luna{{"Codex · GPT 6 Luna<br/>codex-research"}}
-        G1 -. "외부 사실" .-> Luna
-        Luna -. "출처가 달린 조사 결과" .-> G1
-    end
+| 역할 | 모델 | 강점 | 약점 | 이 역할을 맡긴 이유 |
+|---|---|---|---|---|
+| 리더 | Claude Opus 5.5 | 사용자 의도 파악, 코드 분석, 설계 | 웹 검색 | 리더만 사용자와 대화하므로 의도가 흐려지지 않습니다. 스펙과 티켓을 쓰고, 워커에게 지시하고, 결과를 검증합니다 |
+| 조사 | GPT 6 Luna | 저렴함, Codex의 강력한 웹 검색 | 낮은 지능 | 출처가 있는 답으로 외부 질문에 답해 리더의 약점을 보완합니다 |
+| 비평 | GPT 6 Astra | 날카로운 비평가이자 코드 리뷰어 | 높은 비용 | 스펙과 티켓을 게시 전에 공격하고, Claude와 함께 코드를 리뷰합니다 |
+| 구현 | GPT 6.1 Sol | 비용 대비 구현 품질 | 의도를 오해함, 작업을 너무 일찍 완료로 표시함 | 자체 완결된 지시를 받아 티켓 하나씩 테스트 우선으로 구현하고, 리더가 테스트를 다시 돌려 모든 기준을 확인합니다 |
+| 컴퓨터 사용 | GPT 6 Astra | 데스크톱 앱 조작에 강함 | 높은 비용 | 리더 대신 네이티브 앱을 조작합니다. **샌드박스와 승인 없이** 실행되며, Codex 데스크톱 앱이 실행 중이어야 합니다 |
 
-    subgraph spec["/to-spec"]
-        direction LR
-        P1["spec 초안 작성"]
-        A1{{"Codex · GPT 6 Astra<br/>codex-plan-review"}}
-        P2["수정"]
-        P3["spec 게시"]
-        P1 -. "초안" .-> A1
-        A1 -. "지적 사항" .-> P2
-        P2 --> P3
-    end
-
-    subgraph tickets["/to-tickets"]
-        direction LR
-        T1["tracer-bullet<br/>티켓 초안 작성"]
-        A2{{"Codex · GPT 6 Astra<br/>codex-plan-review"}}
-        T2["수정"]
-        T3(["사용자 승인"])
-        T4["티켓 게시"]
-        T1 -. "분할안" .-> A2
-        A2 -. "지적 사항" .-> T2
-        T2 --> T3 --> T4
-    end
-
-    subgraph impl["/implement"]
-        direction LR
-        I1["워커에게 지시"]
-        Sol{{"Codex · GPT 6.1 Sol<br/>codex-implement"}}
-        I2["diff, 타입체크,<br/>테스트, 수용 기준 검증"]
-        I3["티켓 커밋"]
-        R1["code-review: Claude 서브에이전트<br/>Standards · Spec · Correctness"]
-        A3{{"Codex · GPT 6 Astra<br/>codex-code-review"}}
-        R2["축별로 병합, 한쪽만 찾은<br/>결과 검증"]
-        I1 -. "티켓 지시" .-> Sol
-        Sol -. "코드 + 보고" .-> I2
-        I2 -- "통과" --> I3
-        I2 -. "실패: 후속 지시" .-> Sol
-        I3 -- "다음 티켓" --> I1
-        I3 -- "모든 티켓 완료" --> R1
-        I3 -. "같은 diff와 지시" .-> A3
-        R1 --> R2
-        A3 -. "결과" .-> R2
-    end
-
-    U(["사용자"]) --> grill
-    grill --> spec
-    spec --> tickets
-    tickets --> impl
-
-    classDef user fill:#e8e8e8,stroke:#666,color:#111
-    classDef claude fill:#f6dcc8,stroke:#c15f2c,color:#111
-    classDef codex fill:#d6e6f5,stroke:#2f6aa3,color:#111
-    class U,T3 user
-    class G1,P1,P2,P3,T1,T2,T4,I1,I2,I3,R1,R2 claude
-    class Luna,A1,A2,A3,Sol codex
-```
-
-`/implement-spec`은 모든 티켓에 같은 `/implement` 흐름을 적용합니다. 티켓마다 Claude 서브에이전트가 자기 worktree에서 작업하고, Leader가 각 결과를 통합 브랜치에 병합한 뒤, 마지막에 통합 브랜치 전체에 `code-review`를 한 번 실행합니다.
-
-`code-review`는 모든 축을 Claude 서브에이전트와 Codex가 같은 diff와 같은 지시로 각자 독립적으로 검토합니다. 한 모델이 놓친 부분을 다른 모델이 잡기 위해서입니다. Leader는 두 결과를 축별로 합치고 누가 찾았는지 표시하며, 한쪽만 찾은 결과는 코드와 대조해 확인한 뒤에 채택합니다.
-
-워커는 git 상태를 바꾸지 않습니다. 커밋, 브랜치, 병합은 Leader나 Claude 서브에이전트가 맡습니다.
-
-## 저장소 구조
-
-```
-bin/cli.mjs                 npx 설치 도구
-install-manifest.json       에이전트별 설치 구성
-src/skills/                 직접 작성한 스킬 (codex-research, codex-plan-review, codex-implement, codex-code-review, codex-computer-use)
-src/runner/                 codex-run.mjs, roles.json, Windows 보조 파일 windows-codex.mjs와
-                            windows-stop-tree.ps1 (빌드 시 위 스킬 각각에 복사됨)
-src/codex-skills.json       워커가 쓰는 원본 스킬 목록 (skills/codex/로 복사됨)
-patches/                    원본 대비 변경분 (스킬당 1개)
-  claude/                   skills/claude/에 적용
-  codex/                    skills/codex/에 적용
-upstream.json               고정된 원본 커밋
-scripts/build.mjs           skills/ 생성
-skills/                     빌드 산출물. 직접 수정하지 말 것
-  claude/                   mattpocock 기본 스킬 전부(진입점 5개와 code-review는 패치본) + src/skills. Claude Code 전용
-  codex/                    워커에게 필요한 원본 스킬만, 워커 역할에 맞게 패치. Codex 전용
-pet/                        선택 기능인 Windows 펫: 앱, 클라이언트, Leader hook (pet/README.md 참고)
-pet-pin.json                설치 프로그램이 내려받는 펫 번들의 릴리스 태그, 파일 이름, SHA-256
-docs/                       번역 문서
-```
-
-`skills/`는 `skills/{scope}/<name>/SKILL.md` 규칙을 따르므로 `gh skill install`이나 `npx skills add`로도 개별 설치할 수 있습니다. 다만 그 경우에는 에이전트별 구성을 사용자가 직접 맞춰야 합니다.
-
-## 유지보수
-
-```
-node scripts/build.mjs              # 고정된 커밋으로 skills/ 다시 생성
-node scripts/build.mjs --ref main   # 원본을 최신으로 올리고 다시 생성
-```
-
-- **패치가 적용되지 않을 때**: `skills/`는 그대로 두고 실패합니다. 해당 패치를 새 원본에 맞게 고친 뒤 다시 실행합니다. 패치 경로는 `a/engineering/<skill>/SKILL.md`처럼 원본 `skills/` 디렉터리 기준입니다.
-- **스킬 분류 규칙**: 원본 스킬은 모두 `claude/`로 갑니다. `src/codex-skills.json`에 있는 원본 스킬은 별도로 `codex/`에도 복사됩니다. 각 사본은 깨끗한 원본에 자기 `patches/<agent>/`만 적용해 만들므로, 한쪽 에이전트용 패치가 다른 쪽 사본을 바꾸는 일은 없습니다. `patches/codex/`가 `src/codex-skills.json`에 없는 스킬을 건드리면 빌드가 실패합니다.
-- **워커 스킬 추가**: `src/codex-skills.json`에 이름을 넣고 다시 빌드하면 Codex 설치 대상에도 자동으로 포함됩니다. 매니페스트는 `codex/*`를 설치합니다. 지침이 Leader 역할(사용자와 대화, 에이전트 생성, 파일 작성)을 전제한다면 `patches/codex/`에 패치를 추가합니다.
-- **릴리스 절차**: `package.json`의 `version`을 올리고, `skills/`를 포함해 커밋한 뒤 같은 버전으로 태그를 붙입니다. 표시 파일에 이 버전이 기록됩니다.
-
-## 알려진 제약
-
-- **Windows sandbox의 git 소유권 오류**: sandbox가 별도 OS 사용자로 실행되어 git이 "dubious ownership"으로 저장소를 거부합니다. `codex-run.mjs`가 해당 프로세스에만 `safe.directory=*`를 넣어 우회합니다.
-- **네트워크 차단**: `implementer`와 `critic`은 네트워크가 막혀 있어서 이슈 트래커를 직접 읽지 못합니다. 그래서 위임 스킬이 티켓과 spec 본문을 프롬프트에 직접 담습니다.
-- **Windows 10의 computer use**: Windows 10(빌드 19045)에서 Codex Computer Use의 스크린샷 시간 초과와 클릭 위치 오류가 GitHub 이슈로 보고되어 있습니다. 이 환경에서는 실패하는 시도가 더 많을 수 있습니다.
-- **Bash 시간 제한**: Bash의 foreground 시간 제한은 10분입니다. 그래서 `researcher`, `implementer`, `computer-user`, 그리고 `critic`의 코드 리뷰는 백그라운드로 실행합니다.
+워커의 "완료"는 사실이 아니라 주장입니다. 리더는 커밋 전에 diff와 테스트를 직접 확인합니다. `code-review`는 모든 축을 Claude와 Codex가 각각 한 번씩 리뷰하므로, 한 모델이 놓친 것을 다른 모델이 잡아냅니다. 역할별 모델은 `~/.codex-delegate/roles.json`에서 바꿀 수 있습니다.
 
 ## 라이선스
 
-[MIT](../LICENSE). 포함된 원본 스킬(mattpocock/skills)도 MIT 라이선스이며, 고지문은 [`skills/THIRD_PARTY_LICENSE-mattpocock-skills`](../skills/THIRD_PARTY_LICENSE-mattpocock-skills)에 있습니다.
+[MIT](../LICENSE). 함께 포함된 업스트림 스킬(mattpocock/skills)도 MIT 라이선스이며, [`skills/THIRD_PARTY_LICENSE-mattpocock-skills`](../skills/THIRD_PARTY_LICENSE-mattpocock-skills)를 참고하세요.
