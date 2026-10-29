@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { licencesView, startLicences } from "../pet/app/ui/licences.mjs";
-import { generateNotices } from "../scripts/pet-notices.mjs";
+import { generateNoticeSections } from "../scripts/pet-notices.mjs";
 
 const catalogue = JSON.parse(await readFile(new URL("../pet/app/messages.json", import.meta.url), "utf8"));
 const document = {
   text: "CODEX-DELEGATE-NOTICES-STUB\nNot a real crate list",
+  third_party: "",
   is_stub: true,
   project: "MIT License\nCopyright project",
   fan_art: "Unofficial fan art, removed on request.",
@@ -25,12 +26,12 @@ test("developer licences show original terms and a translated release-build expl
 
 test("release licences keep crate attributions in English and translate only the surrounding headings", () => {
   const crate = { name: "example", version: "1.0.0", source: "registry+fixture" };
-  const text = generateNotices({
+  const generated = generateNoticeSections({
     crates: [{ package: crate }],
     licenses: [{ id: "MIT", source_path: "LICENSE", text: "MIT terms\nCopyright Alice\n",
       used_by: [{ crate }] }],
   }, document.project, document.fan_art, () => "");
-  const notices = { ...document, is_stub: false, text };
+  const notices = { ...document, is_stub: false, ...generated, text: "A future full-document format" };
   const english = licencesView(notices, catalogue, "en");
   const korean = licencesView(notices, catalogue, "ko");
   assert.equal(english.sections[2].text, "example 1.0.0 — MIT\n\nMIT terms\nCopyright Alice\n\n");
@@ -40,15 +41,15 @@ test("release licences keep crate attributions in English and translate only the
   assert.equal(english.sections[2].preformatted, true);
 });
 
-test("an empty release crate list has a translated empty state, and unfamiliar documents stay readable", () => {
-  const text = generateNotices({ crates: [], licenses: [] }, document.project, document.fan_art, () => "");
+test("an empty release crate section has a translated empty state independently of the full document", () => {
+  const generated = generateNoticeSections({ crates: [], licenses: [] }, document.project, document.fan_art, () => "");
   for (const [language, expected] of [["en", "No third-party notices."], ["ko", "타사 고지가 없습니다."]]) {
-    const section = licencesView({ ...document, is_stub: false, text }, catalogue, language).sections[2];
+    const section = licencesView({ ...document, is_stub: false, ...generated }, catalogue, language).sections[2];
     assert.equal(section.text, expected);
     assert.equal(section.preformatted, false);
   }
   const unfamiliar = "A future document format\nCopyright Bob\n";
-  assert.equal(licencesView({ ...document, is_stub: false, text: unfamiliar }, catalogue, "ko").sections[2].text,
+  assert.equal(licencesView({ ...document, is_stub: false, third_party: unfamiliar }, catalogue, "ko").sections[2].text,
     unfamiliar);
 });
 
