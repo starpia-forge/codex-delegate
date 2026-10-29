@@ -77,6 +77,9 @@ async function installedFixture(t) {
 
 test("doctor without an installed pet prints no pet or WebView2 lines and never probes the port", async t => {
   const f = await fixture(t);
+  const state = join(f.petRoot, "pet-state");
+  mkdirSync(state, { recursive: true });
+  writeFileSync(join(state, "pet-preferences.json"), '{"hidden":true}\n');
   const requests = [];
   const server = await listen(t, (req, res) => { requests.push(req.url); res.end("foreign"); });
   const result = await f.run(["doctor"], {
@@ -85,7 +88,56 @@ test("doctor without an installed pet prints no pet or WebView2 lines and never 
   assert.equal(result.code, 0, result.output);
   assert.doesNotMatch(result.stdout, /pet|WebView2/i);
   assert.deepEqual(requests, []);
+  const listed = await f.run(["list"]);
+  assert.equal(listed.code, 0, listed.output);
+  assert.match(listed.stdout, /^Pet: not installed$/m);
 });
+
+test("doctor reports pets hidden at OK level with tray guidance", async t => {
+  const f = await installedFixture(t);
+  const path = join(f.petRoot, "pet-state", "pet-preferences.json");
+  const preferences = '{"hidden":true,"future":1}\n';
+  writeFileSync(path, preferences);
+  const result = await f.run();
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.stdout, /^  \[OK  \] Pet visibility - Pets are hidden; show them from the pet's tray icon\.$/m);
+  assert.equal(readFileSync(path, "utf8"), preferences, "doctor only reads preferences");
+});
+
+for (const [description, preferences] of [
+  ["missing file", null],
+  ["hidden false", '{"hidden":false}'],
+  ["invalid JSON", '{"hidden":true'],
+  ["trailing invalid JSON", '{"hidden":true} garbage'],
+  ["string hidden", '{"hidden":"true"}'],
+  ["number hidden", '{"hidden":1}'],
+  ["null hidden", '{"hidden":null}'],
+  ["array hidden", '{"hidden":[true]}'],
+  ["object hidden", '{"hidden":{}}'],
+  ["unknown keys only", '{"future":true,"language":"ko"}'],
+  ["null document", 'null'],
+  ["boolean document", 'true'],
+  ["number document", '1'],
+  ["string document", '"hidden"'],
+  ["array document", '[{"hidden":true}]'],
+  ["UTF-8 BOM", '\uFEFF{"hidden":true}'],
+  ["invalid UTF-8", Buffer.concat([Buffer.from('{"hidden":true,"future":"'), Buffer.from([0xff]), Buffer.from('"}')])],
+  ["unreadable file", "directory"],
+]) {
+  test(`list and doctor treat ${description} preferences as pets shown`, async t => {
+    const f = await installedFixture(t);
+    const path = join(f.petRoot, "pet-state", "pet-preferences.json");
+    if (preferences === "directory") mkdirSync(path);
+    else if (preferences !== null) writeFileSync(path, preferences);
+    const listed = await f.run(["list"]);
+    assert.equal(listed.code, 0, listed.output);
+    const line = listed.stdout.split("\n").find(line => line.startsWith("Pet:"));
+    assert.equal(line, `Pet: enabled, bundle 1.2.3 (pet-v1.2.3) -> ${join(f.petRoot, "pet")}, hooks in ${f.settingsPath}`);
+    const diagnosed = await f.run();
+    assert.equal(diagnosed.code, 0, diagnosed.output);
+    assert.doesNotMatch(diagnosed.output, /hidden|Pet visibility|pet-preferences|tray icon/i);
+  });
+}
 
 test("doctor reports the pinned pet bundle after a real install", async t => {
   const f = await fixture(t);
