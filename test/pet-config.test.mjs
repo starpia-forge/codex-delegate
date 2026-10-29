@@ -12,14 +12,14 @@ const bundledRoot = fileURLToPath(new URL("../pet/app/ui/assets/", import.meta.u
 const bundledManifests = Object.fromEntries(await Promise.all(slots.map(async slot =>
   [slot, JSON.parse(await readFile(join(bundledRoot, slot, "pet.json"), "utf8"))])));
 const bundled = name => ({ name, source: "bundled", dir: `${bundledRoot}/${name}`,
-  manifest: bundledManifests[name], sheetPath: `${bundledRoot}/${name}/${bundledManifests[name].spritesheetPath}`, mime: "image/png" });
-const manifest = { id: "custom", displayName: "Custom pet", description: "Test pet", spritesheetPath: "spritesheet.png" };
+  manifest: bundledManifests[name], sheetPath: `${bundledRoot}/${name}/${bundledManifests[name].spritesheetPath}`, mime: "image/webp" });
+const manifest = { id: "custom", displayName: "Custom pet", description: "Test pet", spritesheetPath: "spritesheet.webp" };
 const realSheet = () => readFile(bundled("leader").sheetPath);
 
 async function packageAt(h, base, name, fields = manifest, sheet) {
   const dir = join(base, "pets", name);
   await h.put(join(dir, "pet.json"), JSON.stringify(fields));
-  await h.put(join(dir, fields.spritesheetPath ?? "spritesheet.png"), sheet ?? await realSheet());
+  await h.put(join(dir, fields.spritesheetPath ?? manifest.spritesheetPath), sheet ?? await realSheet());
   return dir;
 }
 
@@ -71,8 +71,20 @@ async function harness(t) {
 
 test("no configuration uses all five bundled slot pets at scale 0.6", async t => {
   const h = await harness(t);
-  assert.deepEqual(await h.resolve(), { scale: 0.6,
+  const result = await h.resolve();
+  assert.deepEqual(result, { scale: 0.6,
     pets: Object.fromEntries(slots.map(slot => [slot, bundled(slot)])), issues: [] });
+  const characters = { leader: "momo", researcher: "mikan", critic: "sion", implementer: "shamiko", "computer-user": "lico" };
+  for (const [slot, character] of Object.entries(characters)) {
+    const pet = result.pets[slot];
+    assert.equal(pet.sheetPath, `${bundledRoot}/${slot}/spritesheet.webp`);
+    assert.equal(pet.mime, "image/webp");
+    assert.equal(pet.manifest.displayName, character);
+    assert.match(pet.manifest.description, /unofficial fan art of 『まちカドまぞく』 \(© 伊藤いづも \/ 芳文社\)/i);
+    assert.match(pet.manifest.description, /not affiliated/i);
+    assert.match(pet.manifest.description, /removed on request/i);
+    assert.deepEqual((await readdir(pet.dir)).sort(), ["pet.json", pet.manifest.spritesheetPath].sort());
+  }
 });
 
 test("configuration accepts inclusive scale bounds and reports ignored values", async t => {
@@ -159,8 +171,8 @@ test("local pets override Codex pets; explicit and default Codex homes are suppo
   assert.equal(result.pets.researcher.dir.replaceAll("\\", "/"), local.replaceAll("\\", "/"));
   assert.equal(result.pets.researcher.name, "custom");
   assert.deepEqual(result.pets.researcher.manifest, manifest);
-  assert.equal(result.pets.researcher.sheetPath.replaceAll("\\", "/"), join(local, "spritesheet.png").replaceAll("\\", "/"));
-  assert.equal(result.pets.researcher.mime, "image/png");
+  assert.equal(result.pets.researcher.sheetPath.replaceAll("\\", "/"), join(local, "spritesheet.webp").replaceAll("\\", "/"));
+  assert.equal(result.pets.researcher.mime, "image/webp");
   assert.deepEqual(result.pets.researcher.fallback, bundled("researcher"));
   assert.equal(result.pets.critic.source, "codex");
   assert.equal(result.pets.critic.dir.replaceAll("\\", "/"), codex.replaceAll("\\", "/"));
@@ -210,15 +222,15 @@ test("sheet paths stay in their package and a missing sheet falls back without t
   assert.deepEqual(result.pets.researcher, bundled("researcher"));
   assert.equal(result.issues[0].code, "sheet-missing");
   // Nested relative paths, including Windows separators, remain valid.
-  await h.put(join(dir, "pet.json"), JSON.stringify({ ...manifest, spritesheetPath: "art\\sheet.png" }));
-  await h.put(join(dir, "art", "sheet.png"), await realSheet());
+  await h.put(join(dir, "pet.json"), JSON.stringify({ ...manifest, spritesheetPath: "art\\sheet.webp" }));
+  await h.put(join(dir, "art", "sheet.webp"), await realSheet());
   assert.equal((await h.resolve()).pets.researcher.source, "codex-delegate");
 });
 
 test("a folder without a manifest is absent and allows the next folder or bundled fallback", async t => {
   const h = await harness(t);
   await h.config({ pets: { researcher: "custom" } });
-  await h.put(join(h.home, ".codex-delegate", "pets", "custom", "spritesheet.png"), await realSheet());
+  await h.put(join(h.home, ".codex-delegate", "pets", "custom", "spritesheet.webp"), await realSheet());
   const missing = await h.resolve();
   assert.deepEqual(missing.pets.researcher, bundled("researcher"));
   assert.equal(missing.issues[0].code, "pet-not-found");
@@ -237,13 +249,13 @@ test("PNG header validation rejects format, size and opaque sheets with per-slot
     [png({ height: 1871 }), "sheet-size"], [png({ color: 2 }), "sheet-not-transparent"],
     [png({ color: 3, lateTrns: true }), "sheet-not-transparent"],
   ]) {
-    await h.put(join(dir, "spritesheet.png"), sheet);
+    await h.put(join(dir, manifest.spritesheetPath), sheet);
     const result = await h.resolve();
     assert.deepEqual(result.pets.researcher, bundled("researcher"));
     assert.equal(result.issues[0].code, code);
   }
   for (const sheet of [png(), png({ color: 4 }), png({ color: 2, trns: true }), png({ color: 3, trns: true })]) {
-    await h.put(join(dir, "spritesheet.png"), sheet);
+    await h.put(join(dir, manifest.spritesheetPath), sheet);
     const result = await h.resolve();
     assert.equal(result.pets.researcher.source, "codex-delegate");
     assert.equal(result.pets.researcher.mime, "image/png");
@@ -254,7 +266,7 @@ test("PNG header validation rejects format, size and opaque sheets with per-slot
 test("WebP magic and all three headers enforce dimensions and transparency regardless of extension", async t => {
   const h = await harness(t);
   await h.config({ pets: { researcher: "custom" } });
-  const dir = await packageAt(h, join(h.home, ".codex-delegate"), "custom");
+  const dir = await packageAt(h, join(h.home, ".codex-delegate"), "custom", { ...manifest, spritesheetPath: "spritesheet.png" });
   await packageAt(h, h.codexHome, "custom");
   for (const type of ["VP8X", "VP8L"]) {
     await h.put(join(dir, "spritesheet.png"), webp(type));
@@ -279,7 +291,7 @@ test("WebP magic and all three headers enforce dimensions and transparency regar
   }
 });
 
-test("all five real bundled placeholder packages pass the resolver's package validation", async t => {
+test("all five real bundled fan-art packages pass the resolver's package validation", async t => {
   const h = await harness(t);
   for (const slot of slots) {
     const asset = new URL(`../pet/app/ui/assets/${slot}/`, import.meta.url);
@@ -292,7 +304,7 @@ test("all five real bundled placeholder packages pass the resolver's package val
   for (const slot of slots) {
     assert.equal(result.pets[slot].source, "codex-delegate", slot);
     assert.equal(result.pets[slot].name, slot);
-    assert.equal(result.pets[slot].mime, "image/png");
+    assert.equal(result.pets[slot].mime, "image/webp");
   }
   assert.deepEqual(result.issues, []);
 });
@@ -324,11 +336,14 @@ test("a custom sheet with a valid header that fails decoding resolves to its bun
   } });
   assert.deepEqual(decoded, { bytes: invalidSheet, mime: "image/png" });
   assert.deepEqual(result.pets.researcher, bundled("researcher"));
+  assert.equal(result.pets.researcher.sheetPath, `${bundledRoot}/researcher/spritesheet.webp`);
+  assert.equal(result.pets.researcher.mime, "image/webp");
   assert.deepEqual(result.issues.map(issue => [issue.code, issue.slot]), [["sheet-decode", "researcher"]]);
 });
 
 test("placeholder generation replaces each slot with exactly its manifest and referenced sheet, keeping the artwork", async t => {
   const h = await harness(t);
+  const originalSheets = await Promise.all(slots.map(slot => readFile(bundled(slot).sheetPath)));
   const script = join(h.root, "generate-placeholders.mjs");
   await h.put(script, await readFile(new URL("../pet/generate-placeholders.mjs", import.meta.url)));
   const generatedRoot = join(h.root, "app/ui/assets");
@@ -342,7 +357,10 @@ test("placeholder generation replaces each slot with exactly its manifest and re
     const pet = result.pets[slot];
     assert.deepEqual((await readdir(pet.dir)).sort(), ["pet.json", pet.manifest.spritesheetPath].sort());
     assert.deepEqual((await readdir(bundled(slot).dir)).sort(), ["pet.json", bundledManifests[slot].spritesheetPath].sort());
-    assert.deepEqual(await readFile(pet.sheetPath), await readFile(bundled(slot).sheetPath));
-    assert.deepEqual(pet.manifest, bundledManifests[slot]);
+    assert.equal(pet.mime, "image/png");
+    assert.deepEqual(pet.manifest, { id: `placeholder-${slot}`, displayName: `${slot} placeholder`,
+      description: "Original development placeholder for codex-delegate", spritesheetPath: "spritesheet.png" });
+    assert.deepEqual(await readFile(bundled(slot).sheetPath), originalSheets[slots.indexOf(slot)]);
+    assert.deepEqual(JSON.parse(await readFile(join(bundled(slot).dir, "pet.json"), "utf8")), bundledManifests[slot]);
   }
 });

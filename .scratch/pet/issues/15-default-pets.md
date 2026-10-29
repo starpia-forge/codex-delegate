@@ -11,3 +11,7 @@ Spec: `.scratch/pet/spec.md` (Pet configuration and artwork)
 - [ ] Five packages (`pet.json` and a 1536 × 1872 sheet of 8 × 9 cells, rows in the Codex order) that pass 07's validation.
 - [ ] Included in a pet release and the package pin bumped to it.
 - [ ] Manual check: each pet's nine rows animate correctly in the app.
+
+## Comments
+
+2026-10-29: Superseded by [ADR 0002](../../../docs/adr/0002-fan-art-default-pets.md) and [ticket 02: Fan-art default pets](../../pet-tray/issues/02-fan-art-default-pets.md). The fan-art defaults and their packaging are tracked there.
