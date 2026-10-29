@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 Spec: `.scratch/pet/spec.md` (Testing: Not automated)
 
@@ -28,3 +28,4 @@ Spec: `.scratch/pet/spec.md` (Testing: Not automated)
   - Not run: a DPI scale other than 100 % (needs a display-setting change on the user's machine); Windows 11 (not available).
   - Follow-ups: 17 (leftmost leader wanders partly off the strip), 18 (name tags overlap at small scales).
   - Still to do: the fix needs a new bundle release (`pet-v0.1.1`) and pin; pushing the tag waits for the user's approval.
+- 2026-10-29: `pet-v0.1.1` failed in the release workflow on a delivery test (a deleted spool file still listed on the Windows runner); fixed with a delivery hardening in a403ffd, and `pet-v0.1.1` was left without a release. `pet-v0.1.2` cut from a403ffd (run 40810810447, all green), hash verified, pinned. Updated the user's home while the 0.1.0 app was running: app stopped, bundle replaced, `doctor` all OK at 0.1.2, cold start reports 0.1.2. A real computer-user run against the installed 0.1.2 app kept capture affinity at 0x11 from lock creation to release and cleared it within 0.5 s. Only the DPI check (a primary-monitor scale other than 100 %) remains, for the human; Windows 11 isn't available.
