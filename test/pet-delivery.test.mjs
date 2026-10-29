@@ -102,7 +102,12 @@ setTimeout(() => process.exit(), 15000).unref();
   });
   return { root, bundle, state, server, port, env, lines,
     events: () => lines("events").map(line => JSON.parse(line)),
-    spooled: () => existsSync(join(state, "spool")) ? readdirSync(join(state, "spool")).filter(name => name.endsWith(".json")) : [],
+    // On Windows a deleted file that another process (such as an antivirus
+    // scan) holds open stays listed but can no longer be opened.
+    spooled: () => existsSync(join(state, "spool")) ? readdirSync(join(state, "spool")).filter(name => {
+      if (!name.endsWith(".json")) return false;
+      try { readFileSync(join(state, "spool", name)); return true; } catch { return false; }
+    }) : [],
     async produce(source = "await worker.send('start');") {
       const code = `import { createWorker } from ${JSON.stringify(pathToFileURL(join(bundle, "client", "pet-client.mjs")).href)};
 const worker = createWorker({ role: 'implementer', label: 'quick-task' });

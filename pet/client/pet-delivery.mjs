@@ -58,7 +58,11 @@ function queued() {
       const event = JSON.parse(readFileSync(path, "utf8"));
       if (!Number.isSafeInteger(event.at) || event.at < 0 || Date.now() - event.at >= EXPIRY_MS) throw new Error("expired or invalid event");
       events.push({ name, event });
-    } catch { unlinkSync(path); }
+    } catch {
+      // A file another process holds open (for example an antivirus scan)
+      // can refuse deletion; skip it this round rather than end delivery.
+      try { unlinkSync(path); } catch {}
+    }
   }
   return events.sort((a, b) => a.event.at - b.event.at || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
@@ -98,7 +102,9 @@ async function deliver(token, fd) {
     if (updating()) return false;
     refresh(fd);
     if (await post(event, token, Date.now() + 250) !== 200) return false;
-    unlinkSync(join(spool, name));
+    // If it can't be removed yet, stop rather than post it again in a loop;
+    // the stage drops the duplicate when a later round delivers it.
+    try { unlinkSync(join(spool, name)); } catch { return false; }
   }
 }
 
