@@ -1,5 +1,6 @@
 import { createStage } from "./stage.mjs";
 import { createAnimationClock } from "./animation-clock.mjs";
+import { drawingPaused } from "./draw-pause.mjs";
 import { resolvePets } from "./pet-config.mjs";
 import { fitLimit, sceneOffset } from "./layout.mjs";
 
@@ -62,7 +63,8 @@ const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async (
 files.clear();
 const stage = createStage({ now: () => Date.now() });
 const animation = createAnimationClock({ now: () => performance.now() });
-let paused = false;
+const pause = { hidden: true, fullscreen: false };
+const paused = () => drawingPaused(pause);
 const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
 const sessionsBadge = document.createElement("span");
@@ -148,8 +150,12 @@ await setScale(config.scale);
 
 function draw() {
   requestAnimationFrame(draw);
-  // Fullscreen stops the animation clock; the interval below keeps lifecycle running.
-  if (paused) return;
+  // Drawing pauses independently of the wall-time lifecycle interval below.
+  if (paused()) return;
+  drawFrame();
+}
+
+function drawFrame() {
   const time = animation.now();
   stage.tick();
   render();
@@ -168,17 +174,39 @@ function draw() {
 
 function update() {
   invoke("computer_use_live", { live: stage.computerUseLive() }).catch(() => {});
-  if (!paused) render();
+  if (!paused()) render();
+}
+function updatePause() {
+  animation.setPaused(paused());
+  if (!paused()) render();
 }
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
 await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
+let fullscreenEvents = 0, visibilityEvents = 0;
 await window.__TAURI__.event.listen("pet-fullscreen", ({ payload }) => {
-  paused = payload;
-  animation.setPaused(paused);
-  if (!paused) render();
+  fullscreenEvents++;
+  pause.fullscreen = payload;
+  updatePause();
 });
-paused = await invoke("fullscreen_paused");
-animation.setPaused(paused);
+await window.__TAURI__.event.listen("pet-visibility", ({ payload }) => {
+  visibilityEvents++;
+  pause.hidden = payload.hidden;
+  updatePause();
+});
+await window.__TAURI__.event.listen("pet-frame", async ({ payload }) => {
+  // Hidden webviews may throttle rAF. Reconcile and draw directly, even paused,
+  // then publish current computer-use liveness before acknowledging the frame.
+  drawFrame();
+  await invoke("computer_use_live", { live: stage.computerUseLive() });
+  await invoke("frame_ready", { id: payload.id });
+});
+const fullscreenVersion = fullscreenEvents;
+const fullscreen = await invoke("fullscreen_paused");
+if (fullscreenVersion === fullscreenEvents) pause.fullscreen = fullscreen;
+const visibilityVersion = visibilityEvents;
+const preferences = await invoke("pet_preferences");
+if (visibilityVersion === visibilityEvents) pause.hidden = preferences.hidden === true;
+updatePause();
 await window.__TAURI__.core.invoke("renderer_ready");
 // Lifecycle runs on wall time even when animation frames are paused.
 setInterval(() => { stage.tick(); update(); }, 250);

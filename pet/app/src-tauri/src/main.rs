@@ -3,6 +3,8 @@
 mod capture;
 mod liveness;
 mod notices;
+mod prefs;
+mod show;
 mod window;
 
 use serde_json::{json, Value};
@@ -42,6 +44,7 @@ type PetScale = Arc<AtomicU64>;
 fn renderer_ready(app: AppHandle, ready: tauri::State<Ready>, sessions: tauri::State<LeaderSessions>) -> Result<(), String> {
     sessions.lock().unwrap().restore(&app)?;
     ready.store(true, Ordering::Release);
+    app.state::<show::Visibility>().start(&app);
     Ok(())
 }
 
@@ -107,6 +110,7 @@ fn main() {
         let _ = std::fs::remove_file(&process_temp);
     }
     let ready: Ready = Arc::new(AtomicBool::new(false));
+    let visibility = show::Visibility::new(prefs::PreferenceStore::load(state.join("pet-preferences.json")));
     let sessions: LeaderSessions = Arc::new(Mutex::new(Sessions::new(state)));
     let last_event = Arc::new(Mutex::new(Instant::now()));
     let event_app: EventApp = Arc::new(Mutex::new(None));
@@ -133,10 +137,12 @@ fn main() {
             });
         }
     });
+    let idle_app = event_app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
         if last_event.lock().unwrap().elapsed() >= Duration::from_secs(10 * 60) {
-            std::process::exit(0);
+            exit_app(&idle_app);
+            return;
         }
     });
     let fullscreen = window::Fullscreen::default();
@@ -145,17 +151,15 @@ fn main() {
         .manage(sessions.clone())
         .manage(capture.clone())
         .manage(fullscreen.clone())
+        .manage(visibility)
         .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
         .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale,
-            capture::computer_use_live, window::fullscreen_paused])
+            capture::computer_use_live, window::fullscreen_paused, show::pet_preferences, show::frame_ready])
         .setup(move |app| {
             let win = app.get_webview_window("main").unwrap();
-            place_strip(&win);
-            win.set_ignore_cursor_events(true)?;
-            // A cold start during computer use must be protected before showing.
-            capture.refresh(&win);
-            win.show()?;
-            win.set_ignore_cursor_events(true)?;
+            show::create_tray(app.handle())?;
+            // The strip stays hidden until renderer_ready starts the shared
+            // show transition, and stays hidden entirely for a hidden startup.
             *event_app.lock().unwrap() = Some(app.handle().clone());
             let capture_win = win.clone();
             std::thread::spawn(move || capture::watch(capture_win, capture));
@@ -166,6 +170,16 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("pet application failed");
+}
+
+fn exit_app(app: &EventApp) {
+    let handle = app.lock().unwrap().clone();
+    if let Some(app) = handle {
+        // Tauri removes its tray resources on exit; process::exit skips Drop.
+        app.exit(0);
+    } else {
+        std::process::exit(0);
+    }
 }
 
 fn place_strip(win: &WebviewWindow) {
@@ -227,7 +241,9 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
         ("200 OK", json!({"ok": true}))
     } else if request == "POST /exclude HTTP/1.1" {
         let win = app.lock().unwrap().as_ref().and_then(|app| app.get_webview_window("main"));
-        if win.as_ref().is_some_and(|win| capture.request(win).is_ok()) {
+        let excluded = win.as_ref().is_some_and(|win| capture.request(win).is_ok());
+        if let Some(win) = &win { win.state::<show::Visibility>().retry(win.app_handle()); }
+        if excluded {
             ("200 OK", json!({"ok": true}))
         } else {
             ("503 Service Unavailable", json!({"error": "capture exclusion unavailable"}))
@@ -255,7 +271,7 @@ fn serve(mut stream: TcpStream, app: EventApp, ready: Ready, token: &str,
     } else { ("404 Not Found", json!({"error": "unknown request"})) };
     let body = body.to_string();
     write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())?;
-    if quit { std::process::exit(0); }
+    if quit { exit_app(&app); }
     Ok(())
 }
 
