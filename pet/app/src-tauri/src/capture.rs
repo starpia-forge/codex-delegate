@@ -80,12 +80,25 @@ fn apply(win: &WebviewWindow, protected: bool) -> Result<(), String> {
     let window = win.clone();
     win.run_on_main_thread(move || {
         let result = (|| {
-            window.set_content_protected(protected).map_err(|e| e.to_string())?;
             let own = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as _);
-            let mut affinity = 0;
-            unsafe { GetWindowDisplayAffinity(own, &mut affinity).map_err(|e| e.to_string())?; }
             let expected = if protected { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
-            if affinity != expected.0 { return Err("capture affinity was not applied".into()); }
+            let affinity = || -> Result<u32, String> {
+                let mut affinity = 0;
+                unsafe { GetWindowDisplayAffinity(own, &mut affinity).map_err(|e| e.to_string())?; }
+                Ok(affinity)
+            };
+            window.set_content_protected(protected).map_err(|e| e.to_string())?;
+            if protected && affinity()? != expected.0 {
+                // Windows refuses to turn affinity on for a layered window
+                // (ERROR_NOT_ENOUGH_MEMORY), and click-through makes the strip
+                // layered. Drop it for the call; this UI thread handles no input
+                // meanwhile, and the affinity stays when click-through returns.
+                window.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
+                let applied = window.set_content_protected(true);
+                window.set_ignore_cursor_events(true).map_err(|e| e.to_string())?;
+                applied.map_err(|e| e.to_string())?;
+            }
+            if affinity()? != expected.0 { return Err("capture affinity was not applied".into()); }
             Ok(())
         })();
         let _ = send.send(result);
