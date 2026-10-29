@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createStage } from "../pet/app/ui/stage.mjs";
 import { createAnimationClock } from "../pet/app/ui/animation-clock.mjs";
+import { drawingPaused } from "../pet/app/ui/draw-pause.mjs";
 
 function harness() {
   let time = 1000;
@@ -654,14 +655,15 @@ test("expiry keeps the sequence floor but a fresh heartbeat can recover a worker
   assert.equal(activitySnapshot(stage).teams[0].workers[0].state, "running");
 });
 
-test("wall-time lifecycle deadlines advance and events apply while the animation clock is paused", () => {
+for (const flags of [{ hidden: true, fullscreen: false }, { hidden: false, fullscreen: true }])
+test(`wall-time lifecycle and events continue while drawing is paused (${flags.hidden ? "hidden" : "fullscreen"})`, () => {
   let time = 1000;
   const stage = createStage({ now: () => time });
   const animation = createAnimationClock({ now: () => time });
   stage.apply(leader("stop"));
   stage.apply(event());
   time = 1500;
-  animation.setPaused(true);
+  animation.setPaused(drawingPaused(flags));
   const frameTime = animation.now();
   time = 30999;
   stage.tick();
@@ -675,6 +677,10 @@ test("wall-time lifecycle deadlines advance and events apply while the animation
   assert.equal(stage.snapshot().teams[0].leader.state, "idle");
   stage.apply(event({ worker: "arrived-while-paused", at: time }));
   assert.equal(stage.snapshot().teams[0].workers[0].worker, "arrived-while-paused");
+  stage.apply(event({ worker: "arrived-while-paused", type: "end", outcome: "success", seq: 2, at: time }));
+  time += 10000;
+  stage.tick();
+  assert.equal(stage.snapshot().teams[0].workers.length, 0, "a worker can finish its entire scene while paused");
   assert.equal(animation.now(), frameTime);
   animation.setPaused(false);
   assert.equal(animation.now(), frameTime);

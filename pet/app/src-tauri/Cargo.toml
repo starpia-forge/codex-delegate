@@ -2,12 +2,13 @@
 name = "codex-delegate-pet"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]

@@ -1,6 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
 import { createServer } from "node:http";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { zip } from "./zip.mjs";
 
@@ -9,6 +9,7 @@ export const bundleFiles = {
   "client/pet-client.mjs": "export const fake = true;\n",
   "hook/leader-hook.mjs": "// fake hook\n",
   "default-pets/pet/manifest.json": "{}",
+  "THIRD-PARTY-NOTICES": readFileSync(new URL("../fixtures/pet-notices.txt", import.meta.url), "utf8"),
 };
 
 export async function listen(t, handler) {
