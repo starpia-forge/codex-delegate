@@ -13,10 +13,12 @@ try {
     exe: { type: "string", default: join(root, "pet/app/src-tauri/target/release/codex-delegate-pet.exe") },
     out: { type: "string", default: "dist" },
     tag: { type: "string" },
+    notices: { type: "string" },
   } });
   if (!/^pet-v\d+\.\d+\.\d+$/.test(values.tag ?? "")) {
     throw new Error("--tag must be pet-vX.Y.Z (for example pet-v1.2.3)");
   }
+  if (!values.notices) throw new Error("--notices <path> is required");
   const entries = {};
   function add(source, destination, directory = false) {
     let stat;
@@ -35,6 +37,12 @@ try {
       if (!stat.isFile()) throw new Error(`Expected bundle file: ${source}`);
       entries[destination] = readFileSync(source);
     }
+  }
+  add(resolve(values.notices), "THIRD-PARTY-NOTICES");
+  // The first line of the shared development stub is its canonical marker.
+  const stubMarker = readFileSync(join(root, "pet/notices/development-stub.txt"), "utf8").split(/\r?\n/)[0];
+  if (entries["THIRD-PARTY-NOTICES"].includes(Buffer.from(stubMarker))) {
+    throw new Error("Cannot package development stub notices");
   }
   add(resolve(values.exe), "codex-delegate-pet.exe");
   add(join(root, "pet/client/pet-client.mjs"), "client/pet-client.mjs");

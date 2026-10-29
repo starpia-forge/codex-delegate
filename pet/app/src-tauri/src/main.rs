@@ -2,6 +2,7 @@
 
 mod capture;
 mod liveness;
+mod notices;
 mod window;
 
 use serde_json::{json, Value};

@@ -20,13 +20,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test the shipped package
         run: npm.cmd test
+      - name: Install cargo-about
+        run: cargo install cargo-about --version 0.9.3 --locked --features cli
+      - name: Generate third-party notices
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          cargo about generate --format json --locked --fail --manifest-path pet/app/src-tauri/Cargo.toml --config pet/app/src-tauri/about.toml --output-file dist/pet-about.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/pet-notices.mjs --about dist/pet-about.json --out pet/app/ui/notices/THIRD-PARTY-NOTICES.txt
       - name: Build the pet app
         run: |
           if ($env:PET_RELEASE_TAG -notmatch '^pet-v\d+\.\d+\.\d+$') { throw 'Expected pet-vX.Y.Z' }
           $env:CODEX_DELEGATE_PET_VERSION = $env:PET_RELEASE_TAG.Substring(5)
           cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
       - name: Package the pet bundle
-        run: node scripts/pet-bundle.mjs --tag "$env:PET_RELEASE_TAG" --out dist
+        run: node scripts/pet-bundle.mjs --tag "$env:PET_RELEASE_TAG" --notices pet/app/ui/notices/THIRD-PARTY-NOTICES.txt --out dist
       - name: Publish the pet release
         env:
           GH_TOKEN: ${{ github.token }}
