@@ -2,13 +2,7 @@ import { createMessages, subscribeLanguage } from "./messages.mjs";
 
 export function licencesView(notices, catalogue, language) {
   const message = createMessages(catalogue, language);
-  // The release generator prefixes the crate list with these two documents.
-  // Remove only that exact prefix; an unfamiliar document is shown in full so
-  // a format change cannot silently discard legal text.
-  const normalize = text => text.replace(/\r\n?/g, "\n");
-  const prefix = `codex-delegate — MIT\n\n${normalize(notices.project)}\n\nFan-art notice\n\n${normalize(notices.fan_art)}`;
-  const text = normalize(notices.text);
-  const thirdParty = text.startsWith(prefix) ? text.slice(prefix.length).replace(/^\n+/, "") : text;
+  const thirdParty = notices.third_party;
   return {
     title: message("licences.title"),
     sections: [

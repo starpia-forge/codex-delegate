@@ -1,6 +1,6 @@
 // Development-only conversion; the app, tests and releases use the committed outputs.
 // Run: node pet/generate-default-pets.mjs
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -9,7 +9,7 @@ const cellWidth = 192, cellHeight = 208, columns = 8, sourceRows = 11, petRows =
 const characters = { leader: "momo", researcher: "mikan", critic: "sion", implementer: "shamiko", "computer-user": "lico" };
 const sourceRoot = fileURLToPath(new URL("./art/machikado-mazoku/", import.meta.url));
 const out = fileURLToPath(new URL("./app/ui/assets/", import.meta.url));
-const notice = "Unofficial fan art of 『まちカドまぞく』 (© 伊藤いづも / 芳文社), not affiliated with the rights holder, removed on request.";
+const notice = (await readFile(new URL("./notices/fan-art-notice.txt", import.meta.url), "utf8")).trim();
 
 for (const [slot, character] of Object.entries(characters)) {
   const source = join(sourceRoot, `${character}.png`);

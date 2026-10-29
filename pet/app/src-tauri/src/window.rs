@@ -71,10 +71,19 @@ pub fn refresh(win: &WebviewWindow, state: &Fullscreen, force: bool) -> Result<(
 }
 
 pub fn watch(win: WebviewWindow, state: Fullscreen) {
+    let queued = Arc::new(AtomicBool::new(false));
     loop {
-        let window = win.clone();
-        let fullscreen = state.clone();
-        let _ = win.run_on_main_thread(move || { let _ = refresh(&window, &fullscreen, false); });
+        if !queued.swap(true, Ordering::AcqRel) {
+            let window = win.clone();
+            let fullscreen = state.clone();
+            let pending = queued.clone();
+            if win.run_on_main_thread(move || {
+                let _ = refresh(&window, &fullscreen, false);
+                pending.store(false, Ordering::Release);
+            }).is_err() {
+                queued.store(false, Ordering::Release);
+            }
+        }
         std::thread::sleep(Duration::from_millis(300));
     }
 }

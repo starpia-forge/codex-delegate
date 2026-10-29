@@ -1,6 +1,7 @@
 import { createStage } from "./stage.mjs";
 import { createAnimationClock } from "./animation-clock.mjs";
 import { drawingPaused } from "./draw-pause.mjs";
+import { frameHandler } from "./frame.mjs";
 import { resolvePets } from "./pet-config.mjs";
 import { fitLimit, sceneOffset } from "./layout.mjs";
 import { createMessages, subscribeLanguage } from "./messages.mjs";
@@ -207,13 +208,9 @@ await window.__TAURI__.event.listen("pet-visibility", ({ payload }) => {
   pause.hidden = payload.hidden;
   updatePause();
 });
-await window.__TAURI__.event.listen("pet-frame", async ({ payload }) => {
-  // Hidden webviews may throttle rAF. Reconcile and draw directly, even paused,
-  // then publish current computer-use liveness before acknowledging the frame.
-  drawFrame();
-  await invoke("computer_use_live", { live: stage.computerUseLive() });
-  await invoke("frame_ready", { id: payload.id });
-});
+await window.__TAURI__.event.listen("pet-frame", frameHandler({
+  drawFrame, computerUseLive: () => stage.computerUseLive(), invoke,
+}));
 const fullscreenVersion = fullscreenEvents;
 const fullscreen = await invoke("fullscreen_paused");
 if (fullscreenVersion === fullscreenEvents) pause.fullscreen = fullscreen;

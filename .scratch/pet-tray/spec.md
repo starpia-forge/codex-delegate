@@ -112,6 +112,9 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 
 ## Implementation Decisions
 
+- Accepted deviation: the renderer reads bundled pet files with same-origin `fetch()`, so the CSP includes `'self'` in `connect-src`.
+- Accepted deviation: the IPC dispatcher limits licences-window commands by window label; Tauri's per-window command ACL would require changing the strip capability.
+
 ### Pet preferences
 
 - A new **pet preferences** file in the pet state directory holds the user's tray choices: `hidden` (boolean) and `language` (`"en"` or `"ko"`). Each key is optional. A missing file, an unreadable file or an invalid value means pets shown and the language follows Windows.
@@ -129,7 +132,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 - Hiding hides the strip window. Showing, both from the tray and at a cold start while shown, goes through one **show transition**. The transition does not reuse the current cold-start code, which shows before fullscreen placement is checked and can't tell whether capture exclusion succeeded. Its steps, in order:
   1. Evaluate fullscreen now, without waiting for the 300 ms watcher. If fullscreen, place the strip directly behind the fullscreen window without topmost.
   2. Re-apply click-through.
-  3. If computer use is live, apply capture exclusion and check that it succeeded. If it fails, the strip stays hidden and the transition is retried on the next capture or tray change. The tray's Show pets stays checked, because the user's choice is unchanged.
+  3. If computer use is live, apply capture exclusion and check that it succeeded. If it fails, the strip stays hidden and the transition is retried with bounded backoff while pending and shown, as well as on capture or tray changes. Hiding or a newer generation cancels a scheduled retry. The tray's Show pets stays checked, because the user's choice is unchanged.
   4. Ask the renderer to reconcile the stage at the current wall time and draw one fresh frame, and wait for its acknowledgement (bounded; on timeout, show anyway).
   5. Show the window.
 - The renderer's drawing pause is derived as `hidden || fullscreen` from two independent flags; it is no longer a single `paused` boolean overwritten by each event. Leaving fullscreen while hidden keeps drawing paused, and showing while fullscreen stays paused. While drawing is paused, the stage's lifecycle keeps ticking on wall time, as it does for fullscreen today.
@@ -138,7 +141,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 - Language switches rebuild the tray menu labels and the tooltip, then notify the renderer and the licences window.
 - The licences window is a second webview window created on demand. It is decorated, focusable, resizable and has a taskbar entry. It doesn't follow the strip's click-through, topmost or fullscreen handling, and it is not excluded from capture. Opening it while it exists focuses the existing window. Closing it destroys it.
 - The licences window gets its own capability, granting only what it uses: event listening and the two read commands below. The strip's capability is unchanged.
-- The catalogue and the notices document reach both webviews through shell commands (`messages` and `notices`), not `fetch()`, so the CSP stays as it is.
+- The catalogue and the notices document reach both webviews through shell commands (`messages` and `notices`).
 - On start, a webview first subscribes to language events and then asks for the current language and catalogue, so a switch made in between is never lost.
 
 ### Translation catalogue
@@ -157,8 +160,10 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
   - The run uses `--locked` and `--fail`, so an unidentified licence fails the release.
   - Every component of an `AND` expression is kept and noticed.
 - Clarifications: when `cargo-about` can't harvest a crate's required copyright lines or its Apache `NOTICE` content, a reviewed clarification bound to that crate's version goes into the committed configuration. The generator fails on any notice-bearing crate that still lacks its licence text. It never substitutes a generic licence text for missing attribution.
+- For MIT, BSD-2-Clause, BSD-3-Clause and ISC, the generator fails naming the crate only when copyright lines contain template placeholders with no non-placeholder line; absent or year-only lines pass, and Apache appendix placeholders never fail.
 - Apache-2.0 crates that ship a `NOTICE` file carry its content in the document.
 - In the release workflow, the notices are generated once, before `cargo build`. That same file is placed in the UI assets for embedding and handed to the packager. The generated document is ignored by git.
+- The generator also writes a crate-only `.crates` companion. The shell embeds it and exposes it as `third_party` in the `notices` command, so the window never parses project or fan-art headings out of the full bundle document. A generated document without its companion fails the build.
 - **Notices document** contents:
   - codex-delegate's MIT licence.
   - The fan-art notice.
