@@ -3,6 +3,7 @@ import { createAnimationClock } from "./animation-clock.mjs";
 import { drawingPaused } from "./draw-pause.mjs";
 import { resolvePets } from "./pet-config.mjs";
 import { fitLimit, sceneOffset } from "./layout.mjs";
+import { createMessages } from "./messages.mjs";
 
 import { CODEX_V1_FRAME_TIMINGS_MS } from "./animations.mjs";
 
@@ -69,6 +70,14 @@ const root = document.getElementById("stage");
 const teams = new Map(), pets = new Map();
 const sessionsBadge = document.createElement("span");
 sessionsBadge.className = "overflow sessions-overflow";
+let catalogue = {}, language = "en";
+let message = createMessages(catalogue, language);
+function setLanguage(current) {
+  language = current;
+  message = createMessages(catalogue, language);
+  document.documentElement.lang = language;
+  render();
+}
 
 function render() {
   const snapshot = stage.snapshot();
@@ -111,16 +120,16 @@ function render() {
         badge = document.createElement("span");
         badge.className = "overflow worker-overflow";
       }
-      badge.textContent = `+${team.overflowWorkers}`;
-      badge.title = `${team.overflowWorkers} more workers`;
+      badge.textContent = message("overflow.workers", { count: team.overflowWorkers });
+      badge.title = message("overflow.workersTooltip", { count: team.overflowWorkers });
       teamNode.append(badge);
     } else badge?.remove();
   }
   for (const [id, pet] of pets) if (!livePets.has(id)) { pet.node.remove(); pets.delete(id); }
   for (const [key, node] of teams) if (!liveTeams.has(key)) { node.remove(); teams.delete(key); }
   if (snapshot.overflowSessions) {
-    sessionsBadge.textContent = `+${snapshot.overflowSessions} sessions`;
-    sessionsBadge.title = `${snapshot.overflowSessions} more sessions`;
+    sessionsBadge.textContent = message("overflow.sessions", { count: snapshot.overflowSessions });
+    sessionsBadge.title = message("overflow.sessionsTooltip", { count: snapshot.overflowSessions });
     root.append(sessionsBadge);
   } else sessionsBadge.remove();
   // Measure after reconciling every team: offsetLeft excludes the previous
@@ -182,7 +191,15 @@ function updatePause() {
 }
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
 await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
-let fullscreenEvents = 0, visibilityEvents = 0;
+let fullscreenEvents = 0, visibilityEvents = 0, languageEvents = 0;
+// Subscribe before reading either preferences or the catalogue. An event received
+// during startup wins over a potentially older command response.
+await window.__TAURI__.event.listen("pet-language", ({ payload }) => {
+  languageEvents++;
+  setLanguage(payload.language);
+});
+catalogue = await invoke("messages");
+setLanguage(language);
 await window.__TAURI__.event.listen("pet-fullscreen", ({ payload }) => {
   fullscreenEvents++;
   pause.fullscreen = payload;
@@ -204,8 +221,10 @@ const fullscreenVersion = fullscreenEvents;
 const fullscreen = await invoke("fullscreen_paused");
 if (fullscreenVersion === fullscreenEvents) pause.fullscreen = fullscreen;
 const visibilityVersion = visibilityEvents;
+const languageVersion = languageEvents;
 const preferences = await invoke("pet_preferences");
 if (visibilityVersion === visibilityEvents) pause.hidden = preferences.hidden === true;
+if (languageVersion === languageEvents) setLanguage(preferences.language);
 updatePause();
 await window.__TAURI__.core.invoke("renderer_ready");
 // Lifecycle runs on wall time even when animation frames are paused.

@@ -1,0 +1,9 @@
+{
+  "tray.showPets": { "en": "Show pets", "ko": "펫 표시" },
+  "tray.licences": { "en": "Licences", "ko": "라이선스" },
+  "tray.language": { "en": "Language: English", "ko": "언어: 한국어" },
+  "overflow.workers": { "en": "+{count}", "ko": "+{count}" },
+  "overflow.workersTooltip": { "en": "{count} more workers", "ko": "추가 작업자 {count}명" },
+  "overflow.sessions": { "en": "+{count} sessions", "ko": "+{count}개 세션" },
+  "overflow.sessionsTooltip": { "en": "{count} more sessions", "ko": "추가 세션 {count}개" }
+}

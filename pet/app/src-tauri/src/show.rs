@@ -1,16 +1,17 @@
-use crate::{capture, prefs::PreferenceStore, window, BUNDLE_VERSION};
+use crate::{capture, messages::text, prefs::{self, Lang, PreferenceStore}, window, BUNDLE_VERSION};
 use serde_json::{json, Value};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
-use tauri::{menu::{CheckMenuItem, Menu}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+use tauri::{menu::{CheckMenuItem, Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewWindow};
 
-// One owner serializes preference writes and all visibility transitions. The
+// One owner serializes all preference writes and visibility transitions. The
 // generation invalidates queued UI work as well as an outstanding frame ack.
 #[derive(Clone)]
 pub struct Visibility(Arc<Mutex<Transition>>);
 struct Transition {
     preferences: PreferenceStore,
+    windows_language: u16,
     generation: u64,
     ready: bool,
     pending: bool,
@@ -20,6 +21,7 @@ struct Transition {
 }
 impl Transition {
     fn hidden(&self) -> bool { self.preferences.current().hidden.unwrap_or(false) }
+    fn language(&self) -> Lang { self.preferences.current().effective_language(self.windows_language) }
     fn active(&self, generation: u64) -> bool {
         self.generation == generation && self.running && self.pending && !self.hidden()
     }
@@ -27,11 +29,32 @@ impl Transition {
 
 impl Visibility {
     pub fn new(preferences: PreferenceStore) -> Self {
-        Self(Arc::new(Mutex::new(Transition { preferences, generation: 0, ready: false,
+        Self(Arc::new(Mutex::new(Transition { preferences, windows_language: prefs::windows_ui_language(),
+            generation: 0, ready: false,
             pending: true, running: false, retry_requested: false, frame: None })))
     }
 
-    pub fn preferences(&self) -> Value { self.0.lock().unwrap().preferences.current().json() }
+    pub fn preferences(&self) -> Value {
+        let state = self.0.lock().unwrap();
+        let mut preferences = state.preferences.current().json();
+        // The renderer needs the effective language; this never writes it to disk.
+        preferences["language"] = state.language().code().into();
+        preferences
+    }
+
+    fn toggle_language(&self, app: &AppHandle, show: &CheckMenuItem<tauri::Wry>,
+        licences: &MenuItem<tauri::Wry>, language: &MenuItem<tauri::Wry>) {
+        let mut state = self.0.lock().unwrap();
+        let windows_language = state.windows_language;
+        let _ = state.preferences.toggle_language(windows_language);
+        let current = state.language();
+        let _ = show.set_text(text("tray.showPets", current));
+        let _ = licences.set_text(text("tray.licences", current));
+        let _ = language.set_text(text("tray.language", current));
+        // Broadcast also reaches a future licences window. Keep the tray tooltip
+        // as the untranslated app name and version.
+        let _ = app.emit("pet-language", json!({ "language": current.code() }));
+    }
 
     pub fn start(&self, app: &AppHandle) {
         self.0.lock().unwrap().ready = true;
@@ -139,9 +162,16 @@ pub fn frame_ready(id: u64, state: tauri::State<Visibility>) {
 }
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let hidden = app.state::<Visibility>().0.lock().unwrap().hidden();
-    let show = CheckMenuItem::with_id(app, "show-pets", "Show pets", true, !hidden, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show])?;
+    let (hidden, current) = {
+        let visibility = app.state::<Visibility>();
+        let state = visibility.0.lock().unwrap();
+        (state.hidden(), state.language())
+    };
+    let show = CheckMenuItem::with_id(app, "show-pets", text("tray.showPets", current), true, !hidden, None::<&str>)?;
+    // Ticket 07 will enable this item and open the licences window.
+    let licences = MenuItem::with_id(app, "licences", text("tray.licences", current), false, None::<&str>)?;
+    let language = MenuItem::with_id(app, "language", text("tray.language", current), true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &licences, &language])?;
     let click_show = show.clone();
     let icon = app.default_window_icon().expect("pet app icon").clone();
     TrayIconBuilder::with_id("pets")
@@ -161,6 +191,8 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             if event.id.as_ref() == "show-pets" {
                 let hidden = app.state::<Visibility>().toggle(app);
                 let _ = show.set_checked(!hidden);
+            } else if event.id.as_ref() == "language" {
+                app.state::<Visibility>().toggle_language(app, &show, &licences, &language);
             }
         })
         .build(app)?;

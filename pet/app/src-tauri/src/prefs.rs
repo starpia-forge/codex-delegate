@@ -4,6 +4,17 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lang { En, Ko }
 
+impl Lang {
+    pub fn code(self) -> &'static str { match self { Self::En => "en", Self::Ko => "ko" } }
+}
+
+pub fn windows_ui_language() -> u16 {
+    #[cfg(windows)]
+    { unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() } }
+    #[cfg(not(windows))]
+    { 0 }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Preferences {
     pub hidden: Option<bool>,
@@ -12,11 +23,17 @@ pub struct Preferences {
 }
 
 impl Preferences {
+    pub fn effective_language(self, windows_language: u16) -> Lang {
+        self.language.unwrap_or_else(|| {
+            if windows_language & 0x03ff == 0x12 { Lang::Ko } else { Lang::En }
+        })
+    }
+
     pub fn json(self) -> Value {
         let mut fields = Map::new();
         if let Some(hidden) = self.hidden { fields.insert("hidden".into(), hidden.into()); }
         if let Some(language) = self.language {
-            fields.insert("language".into(), match language { Lang::En => "en", Lang::Ko => "ko" }.into());
+            fields.insert("language".into(), language.code().into());
         }
         fields.into()
     }
@@ -38,6 +55,15 @@ impl PreferenceStore {
     pub fn current(&self) -> Preferences { self.value }
     pub fn set_hidden(&mut self, hidden: bool) -> std::io::Result<()> {
         self.value.hidden = Some(hidden);
+        self.save()
+    }
+    pub fn toggle_language(&mut self, windows_language: u16) -> std::io::Result<()> {
+        self.value.language = Some(match self.value.effective_language(windows_language) {
+            Lang::En => Lang::Ko, Lang::Ko => Lang::En,
+        });
+        self.save()
+    }
+    fn save(&self) -> std::io::Result<()> {
         let temp = self.path.with_extension(format!("{}.tmp", std::process::id()));
         let result = std::fs::write(&temp, self.value.json().to_string())
             .and_then(|_| std::fs::rename(&temp, &self.path));
@@ -52,6 +78,32 @@ impl PreferenceStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stored_language_wins_otherwise_follow_the_windows_user_ui_language() {
+        let defaults = Preferences::default();
+        for id in [0x0412, 0x0812] {
+            assert_eq!(defaults.effective_language(id), Lang::Ko);
+            assert_eq!(Preferences { language: Some(Lang::En), ..defaults }.effective_language(id), Lang::En);
+        }
+        for id in [0x0409, 0x0809, 0x0411, 0] {
+            assert_eq!(defaults.effective_language(id), Lang::En);
+            assert_eq!(Preferences { language: Some(Lang::Ko), ..defaults }.effective_language(id), Lang::Ko);
+        }
+    }
+
+    #[test]
+    fn switching_cycles_from_the_effective_language_and_remembers_the_choice() {
+        let dir = TestDir::new();
+        let path = dir.0.join("pet-preferences.json");
+        let mut store = PreferenceStore::load(path.clone());
+        store.toggle_language(0x0412).unwrap();
+        assert_eq!(store.current().language, Some(Lang::En));
+        store.toggle_language(0x0412).unwrap();
+        assert_eq!(store.current().language, Some(Lang::Ko));
+        store.toggle_language(0x0409).unwrap();
+        assert_eq!(PreferenceStore::load(path).current().language, Some(Lang::En));
+    }
 
     struct TestDir(PathBuf);
     impl TestDir {
@@ -115,10 +167,39 @@ mod tests {
         let dir = TestDir::new();
         let path = dir.0.join("pet-preferences.json");
         let mut store = PreferenceStore::load(path.clone());
+        assert_eq!(store.current().effective_language(0x0412), Lang::Ko);
         store.set_hidden(true).unwrap();
         let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(saved, serde_json::json!({ "hidden": true }));
-        assert_eq!(PreferenceStore::load(path).current().language, None);
+        let restarted = PreferenceStore::load(path).current();
+        assert_eq!(restarted.language, None);
+        assert_eq!(restarted.hidden, Some(true));
+        assert_eq!(restarted.effective_language(0x0409), Lang::En);
+    }
+
+    #[test]
+    fn explicit_language_survives_visibility_and_a_failed_switch_then_saves_in_full() {
+        let dir = TestDir::new();
+        let path = dir.0.join("pet-preferences.json");
+        let mut store = PreferenceStore::load(path.clone());
+        store.toggle_language(0x0409).unwrap();
+        store.set_hidden(true).unwrap();
+        assert_eq!(PreferenceStore::load(path.clone()).current(),
+            Preferences { hidden: Some(true), language: Some(Lang::Ko) });
+        let original = std::fs::read_to_string(&path).unwrap();
+        use std::os::windows::fs::OpenOptionsExt;
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(&path).unwrap();
+        assert!(store.toggle_language(0x0412).is_err());
+        assert_eq!(store.current().language, Some(Lang::En));
+        assert!(store.set_hidden(false).is_err());
+        assert_eq!(store.current(), Preferences { hidden: Some(false), language: Some(Lang::En) });
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+        drop(held);
+        store.set_hidden(true).unwrap();
+        let restarted = PreferenceStore::load(path).current();
+        assert_eq!(restarted, Preferences { hidden: Some(true), language: Some(Lang::En) });
+        assert_eq!(restarted.effective_language(0x0412), Lang::En);
     }
 
     #[test]
@@ -127,5 +208,11 @@ mod tests {
         let mut store = PreferenceStore::load(dir.0.join("missing").join("pet-preferences.json"));
         assert!(store.set_hidden(true).is_err());
         assert_eq!(store.current().hidden, Some(true));
+        assert_eq!(store.current().language, None);
+        assert_eq!(store.current().effective_language(0x0412), Lang::Ko);
+        std::fs::create_dir(dir.0.join("missing")).unwrap();
+        store.set_hidden(false).unwrap();
+        let saved = std::fs::read_to_string(dir.0.join("missing/pet-preferences.json")).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&saved).unwrap(), serde_json::json!({ "hidden": false }));
     }
 }
