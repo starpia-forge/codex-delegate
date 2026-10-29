@@ -80,9 +80,8 @@ test("no configuration uses all five bundled slot pets at scale 0.6", async t =>
     assert.equal(pet.sheetPath, `${bundledRoot}/${slot}/spritesheet.webp`);
     assert.equal(pet.mime, "image/webp");
     assert.equal(pet.manifest.displayName, character);
-    assert.match(pet.manifest.description, /unofficial fan art of 『まちカドまぞく』 \(© 伊藤いづも \/ 芳文社\)/i);
-    assert.match(pet.manifest.description, /not affiliated/i);
-    assert.match(pet.manifest.description, /removed on request/i);
+    assert.equal(pet.manifest.description,
+      (await readFile(new URL("../pet/notices/fan-art-notice.txt", import.meta.url), "utf8")).trim());
     assert.deepEqual((await readdir(pet.dir)).sort(), ["pet.json", pet.manifest.spritesheetPath].sort());
   }
 });
