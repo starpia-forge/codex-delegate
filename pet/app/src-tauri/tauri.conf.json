@@ -21,7 +21,7 @@
       "focusable": false,
       "visible": false
     }],
-    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost" }
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost" }
   },
   "bundle": { "active": false, "icon": ["icons/icon.png", "icons/icon.ico"] }
 }

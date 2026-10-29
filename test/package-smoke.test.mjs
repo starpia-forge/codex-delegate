@@ -50,7 +50,7 @@ async function listen(t, handler) {
 test("the packed package installs a current generated runner that reports a successful worker to the pet", { timeout: 60000 }, async t => {
   const work = mkdtempSync(join(tmpdir(), "package smoke "));
   t.after(() => rmSync(work, { recursive: true, force: true }));
-  const { home, env } = fakeCodex(work, `
+  const { home, codexHome, env } = fakeCodex(work, `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 if (args.includes("--version")) console.log("codex-cli test");
@@ -115,6 +115,15 @@ else {
     "--agent", "claude-code", "--with-pet"], { cwd: work, env });
   assert.deepEqual(downloads, [`/${pin.tag}/${pin.asset}`]);
   assert.deepEqual(readFileSync(join(home, ".codex-delegate/pet/THIRD-PARTY-NOTICES")), readFileSync(notices));
+  assert.ok(!files.some(file => file.startsWith("pet/app/ui/assets/")), "npm package must not supply doctor's bundled assets");
+  writeFileSync(join(codexHome, "models_cache.json"), JSON.stringify({ models: [
+    { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+    { slug: "gpt-6.1-sol", supported_reasoning_levels: [{ effort: "high" }] },
+    { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
+  ] }));
+  const doctor = await run(process.execPath, [join(pkg, "bin/cli.mjs"), "doctor"], { cwd: work, env });
+  assert.match(doctor, /\[OK  \] Pet packages - valid/);
+  assert.doesNotMatch(doctor, /\[WARN\] Pet packages/);
   const token = readFileSync(join(home, ".codex-delegate/pet-state/token"), "utf8").trim();
   assert.match(token, /^[0-9a-f]{64}$/);
   const events = [];

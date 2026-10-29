@@ -1,6 +1,6 @@
 import { createStage } from "./stage.mjs";
 import { createAnimationClock } from "./animation-clock.mjs";
-import { bundledPetName, resolvePets } from "./pet-config.mjs";
+import { resolvePets } from "./pet-config.mjs";
 import { fitLimit, sceneOffset } from "./layout.mjs";
 
 import { CODEX_V1_FRAME_TIMINGS_MS } from "./animations.mjs";
@@ -16,27 +16,43 @@ async function readPetFile(path) {
   }
   return files.get(path);
 }
+async function readBundledFile(path) {
+  try {
+    const response = await fetch(path);
+    return response.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+  } catch { return null; }
+}
+async function decodeSheet(bytes, mime) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+  } finally { URL.revokeObjectURL(url); }
+}
+const bundledPackages = { bundledRoot: "./assets", readBundledFile };
 let config;
 try {
-  config = await resolvePets({ ...await invoke("pet_paths"), readFile: readPetFile });
+  config = await resolvePets({ ...await invoke("pet_paths"), readFile: readPetFile, ...bundledPackages, decodeSheet });
 } catch (error) {
   console.warn("Pet configuration unavailable; using bundled pets", error);
-  config = await resolvePets({ home: "", readFile: async () => null });
+  config = await resolvePets({ home: "", readFile: async () => null, ...bundledPackages });
 }
 const sheets = new Map(await Promise.all(Object.entries(config.pets).map(async ([slot, artwork]) => {
   const image = new Image();
-  const fallback = `./assets/${bundledPetName(slot)}/spritesheet.png`;
-  if (artwork.source === "bundled") image.src = `./assets/${artwork.name}/spritesheet.png`;
-  else {
+  const fallback = artwork.fallback?.sheetPath;
+  if (artwork.source === "bundled") {
+    if (artwork.sheetPath) image.src = artwork.sheetPath;
+  } else {
     const bytes = await readPetFile(artwork.sheetPath);
-    if (bytes === null) image.src = fallback;
+    if (bytes === null) { if (fallback) image.src = fallback; }
     else {
       const url = URL.createObjectURL(new Blob([bytes], { type: artwork.mime }));
       image.onload = () => URL.revokeObjectURL(url);
       image.onerror = () => {
         URL.revokeObjectURL(url);
         image.onload = image.onerror = null;
-        image.src = fallback;
+        if (fallback) image.src = fallback;
       };
       image.src = url;
     }
@@ -63,7 +79,7 @@ function render() {
       root.append(node);
       teams.set(team.key, node);
     }
-    // Restore appearance order when a previously hidden team becomes visible.
+    // Restore appearance order when a team previously in overflow becomes visible.
     root.append(teams.get(team.key));
     const characters = team.workers.map((worker, index) => ({ ...worker, home: index + 1, id: `worker:${worker.worker}` }));
     if (team.leader) characters.unshift({ ...team.leader, home: 0, id: `leader:${team.key}`, role: "leader" });
@@ -88,21 +104,21 @@ function render() {
     }
     const teamNode = teams.get(team.key);
     let badge = teamNode.querySelector(".worker-overflow");
-    if (team.hiddenWorkers) {
+    if (team.overflowWorkers) {
       if (!badge) {
         badge = document.createElement("span");
         badge.className = "overflow worker-overflow";
       }
-      badge.textContent = `+${team.hiddenWorkers}`;
-      badge.title = `${team.hiddenWorkers} hidden workers`;
+      badge.textContent = `+${team.overflowWorkers}`;
+      badge.title = `${team.overflowWorkers} more workers`;
       teamNode.append(badge);
     } else badge?.remove();
   }
   for (const [id, pet] of pets) if (!livePets.has(id)) { pet.node.remove(); pets.delete(id); }
   for (const [key, node] of teams) if (!liveTeams.has(key)) { node.remove(); teams.delete(key); }
-  if (snapshot.hiddenSessions) {
-    sessionsBadge.textContent = `+${snapshot.hiddenSessions} sessions`;
-    sessionsBadge.title = sessionsBadge.textContent;
+  if (snapshot.overflowSessions) {
+    sessionsBadge.textContent = `+${snapshot.overflowSessions} sessions`;
+    sessionsBadge.title = `${snapshot.overflowSessions} more sessions`;
     root.append(sessionsBadge);
   } else sessionsBadge.remove();
   // Measure after reconciling every team: offsetLeft excludes the previous

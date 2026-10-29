@@ -16,11 +16,13 @@ const configProblems = {
 
 const packageProblems = {
   "pet-not-found": "package not found",
+  "manifest-missing": "manifest missing",
   "manifest-json": "invalid manifest JSON",
   "manifest-field": "manifest field must be a non-empty string",
   "sheet-path": "unsafe spritesheet path",
   "sheet-missing": "spritesheet missing",
   "sheet-format": "spritesheet must be PNG or WebP",
+  "sheet-decode": "spritesheet could not be decoded",
   "sheet-size": "spritesheet must be 1536 x 1872 pixels",
   "sheet-not-transparent": "spritesheet must be transparent",
 };
@@ -78,16 +80,17 @@ export async function checkPet(root, check) {
     check(present ? "ok" : "fail", "Pet WebView2 runtime", present ? "Evergreen runtime present"
       : "pet window cannot appear; install the WebView2 Evergreen runtime");
   }
+  const readPetFile = async path => {
+    try { return await readFile(path); }
+    catch (error) {
+      if (error.code === "ENOENT") return null;
+      // Unreadable files are invalid packages/configuration too. Let the
+      // resolver report the affected slots and their bundled fallback.
+      return Buffer.alloc(0);
+    }
+  };
   const resolved = await resolvePets({ home: homedir(), codexHome: process.env.CODEX_HOME,
-    readFile: async path => {
-      try { return await readFile(path); }
-      catch (error) {
-        if (error.code === "ENOENT") return null;
-        // Unreadable files are invalid packages/configuration too. Let the
-        // resolver report the affected slots and their bundled fallback.
-        return Buffer.alloc(0);
-      }
-    },
+    readFile: readPetFile, bundledRoot: join(bundle, "default-pets"), readBundledFile: readPetFile,
   });
   const configIssues = resolved.issues.filter(issue => Object.hasOwn(configProblems, issue.code));
   check(configIssues.length ? "warn" : "ok", "Pet configuration", configIssues.length
@@ -98,7 +101,8 @@ export async function checkPet(root, check) {
   for (const issue of packageIssues) {
     const source = issue.dir ? `${issue.source}: ${issue.dir}`
       : `searched ${join(homedir(), ".codex-delegate", "pets", issue.name)} and ${join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "pets", issue.name)}`;
-    check("warn", `Pet packages (${issue.slot})`, `${issue.name} (${source}): ${issue.field ? `${issue.field}: ` : ""}${packageProblems[issue.code]}; bundled default is shown instead`);
+    const fallback = issue.source === "bundled" ? "reinstall the pet bundle" : "bundled default is shown instead";
+    check("warn", `Pet packages (${issue.slot})`, `${issue.name} (${source}): ${issue.field ? `${issue.field}: ` : ""}${packageProblems[issue.code]}; ${fallback}`);
   }
   const port = process.env.CODEX_DELEGATE_PET_PORT || 47800;
   const app = await petHealth();
