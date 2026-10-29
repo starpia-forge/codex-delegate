@@ -633,6 +633,8 @@ test("plain install downloads nothing when disabled and updates an enabled pet w
   r.requests.length = 0;
   const state = join(f.petRoot, "pet-state");
   const token = readFileSync(join(state, "token"));
+  const preferences = Buffer.from('{"hidden":true,"future":1}\n');
+  writeFileSync(join(state, "pet-preferences.json"), preferences);
   writeFileSync(join(state, "sessions.json"), "keep sessions");
   writeFileSync(join(f.petRoot, "pet", "obsolete.txt"), "old bundle");
   writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, version: "1.2.4" }));
@@ -642,6 +644,7 @@ test("plain install downloads nothing when disabled and updates an enabled pet w
   assert.deepEqual(r.requests, ["/pet-v1.2.3/pet.zip"]);
   assert.equal(existsSync(join(f.petRoot, "pet", "obsolete.txt")), false);
   assert.deepEqual(readFileSync(join(state, "token")), token);
+  assert.deepEqual(readFileSync(join(state, "pet-preferences.json")), preferences, "update preserves preferences byte for byte");
   assert.equal(readFileSync(join(state, "sessions.json"), "utf8"), "keep sessions");
   const marker = JSON.parse(readFileSync(join(state, ".codex-delegate.json")));
   assert.equal(marker.bundle.version, "1.2.4");
@@ -705,6 +708,8 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
     settings.hooks.PreToolUse = [userGroup];
     writeFileSync(f.settingsPath, JSON.stringify(settings));
     writeFileSync(join(f.petRoot, "pet.json"), '{"scale":0.5}');
+    const preferencesPath = join(f.petRoot, "pet-state", "pet-preferences.json");
+    writeFileSync(preferencesPath, '{"hidden":true,"language":"ko","future":1}\n');
     const config = join(f.root, "new config");
     mkdirSync(config);
     writeFileSync(join(config, "settings.json"), '{"new":true}');
@@ -719,6 +724,7 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
     assert.equal(result.code, 0, result.output);
     assert.equal(existsSync(join(f.petRoot, "pet")), false);
     assert.equal(existsSync(join(f.petRoot, "pet-state")), false);
+    assert.equal(existsSync(preferencesPath), false, "removal deletes preferences with pet state");
     assert.equal(readFileSync(join(f.petRoot, "pet.json"), "utf8"), '{"scale":0.5}');
     assert.deepEqual(JSON.parse(readFileSync(f.settingsPath)), {
       theme: "dark", hooks: { Stop: [{ matcher: "keep matcher", hooks: [userLeaf] }], SessionStart: [userGroup], PreToolUse: [userGroup] },
@@ -786,6 +792,18 @@ for (const args of [["install", "--without-pet"], ["uninstall"]]) {
     assert.deepEqual(snapshot(f.root), before);
   });
 }
+
+test("list reports pets hidden from the shell preferences", async t => {
+  const f = await fixture(t);
+  await release(t, f);
+  assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  writeFileSync(join(f.petRoot, "pet-state", "pet-preferences.json"), '{"hidden":true}\n');
+  const before = snapshot(f.root);
+  const result = await f.run(["list"]);
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.stdout, /^Pet: enabled, .*?, hidden$/m);
+  assert.deepEqual(snapshot(f.root), before, "list only reads preferences");
+});
 
 test("user-scope list reports pet state, bundle version, and recorded settings path", async t => {
   const f = await fixture(t);

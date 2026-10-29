@@ -114,6 +114,16 @@ export function readPetMarker() {
   catch { return null; }
 }
 
+export function petsHidden() {
+  try {
+    // Match the shell: reject invalid UTF-8 and leave any BOM for JSON.parse to reject.
+    const input = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+      .decode(readFileSync(join(petRoot(), "pet-state", "pet-preferences.json")));
+    const value = JSON.parse(input);
+    return value?.hidden === true;
+  } catch { return false; }
+}
+
 export function readPetPin(root) {
   const pin = JSON.parse(readFileSync(process.env.CODEX_DELEGATE_PET_TEST_PIN || join(root, "pet-pin.json"), "utf8"));
   if (![pin.tag, pin.asset, pin.version].every(value => typeof value === "string" && value.length)
@@ -124,7 +134,7 @@ export function readPetPin(root) {
 export function listPet() {
   const marker = readPetMarker();
   console.log(marker
-    ? `Pet: enabled, bundle ${marker.bundle?.version ?? "unknown"} (${marker.bundle?.tag ?? "unknown"}) -> ${join(petRoot(), "pet")}, hooks in ${marker.settingsPath ?? "unknown"}`
+    ? `Pet: enabled, bundle ${marker.bundle?.version ?? "unknown"} (${marker.bundle?.tag ?? "unknown"}) -> ${join(petRoot(), "pet")}, hooks in ${marker.settingsPath ?? "unknown"}${petsHidden() ? ", hidden" : ""}`
     : "Pet: not installed");
 }
 
