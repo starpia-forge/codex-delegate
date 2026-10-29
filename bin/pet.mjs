@@ -137,6 +137,18 @@ const parseSettings = bytes => JSON.parse(bytes.toString("utf8").replace(/^\uFEF
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// WebView2 helper processes keep files in the bundle open for a moment after
+// the app exits, so moving or deleting the bundle can fail briefly.
+async function whileLocked(action) {
+  for (let attempt = 1; ; attempt++) {
+    try { return action(); }
+    catch (error) {
+      if (!["EPERM", "EBUSY", "EACCES"].includes(error.code) || attempt >= 50) throw error;
+      await delay(100);
+    }
+  }
+}
 function alive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (error) { if (error.code === "ESRCH") return false; if (error.code === "EPERM") return true; throw error; }
@@ -306,10 +318,10 @@ export function preparePetRemoval({ dryRun = false } = {}) {
   // Keep ownership outside the state being deleted so even a partial recursive
   // removal, or interruption after deleting the marker, remains retryable.
   add(`record pending pet removal ${removalPath()}`, () => writeJson(removalPath(), marker));
-  add(`remove pet bundle ${bundle}`, () => rmSync(bundle, { recursive: true, force: true }));
+  add(`remove pet bundle ${bundle}`, () => whileLocked(() => rmSync(bundle, { recursive: true, force: true })));
   for (const name of readdirSync(petRoot()).filter(name => name.startsWith(".pet-previous-"))) {
     const path = join(petRoot(), name);
-    add(`remove previous pet bundle ${path}`, () => rmSync(path, { recursive: true, force: true }));
+    add(`remove previous pet bundle ${path}`, () => whileLocked(() => rmSync(path, { recursive: true, force: true })));
   }
   add(`remove pet state ${state}`, () => rmSync(state, { recursive: true, force: true }));
   if (process.env.CODEX_DELEGATE_PET_TEST_FAIL_AFTER_REMOVAL === "1") add("checkpoint after pet state removal", () => {
@@ -421,10 +433,10 @@ export async function preparePet({ root, pkg, dryRun = false }) {
   const steps = [];
   const add = (label, apply) => steps.push({ label, apply, status: "not applied" });
   resume = pausePet(steps, state);
-  if (existsSync(bundle)) add(`move existing pet bundle to ${previous}`, () => renameSync(bundle, previous));
+  if (existsSync(bundle)) add(`move existing pet bundle to ${previous}`, () => whileLocked(() => renameSync(bundle, previous)));
   add(`install pet bundle ${pin.version} -> ${bundle}`, () => renameSync(staging, bundle));
   if (existsSync(bundle)) previousBundles.push(previous);
-  for (const path of previousBundles) add(`remove previous pet bundle ${path}`, () => rmSync(path, { recursive: true, force: true }));
+  for (const path of previousBundles) add(`remove previous pet bundle ${path}`, () => whileLocked(() => rmSync(path, { recursive: true, force: true })));
   add(`create/keep pet state directory ${state}`, () => mkdirSync(state, { recursive: true }));
   add(`create/keep pet token ${join(state, "token")}`, () => {
     try { writeFileSync(join(state, "token"), randomBytes(32).toString("hex"), { flag: "wx", mode: 0o600 }); }
