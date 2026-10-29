@@ -15,7 +15,7 @@ for (const outcome of ["success", "failed"]) {
       role: "implementer", label: "task", seq: 2, at: time, outcome });
     // End of the exit phase: the pet's entire width must be outside the strip,
     // even though its home is well to the right of the neighbouring team.
-    time = outcome === "success" ? 3899 : 5579;
+    time = outcome === "success" ? 9979 : 12559;
     stage.tick();
     const worker = stage.snapshot().teams[1].workers[0];
     assert.equal(worker.facing, "left");

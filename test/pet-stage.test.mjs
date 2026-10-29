@@ -51,20 +51,20 @@ test("delegation waves for one cycle and workers run right from beside their own
   assert.deepEqual(display(team.leader), ["waving", 0, "right"]);
   assert.equal(team.leader.state, "running");
   assert.deepEqual(display(team.workers[0]), ["running-right", 0.5, "right"]);
-  at(1160);
+  at(1530);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-right", 0.75, "right"]);
-  at(1320);
+  at(2060);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running", 1, "right"]);
-  at(1659);
+  at(2399);
   assert.equal(stage.snapshot().teams[0].leader.displayState, "waving");
-  at(1660);
+  at(2400);
   assert.deepEqual(display(stage.snapshot().teams[0].leader), ["running", 0, "right"]);
 
-  stage.apply(event({ worker: "worker-b", at: 1660 }));
-  at(2140);
+  stage.apply(event({ worker: "worker-b", at: 2400 }));
+  at(3990);
   team = stage.snapshot().teams[0];
   assert.deepEqual(display(team.workers[1]), ["running-right", 1.25, "right"]);
-  at(2620);
+  at(5580);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[1]), ["running", 2, "right"]);
 });
 
@@ -72,8 +72,8 @@ test("a success report runs back, jumps, acknowledges, and exits before removal"
   const { stage, at } = harness();
   stage.apply(leader("prompt"));
   stage.apply(event());
-  at(2000);
-  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 2000 }));
+  at(3000);
+  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 3000 }));
   const check = (time, worker, leaderDisplay = "running") => {
     at(time);
     const team = stage.snapshot().teams[0];
@@ -82,15 +82,16 @@ test("a success report runs back, jumps, acknowledges, and exits before removal"
     assert.equal(team.leader.state, "running");
     assert.equal(team.workers[0].state, "running");
   };
-  check(2000, ["running-left", 1, "left"]);
-  check(2160, ["running-left", 0.75, "left"]);
-  check(2320, ["jumping", 0.5, "left"]);
-  check(2979, ["jumping", 0.5, "left"]);
-  check(2980, ["idle", 0.5, "left"], "review");
-  check(3939, ["idle", 0.5, "left"], "review");
-  check(3940, ["running-left", 0.5, "left"]);
-  check(4420, ["running-left", -0.25, "left"]);
-  at(4900);
+  check(3000, ["running-left", 1, "left"]);
+  check(3530, ["running-left", 0.75, "left"]);
+  check(4060, ["jumping", 0.5, "left"]);
+  check(5739, ["jumping", 0.5, "left"]);
+  check(5740, ["idle", 0.5, "left"], "review");
+  check(7800, ["idle", 0.5, "left"], "review");
+  check(8799, ["idle", 0.5, "left"], "review");
+  check(8800, ["running-left", 0.5, "left"]);
+  check(10390, ["running-left", -0.25, "left"]);
+  at(11980);
   assert.equal(stage.snapshot().teams[0].workers.length, 0);
   assert.deepEqual(display(stage.snapshot().teams[0].leader), ["running", 0, "right"]);
 });
@@ -99,8 +100,8 @@ test("a failure report shows two failed cycles, one leader failed cycle, then le
   const { stage, at } = harness();
   stage.apply(leader("prompt"));
   stage.apply(event());
-  at(2000);
-  stage.apply(event({ type: "end", seq: 2, outcome: "failed", at: 2000 }));
+  at(3000);
+  stage.apply(event({ type: "end", seq: 2, outcome: "failed", at: 3000 }));
   const check = (time, worker, leaderDisplay = "running") => {
     at(time);
     const team = stage.snapshot().teams[0];
@@ -108,14 +109,14 @@ test("a failure report shows two failed cycles, one leader failed cycle, then le
     assert.deepEqual(display(team.leader), [leaderDisplay, 0, "right"], `leader at ${time}`);
     assert.equal(team.leader.state, "running");
   };
-  check(2000, ["failed", 1, "right"]);
-  check(3100, ["failed", 1, "right"]);
-  check(4199, ["failed", 1, "right"]);
-  check(4200, ["idle", 1, "right"], "failed");
-  check(5299, ["idle", 1, "right"], "failed");
-  check(5300, ["running-left", 1, "left"]);
-  check(5940, ["running-left", 0, "left"]);
-  at(6580);
+  check(3000, ["failed", 1, "right"]);
+  check(5440, ["failed", 1, "right"]);
+  check(7879, ["failed", 1, "right"]);
+  check(7880, ["idle", 1, "right"], "failed");
+  check(10319, ["idle", 1, "right"], "failed");
+  check(10320, ["running-left", 1, "left"]);
+  check(12440, ["running-left", 0, "left"]);
+  at(14560);
   assert.equal(stage.snapshot().teams[0].workers.length, 0);
   assert.equal(stage.snapshot().teams[0].leader.displayState, "running");
 });
@@ -127,13 +128,13 @@ for (const outcome of ["success", "failed"]) test(`waiting suppresses delegation
   stage.apply(event({ worker: "worker-b" }));
   assert.deepEqual(display(stage.snapshot().teams[0].leader), ["waiting", 0, "right"]);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-right", 0.5, "right"]);
-  at(2000);
-  stage.apply(event({ type: "end", seq: 2, outcome, at: 2000 }));
+  at(5000);
+  stage.apply(event({ type: "end", seq: 2, outcome, at: 5000 }));
   const steps = outcome === "success"
-    ? [[2160, "running-left", 0.75, "left"], [2320, "jumping", 0.5, "left"],
-      [2980, "idle", 0.5, "left"], [3940, "running-left", 0.5, "left"]]
-    : [[2000, "failed", 1, "right"], [4199, "failed", 1, "right"],
-      [4200, "idle", 1, "right"], [5300, "running-left", 1, "left"]];
+    ? [[5530, "running-left", 0.75, "left"], [6060, "jumping", 0.5, "left"],
+      [7740, "idle", 0.5, "left"], [10800, "running-left", 0.5, "left"]]
+    : [[5000, "failed", 1, "right"], [9879, "failed", 1, "right"],
+      [9880, "idle", 1, "right"], [12320, "running-left", 1, "left"]];
   for (const [time, ...expected] of steps) {
     at(time);
     const team = stage.snapshot().teams[0];
@@ -149,22 +150,22 @@ for (const outcome of ["success", "failed"]) test(`leaderless workers delegate a
   stage.apply(event({ team: null }));
   assert.equal(stage.snapshot().teams[0].leader, null);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-right", 0.5, "right"]);
-  at(1160);
+  at(1530);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-right", 0.75, "right"]);
-  at(2000);
+  at(3000);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running", 1, "right"]);
-  stage.apply(event({ team: null, type: "end", seq: 2, outcome, at: 2000 }));
+  stage.apply(event({ team: null, type: "end", seq: 2, outcome, at: 3000 }));
   const steps = outcome === "success"
-    ? [[2000, "running-left", 1, "left"], [2320, "jumping", 0.5, "left"],
-      [2980, "running-left", 0.5, "left"], [3460, "running-left", -0.25, "left"]]
-    : [[2000, "failed", 1, "right"], [4199, "failed", 1, "right"],
-      [4200, "running-left", 1, "left"], [4840, "running-left", 0, "left"]];
+    ? [[3000, "running-left", 1, "left"], [4060, "jumping", 0.5, "left"],
+      [5740, "running-left", 0.5, "left"], [7330, "running-left", -0.25, "left"]]
+    : [[3000, "failed", 1, "right"], [7879, "failed", 1, "right"],
+      [7880, "running-left", 1, "left"], [10000, "running-left", 0, "left"]];
   for (const [time, ...expected] of steps) {
     at(time);
     assert.equal(stage.snapshot().teams[0].leader, null);
     assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), expected);
   }
-  at(outcome === "success" ? 3940 : 5480);
+  at(outcome === "success" ? 8920 : 12120);
   assert.deepEqual(stage.snapshot(), { teams: [], overflowSessions: 0 });
 });
 
@@ -181,14 +182,14 @@ test("a tombstone applies throughout exit, even when the old heartbeat lease exp
   assert.equal(worker.label, "task-a");
   assert.equal(worker.lastSeen, 1000);
   assert.equal(worker.displayState, "running-left");
-  at(33400);
+  at(38290);
   worker = stage.snapshot().teams[0].workers[0];
   assert.equal(worker.displayState, "running-left");
   assert.ok(worker.x < 0.5);
-  stage.apply(event({ type: "end", seq: 101, outcome: "failed", at: 33400 }));
-  at(33800);
+  stage.apply(event({ type: "end", seq: 101, outcome: "failed", at: 38290 }));
+  at(39880);
   assert.equal(stage.snapshot().teams[0].workers.length, 0);
-  stage.apply(event({ type: "heartbeat", seq: 102, at: 33800 }));
+  stage.apply(event({ type: "heartbeat", seq: 102, at: 39880 }));
   assert.equal(stage.snapshot().teams[0].workers.length, 0);
 });
 
@@ -226,11 +227,11 @@ test("a settled worker's slot follows team order after an earlier worker exits",
   stage.apply(leader("prompt"));
   stage.apply(event());
   stage.apply(event({ worker: "worker-b" }));
-  at(2000);
-  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 2000 }));
-  at(4900);
+  at(3000);
+  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 3000 }));
+  at(11980);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running", 1, "right"]);
-  stage.apply(event({ worker: "worker-b", type: "end", seq: 2, outcome: "success", at: 4900 }));
+  stage.apply(event({ worker: "worker-b", type: "end", seq: 2, outcome: "success", at: 11980 }));
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-left", 1, "left"]);
 });
 
@@ -238,21 +239,21 @@ test("a report pose returns to the latest activity and waiting takes effect imme
   const { stage, at } = harness();
   stage.apply(leader("prompt"));
   stage.apply(event());
-  at(2000);
-  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 2000 }));
-  at(2980);
+  at(3000);
+  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 3000 }));
+  at(5740);
   assert.equal(stage.snapshot().teams[0].leader.displayState, "review");
-  at(3100);
-  stage.apply(leader("waiting", 3100));
+  at(6000);
+  stage.apply(leader("waiting", 6000));
   assert.equal(stage.snapshot().teams[0].leader.displayState, "waiting");
-  at(3200);
-  stage.apply(leader("resumed", 3200));
+  at(6100);
+  stage.apply(leader("resumed", 6100));
   assert.equal(stage.snapshot().teams[0].leader.state, "running");
   assert.equal(stage.snapshot().teams[0].leader.displayState, "review");
-  at(3300);
-  stage.apply(leader("failed", 3300));
+  at(6200);
+  stage.apply(leader("failed", 6200));
   assert.equal(stage.snapshot().teams[0].leader.state, "failed");
-  at(3940);
+  at(8800);
   assert.equal(stage.snapshot().teams[0].leader.displayState, "failed");
 });
 
@@ -262,16 +263,16 @@ test("concurrent scenes affect only their own team", () => {
   stage.apply(leader("prompt", 1000, { team: "456" }));
   stage.apply(event());
   assert.equal(stage.snapshot().teams[1].leader.displayState, "running");
-  at(2000);
-  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 2000 }));
-  at(2800);
-  stage.apply(event({ team: "456", worker: "worker-b", at: 2800 }));
-  at(2980);
+  at(3000);
+  stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 3000 }));
+  at(5210);
+  stage.apply(event({ team: "456", worker: "worker-b", at: 5210 }));
+  at(5740);
   const [a, b] = stage.snapshot().teams;
   assert.equal(a.leader.displayState, "review");
   assert.equal(b.leader.displayState, "waving");
   assert.deepEqual(display(a.workers[0]), ["idle", 0.5, "left"]);
-  assert.deepEqual(display(b.workers[0]), ["running-right", 0.78125, "right"]);
+  assert.deepEqual(display(b.workers[0]), ["running-right", 0.75, "right"]);
 });
 
 test("a fast worker delivered late reports from its current position using receipt wall time", () => {
@@ -281,9 +282,9 @@ test("a fast worker delivered late reports from its current position using recei
   stage.apply(event());
   stage.apply(event({ type: "end", seq: 2, outcome: "success", at: 1001 }));
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["jumping", 0.5, "left"]);
-  at(60660);
+  at(61680);
   assert.equal(stage.snapshot().teams[0].leader.displayState, "review");
-  at(61620);
+  at(64740);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-left", 0.5, "left"]);
   // A skipped series of render frames still completes on the next wall-time tick.
   at(100000);
@@ -300,7 +301,7 @@ for (const outcome of ["success", "failed"]) test(`an unseen end ${outcome} stil
   assert.equal(team.workers[0].label, "task-a");
   assert.deepEqual(display(team.workers[0]), outcome === "success"
     ? ["running-left", 1, "left"] : ["failed", 1, "right"]);
-  at(10000);
+  at(11000);
   assert.deepEqual(stage.snapshot(), { teams: [], overflowSessions: 0 });
 });
 
@@ -607,8 +608,8 @@ for (const outcome of ["success", "failed"]) test(`end ${outcome} removes after 
   stage.apply(event({ type: "start", seq: 5 }));
   stage.apply(event({ worker: "unseen", type: "end", outcome, seq: 2 }));
   stage.apply(event({ worker: "unseen", type: "heartbeat", seq: 3 }));
-  at(10000);
-  stage.apply(event({ type: "heartbeat", seq: 6, at: 10000 }));
+  at(13000);
+  stage.apply(event({ type: "heartbeat", seq: 6, at: 13000 }));
   assert.deepEqual(activitySnapshot(stage), { teams: [], overflowSessions: 0 });
 });
 

@@ -6,7 +6,7 @@ import { resolvePets } from "./pet-config.mjs";
 import { fitLimit, sceneOffset } from "./layout.mjs";
 import { createMessages, subscribeLanguage } from "./messages.mjs";
 
-import { CODEX_V1_FRAME_TIMINGS_MS } from "./animations.mjs";
+import { CODEX_V1_FRAME_TIMINGS_MS, frameAt } from "./animations.mjs";
 
 const rows = Object.keys(CODEX_V1_FRAME_TIMINGS_MS);
 const invoke = window.__TAURI__.core.invoke;
@@ -173,9 +173,7 @@ function drawFrame() {
     const { displayState: state, role } = pet.character;
     const sheet = sheets.get(role) ?? sheets.get("implementer");
     if (!sheet.complete || !sheet.naturalWidth) continue;
-    const timings = CODEX_V1_FRAME_TIMINGS_MS[state];
-    let elapsed = (time - pet.began) % timings.reduce((a, b) => a + b, 0), frame = 0;
-    while (elapsed >= timings[frame]) elapsed -= timings[frame++];
+    const frame = frameAt(state, time - pet.began);
     const ctx = pet.canvas.getContext("2d");
     ctx.clearRect(0, 0, 192, 208);
     ctx.drawImage(sheet, frame * 192, rows.indexOf(state) * 208, 192, 208, 0, 0, 192, 208);

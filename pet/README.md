@@ -77,9 +77,11 @@ Manual checks for this ticket:
 
 Five original placeholder PNGs follow Codex v1: 1536×1872, cells 192×208,
 8 columns, 9 rows, frame counts 6/8/8/4/5/8/6/6/6. Playback defaults to scale 0.6.
-Exact Codex frame durations were not available: provisional per-frame timings
-are collected in `CODEX_V1_FRAME_TIMINGS_MS` in `app/ui/animations.mjs`, shared
-by playback and the pure scene timelines.
+Frame durations follow [OpenAI's animation guide](https://github.com/openai/skills/blob/main/skills/.curated/hatch-pet/references/animation-rows.md)
+at twice its durations, collected in `CODEX_V1_FRAME_TIMINGS_MS` in
+`app/ui/animations.mjs`. Ambient states rest on their first frame after playback:
+`idle` for 2400 ms, `waiting` for 1500 ms, and `review` for 1000 ms. These rests
+are not doubled. All states keep looping while active; scene cycles include rests.
 
 Tests: `npm.cmd test`. The runner tests use fake Codex, a fake HTTP listener,
 isolated homes and a runner copied from the generated `codex-implement` skill.

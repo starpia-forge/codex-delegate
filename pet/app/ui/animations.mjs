@@ -1,18 +1,31 @@
-// Codex v1 row order and per-frame durations in milliseconds. These timings
-// are provisional: exact Codex timings were not supplied with the v1 contract.
-// Replace this single table when verified upstream values are available.
+// Codex v1 row order; frame durations are twice the upstream guide's milliseconds:
+// https://github.com/openai/skills/blob/main/skills/.curated/hatch-pet/references/animation-rows.md
 export const CODEX_V1_FRAME_TIMINGS_MS = {
-  idle: [240, 160, 180, 240, 160, 200],
-  "running-right": [80, 80, 80, 80, 80, 80, 80, 80],
-  "running-left": [80, 80, 80, 80, 80, 80, 80, 80],
-  waving: [160, 120, 160, 220],
-  jumping: [120, 100, 180, 100, 160],
-  failed: [140, 100, 100, 140, 100, 100, 180, 240],
-  waiting: [240, 160, 160, 240, 160, 240],
-  running: [100, 100, 100, 100, 100, 160],
-  review: [180, 120, 120, 180, 120, 240],
+  idle: [560, 220, 220, 280, 280, 640],
+  "running-right": [240, 240, 240, 240, 240, 240, 240, 440],
+  "running-left": [240, 240, 240, 240, 240, 240, 240, 440],
+  waving: [280, 280, 280, 560],
+  jumping: [280, 280, 280, 280, 560],
+  failed: [280, 280, 280, 280, 280, 280, 280, 480],
+  waiting: [300, 300, 300, 300, 300, 520],
+  running: [240, 240, 240, 240, 240, 440],
+  review: [300, 300, 300, 300, 300, 560],
 };
 
+// Ambient states rest on frame 0 after playback; these holds are not doubled.
+const REST_MS = { idle: 2400, waiting: 1500, review: 1000 };
+
 export function cycleDuration(state) {
-  return CODEX_V1_FRAME_TIMINGS_MS[state].reduce((total, duration) => total + duration, 0);
+  return CODEX_V1_FRAME_TIMINGS_MS[state].reduce((total, duration) => total + duration, REST_MS[state] ?? 0);
+}
+
+export function frameAt(state, elapsed) {
+  if (elapsed <= 0) return 0;
+  const timings = CODEX_V1_FRAME_TIMINGS_MS[state];
+  elapsed %= cycleDuration(state);
+  for (const [frame, duration] of timings.entries()) {
+    if (elapsed < duration) return frame;
+    elapsed -= duration;
+  }
+  return 0;
 }
