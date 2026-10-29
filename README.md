@@ -153,6 +153,12 @@ Removal (`--without-pet` or `uninstall`) deletes `~/.codex-delegate/pet/` and `~
 
 The pet app starts on the first event and quits on its own after ten minutes without any. Leader and worker reporting never blocks Claude Code or a worker and never changes their output.
 
+### Artwork
+
+The default pets are momo (leader), mikan (researcher), sion (critic), shamiko (implementer) and lico (computer-user). They are unofficial fan art of 『まちカドまぞく』 (© 伊藤いづも / 芳文社), not affiliated with the rights holder, and will be removed on request. See the pet tray's **Licences** window for artwork and dependency notices.
+
+To regenerate the bundled packages from `pet/art/machikado-mazoku/`, run `node pet/generate-default-pets.mjs` with development dependencies installed. The app and releases use the committed WebP files. `node pet/generate-placeholders.mjs` restores the original placeholders for a takedown (see [ADR 0002](docs/adr/0002-fan-art-default-pets.md)); both generators replace each slot directory, removing its previous sheet.
+
 ### Configuration and custom pets
 
 Optional, in `~/.codex-delegate/pet.json`:

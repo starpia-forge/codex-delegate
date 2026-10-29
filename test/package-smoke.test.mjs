@@ -82,10 +82,16 @@ else {
     "skills/claude/codex-implement/scripts/codex-run.mjs"]) {
     assert.ok(files.includes(required), `packed package is missing ${required}`);
   }
+  assert.ok(!files.some(file => file.startsWith("node_modules/") || file.startsWith("pet/art/")
+    || /^pet\/generate-.*\.mjs$/.test(file)), "npm package must not ship the artwork sources or development generators and encoder");
   const extracted = join(work, "extracted");
   mkdirSync(extracted);
   await run("tar", ["-xzf", packed.filename, "-C", "extracted"], { cwd: work, env });
   const pkg = join(extracted, "package");
+  const packedManifest = JSON.parse(readFileSync(join(pkg, "package.json"), "utf8"));
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+    assert.ok(!Object.hasOwn(packedManifest[field] ?? {}, "sharp"), "the encoder must remain a development dependency only");
+  }
   assert.deepEqual(readFileSync(join(pkg, "pet-pin.json")), readFileSync(join(repo, "pet-pin.json")));
   // build.mjs copies src/runner directly into each authored skill's scripts/.
   const packedScripts = join(pkg, "skills/claude/codex-implement/scripts");
