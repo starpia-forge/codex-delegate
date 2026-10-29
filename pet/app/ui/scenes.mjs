@@ -3,15 +3,17 @@ import { cycleDuration } from "./animations.mjs";
 // Coordinates are team-relative slot units, never strip pixels. The leader's
 // home is 0; workers' homes are their one-based order in the team.
 const BESIDE = 0.5;
+const STRIDE = 0.5;
 const view = (displayState, x, facing = "right") => ({ displayState, x, facing });
 function move(from, to) {
   const facing = to < from ? "left" : "right";
   const displayState = `running-${facing}`;
-  return { duration: Math.abs(to - from) * cycleDuration(displayState), from, to, displayState, facing };
+  return { duration: Math.abs(to - from) / STRIDE * cycleDuration(displayState), from, to, displayState, facing };
 }
 const hold = (displayState, duration, x, facing) => ({ displayState, duration, from: x, to: x, facing });
 // Slot-space travel supplies pacing; the renderer projects this final phase
-// from its origin all the way beyond the strip's left edge.
+// from its origin all the way beyond the strip's left edge. On-screen exits
+// do not yet keep the shared stride (ticket 03).
 const leave = from => ({ ...move(from, -1), exit: true });
 
 function sample(scene, time, slot) {
@@ -31,12 +33,14 @@ function sample(scene, time, slot) {
 // so skipped ticks (including fullscreen) cannot accumulate movement drift.
 function wander(elapsed) {
   const phase = Math.max(0, elapsed) % 20000;
+  const right = move(0, 0.25).duration;
+  const left = move(0.25, -0.25).duration;
   if (phase < 1000) return view("idle", 0);
-  if (phase < 5000) return view("running-right", (phase - 1000) / 16000);
+  if (phase < 1000 + right) return view("running-right", 0.25 * (phase - 1000) / right);
   if (phase < 6000) return view("idle", 0.25);
-  if (phase < 14000) return view("running-left", 0.25 - (phase - 6000) / 16000, "left");
+  if (phase < 6000 + left) return view("running-left", 0.25 - 0.5 * (phase - 6000) / left, "left");
   if (phase < 15000) return view("idle", -0.25, "left");
-  if (phase < 19000) return view("running-right", -0.25 + (phase - 15000) / 16000);
+  if (phase < 15000 + right) return view("running-right", -0.25 + 0.25 * (phase - 15000) / right);
   return view("idle", 0);
 }
 
