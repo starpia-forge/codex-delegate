@@ -28,6 +28,18 @@ _Avoid_: buddy, mascot, avatar, overlay
 What a pet is currently showing, using the Codex Pet states: `idle`, `running`, `running-left`, `running-right`, `waving`, `jumping`, `waiting`, `review`, `failed`.
 _Avoid_: animation, mood
 
+**Pet enabled**:
+The pet feature is installed for the user, so leaders and workers report to it. Turning it on or off is an installation choice.
+_Avoid_: pet on, pet active
+
+**Pets hidden**:
+The user's choice to keep every pet off the screen while the pet stays enabled. It lasts until the user shows the pets again.
+_Avoid_: disabled, off, paused
+
+**Overflow**:
+Pets that don't fit on the screen and are shown only as a count beside the visible ones.
+_Avoid_: hidden workers, hidden sessions
+
 **Team**:
 A leader together with the workers it started; workers whose leader can't be identified form a team without a leader. Pets interact only within their team.
 _Avoid_: group, squad, party
