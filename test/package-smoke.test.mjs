@@ -95,9 +95,10 @@ else {
   }
 
   const exe = join(work, "fake.exe"), bundleDir = join(work, "bundle");
+  const notices = join(repo, "test/fixtures/pet-notices.txt");
   writeFileSync(exe, "fake executable, never run");
   await run(process.execPath, [join(repo, "scripts/pet-bundle.mjs"), "--exe", exe,
-    "--out", bundleDir, "--tag", "pet-v1.2.3"], { env });
+    "--notices", notices, "--out", bundleDir, "--tag", "pet-v1.2.3"], { env });
   const pinPath = join(bundleDir, "pet-pin.json");
   const pin = JSON.parse(readFileSync(pinPath, "utf8"));
   const bytes = readFileSync(join(bundleDir, pin.asset)), downloads = [];
@@ -113,6 +114,7 @@ else {
   await run(process.execPath, [join(pkg, "bin/cli.mjs"), "install", "--scope", "user",
     "--agent", "claude-code", "--with-pet"], { cwd: work, env });
   assert.deepEqual(downloads, [`/${pin.tag}/${pin.asset}`]);
+  assert.deepEqual(readFileSync(join(home, ".codex-delegate/pet/THIRD-PARTY-NOTICES")), readFileSync(notices));
   assert.ok(!files.some(file => file.startsWith("pet/app/ui/assets/")), "npm package must not supply doctor's bundled assets");
   writeFileSync(join(codexHome, "models_cache.json"), JSON.stringify({ models: [
     { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },

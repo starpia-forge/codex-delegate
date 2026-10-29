@@ -1,0 +1,2 @@
+Fixture third-party notices — copyright fixture authors.
+MIT licence text for bundle transport tests.
