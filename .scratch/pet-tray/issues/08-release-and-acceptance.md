@@ -8,11 +8,11 @@
 
 Spec: `.scratch/pet-tray/spec.md` (Testing Decisions: Not automated)
 
-- [ ] A pet release is cut by the workflow, with real generated notices and no stub, and the pin is bumped to it.
-- [ ] Installed from the real release into the user's home, `doctor` is clean.
-- [ ] The bundle contains `THIRD-PARTY-NOTICES`, and the licences window shows the same notices.
+- [x] A pet release is cut by the workflow, with real generated notices and no stub, and the pin is bumped to it.
+- [x] Installed from the real release into the user's home, `doctor` is clean.
+- [x] The bundle contains `THIRD-PARTY-NOTICES`, and the licences window shows the same notices.
 - [ ] Every manual check from tickets 02, 03, 05 and 07 has been run against this bundle and recorded in the comments, with any failure filed as a follow-up.
-- [ ] `install --without-pet` then leaves no pet files, no pet hooks and no preferences file.
+- [x] `install --without-pet` then leaves no pet files, no pet hooks and no preferences file.
 
 ## Comments
 
@@ -28,3 +28,5 @@ Spec: `.scratch/pet-tray/spec.md` (Testing Decisions: Not automated)
   - Not run: idle exit after 10 minutes (exit path shared with `/quit`, which passed); a Korean→English Windows display language change; a DPI scale other than 100 %; Windows 11.
   - Still to do: push `feat/pet-tray` and tag `pet-v0.2.0`, verify the workflow release, bump the pin, install from the real release.
 - 2026-10-29: Release on hold while the maintainer finishes the artwork in parallel (the source sheets under `pet/art/machikado-mazoku/` are being replaced; `mikan.png` already changed in the working tree, uncommitted). When the artwork is final: commit the source sheets, rerun the default pet generator, verify the five packages and rebuild the bundle, then continue with the steps above.
+- 2026-10-29: Final artwork committed by the maintainer (8b6f7b1, e10a0d7, 79785ed); default pet packages regenerated (96163dc), 379 JS and 28 Rust tests pass, a local bundle installed into the isolated home showed the new art. `feat/pet-tray` and `pet-v0.2.0` pushed; the Pet release workflow (run 40884527273) published `codex-delegate-pet-windows-x64.zip` with sha256 `0bff7810…2bf2` matching its `.sha256` asset. The released `THIRD-PARTY-NOTICES` is byte-identical to the locally generated notices (no stub) and the five sprite sheets are identical to the committed packages. Pin bumped (78728e3). Installed from the real release into the maintainer's home: installed exe and notices match the release, `doctor` pet checks all OK.
+  - Remaining for this ticket: the manual checks above were run against a locally built bundle from the same sources, not the released zip, and the "Not run" items are still open.
