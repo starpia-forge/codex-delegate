@@ -2,6 +2,7 @@
 
 mod capture;
 mod liveness;
+mod messages;
 mod notices;
 mod prefs;
 mod show;
@@ -154,7 +155,8 @@ fn main() {
         .manage(visibility)
         .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
         .invoke_handler(tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale,
-            capture::computer_use_live, window::fullscreen_paused, show::pet_preferences, show::frame_ready])
+            capture::computer_use_live, window::fullscreen_paused, show::pet_preferences, show::frame_ready,
+            messages::messages])
         .setup(move |app| {
             let win = app.get_webview_window("main").unwrap();
             show::create_tray(app.handle())?;
