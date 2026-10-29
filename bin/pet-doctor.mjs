@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { petHealth, readPetMarker, readPetPin } from "./pet.mjs";
+import { petHealth, petsHidden, readPetMarker, readPetPin } from "./pet.mjs";
 import { resolvePets } from "../pet/app/ui/pet-config.mjs";
 
 const configProblems = {
@@ -44,6 +44,7 @@ function hasWebView2() {
 export async function checkPet(root, check) {
   const marker = readPetMarker();
   if (!marker) return;
+  if (petsHidden()) check("ok", "Pet visibility", "Pets are hidden; show them from the pet's tray icon.");
   let pin;
   try { pin = readPetPin(root); }
   catch (error) { check("fail", "Pet bundle", `cannot read pet pin: ${error.message}`); }
