@@ -1,4 +1,4 @@
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Arc};
 use std::time::Duration;
 use tauri::{Emitter, WebviewWindow};
 use windows::Win32::Foundation::{HWND, POINT, RECT};
@@ -10,11 +10,14 @@ use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetDesktopWindow,
 
 // Its own type: Tauri manages one state per type, and `Ready` is also an `Arc<AtomicBool>`.
 #[derive(Clone, Default)]
-pub struct Fullscreen(pub Arc<AtomicBool>);
+pub struct Fullscreen {
+    paused: Arc<AtomicBool>,
+    foreground: Arc<AtomicUsize>,
+}
 
 #[tauri::command]
 pub fn fullscreen_paused(state: tauri::State<Fullscreen>) -> bool {
-    state.0.load(Ordering::Acquire)
+    state.paused.load(Ordering::Acquire)
 }
 
 // Monitor bounds and window rectangles are physical pixels. A captioned,
@@ -39,26 +42,39 @@ unsafe fn fullscreen(foreground: HWND, own: HWND) -> bool {
         && rect.right >= info.rcMonitor.right && rect.bottom >= info.rcMonitor.bottom
 }
 
-pub fn watch(win: WebviewWindow, state: Fullscreen) {
-    let own = HWND(win.hwnd().unwrap().0 as _);
-    let mut last_fg = HWND::default();
-    loop {
-        crate::place_strip(&win);
-        unsafe {
-            let foreground = GetForegroundWindow();
-            let paused = fullscreen(foreground, own);
-            let was_paused = state.0.swap(paused, Ordering::AcqRel);
-            let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
-            if paused {
-                // Dropping topmost alone leaves the strip above the app.
-                let _ = SetWindowPos(own, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
-                let _ = SetWindowPos(own, Some(foreground), 0, 0, 0, 0, flags);
-            } else if was_paused || foreground != last_fg {
-                let _ = SetWindowPos(own, Some(HWND_TOPMOST), 0, 0, 0, 0, flags);
-            }
-            if paused != was_paused { let _ = win.emit("pet-fullscreen", paused); }
-            last_fg = foreground;
+// Call on the UI thread, including immediately before a show. Watcher updates
+// use the same thread so they cannot race the coordinator's z-order decision.
+pub fn refresh(win: &WebviewWindow, state: &Fullscreen, force: bool) -> Result<(), String> {
+    crate::place_strip(win);
+    let own = HWND(win.hwnd().map_err(|e| e.to_string())?.0 as _);
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let paused = fullscreen(foreground, own);
+        let was_paused = state.paused.swap(paused, Ordering::AcqRel);
+        let last_fg = state.foreground.swap(foreground.0 as usize, Ordering::AcqRel);
+        // Keep Tauri's window flags in sync with native z-order, too: show and
+        // click-through setters must not restore a stale always-on-top style.
+        if force || paused != was_paused {
+            win.set_always_on_top(!paused).map_err(|e| e.to_string())?;
         }
+        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+        if paused {
+            // Dropping topmost alone leaves the strip above the app.
+            SetWindowPos(own, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+            SetWindowPos(own, Some(foreground), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+        } else if force || was_paused || foreground.0 as usize != last_fg {
+            SetWindowPos(own, Some(HWND_TOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+        }
+        if paused != was_paused { let _ = win.emit("pet-fullscreen", paused); }
+    }
+    Ok(())
+}
+
+pub fn watch(win: WebviewWindow, state: Fullscreen) {
+    loop {
+        let window = win.clone();
+        let fullscreen = state.clone();
+        let _ = win.run_on_main_thread(move || { let _ = refresh(&window, &fullscreen, false); });
         std::thread::sleep(Duration::from_millis(300));
     }
 }
