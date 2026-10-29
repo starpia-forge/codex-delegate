@@ -4,6 +4,7 @@ import { cycleDuration } from "./animations.mjs";
 // home is 0; workers' homes are their one-based order in the team.
 const BESIDE = 0.5;
 const STRIDE = 0.5;
+const WANDER = 0.25;
 const view = (displayState, x, facing = "right") => ({ displayState, x, facing });
 function move(from, to) {
   const facing = to < from ? "left" : "right";
@@ -11,7 +12,8 @@ function move(from, to) {
   return { duration: Math.abs(to - from) / STRIDE * cycleDuration(displayState), from, to, displayState, facing };
 }
 const hold = (displayState, duration, x, facing) => ({ displayState, duration, from: x, to: x, facing });
-const leave = (from, to) => ({ ...move(from, to), exit: true });
+const leave = (from, to) => ({ ...move(from, to), displayState: "running-left", facing: "left", exit: true });
+const endTime = (began, phases) => began + phases.reduce((sum, phase) => sum + phase.duration, 0);
 
 function sample(scene, time, slot) {
   let elapsed = time - scene.began;
@@ -30,14 +32,14 @@ function sample(scene, time, slot) {
 // so skipped ticks (including fullscreen) cannot accumulate movement drift.
 function wander(elapsed) {
   const phase = Math.max(0, elapsed) % 20000;
-  const right = move(0, 0.25).duration;
-  const left = move(0.25, -0.25).duration;
+  const right = move(0, WANDER).duration;
+  const left = move(WANDER, -WANDER).duration;
   if (phase < 1000) return view("idle", 0);
-  if (phase < 1000 + right) return view("running-right", 0.25 * (phase - 1000) / right);
-  if (phase < 6000) return view("idle", 0.25);
-  if (phase < 6000 + left) return view("running-left", 0.25 - 0.5 * (phase - 6000) / left, "left");
-  if (phase < 15000) return view("idle", -0.25, "left");
-  if (phase < 15000 + right) return view("running-right", -0.25 + 0.25 * (phase - 15000) / right);
+  if (phase < 1000 + right) return view("running-right", WANDER * (phase - 1000) / right);
+  if (phase < 6000) return view("idle", WANDER);
+  if (phase < 6000 + left) return view("running-left", WANDER - 2 * WANDER * (phase - 6000) / left, "left");
+  if (phase < 15000) return view("idle", -WANDER, "left");
+  if (phase < 15000 + right) return view("running-right", -WANDER + WANDER * (phase - 15000) / right);
   return view("idle", 0);
 }
 
@@ -45,11 +47,11 @@ export function createScenes({ now }) {
   const workers = new Map();
   let time = now();
   const began = time;
-  let exitTarget = -1; // Until the renderer reports geometry, keep the old slot target.
+  let exitSlot = -1; // Until the renderer reports geometry, keep the old slot target.
   return {
-    setExitTarget(target) {
-      if (target === exitTarget) return;
-      exitTarget = target;
+    setExitSlot(slot) {
+      if (slot === exitSlot) return;
+      exitSlot = slot;
       for (const scene of workers.values()) {
         const phase = scene.phases.at(-1);
         if (!phase.exit) continue;
@@ -58,13 +60,12 @@ export function createScenes({ now }) {
           // Re-plan from the current position, even when the new edge is
           // already behind us. Never turn around or snap back to the slot.
           const x = sample(scene, time, scene.slot).x;
-          scene.phases = [leave(x, Math.min(x, target))];
+          scene.phases = [leave(x, Math.min(x, exitSlot))];
           scene.began = time;
-          scene.ends = time + scene.phases[0].duration;
         } else {
-          Object.assign(phase, leave(phase.from, target));
-          scene.ends = start + phase.duration;
+          Object.assign(phase, leave(phase.from, exitSlot));
         }
+        scene.ends = endTime(scene.began, scene.phases);
       }
     },
     start(id, slot, hasLeader) {
@@ -80,16 +81,16 @@ export function createScenes({ now }) {
         const failed = cycleDuration("failed");
         const acknowledge = hasLeader ? failed : 0;
         const phases = [hold("failed", failed * 2, origin, current.facing),
-          hold("idle", acknowledge, origin, current.facing), leave(origin, exitTarget)];
-        workers.set(id, { began: time, slot, phases, ends: time + phases.reduce((sum, phase) => sum + phase.duration, 0),
+          hold("idle", acknowledge, origin, current.facing), leave(origin, exitSlot)];
+        workers.set(id, { began: time, slot, phases, ends: endTime(time, phases),
           pose: hasLeader ? { state: "failed", start: time + failed * 2, duration: failed } : null });
         return;
       }
       const back = move(origin, BESIDE);
       const jump = hold("jumping", cycleDuration("jumping"), BESIDE, "left");
       const review = hasLeader ? cycleDuration("review") : 0;
-      const phases = [back, jump, hold("idle", review, BESIDE, "left"), leave(BESIDE, exitTarget)];
-      workers.set(id, { began: time, slot, phases, ends: time + phases.reduce((sum, phase) => sum + phase.duration, 0),
+      const phases = [back, jump, hold("idle", review, BESIDE, "left"), leave(BESIDE, exitSlot)];
+      workers.set(id, { began: time, slot, phases, ends: endTime(time, phases),
         pose: hasLeader ? { state: "review", start: time + back.duration + jump.duration, duration: review } : null });
     },
     remove(id) { workers.delete(id); },

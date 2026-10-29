@@ -20,9 +20,9 @@ The rests are absolute values, not doubled.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Frame selection (state + elapsed animation time → sprite frame) is a pure function, and the renderer draws frames through it.
-- [ ] A table-driven test covers all nine states: every frame boundary, each cycle duration, the three rests selecting the first frame, wrap-around after several cycles, and elapsed time at or below zero selecting the first frame. Expected values are written out in the test, not read from the production timing table.
-- [ ] Cycle duration includes the rest, and scene lengths follow it; stage and layout tests with hard-coded scene times are updated to the new cycles.
-- [ ] The pet README and code comments no longer call the timings provisional; they cite the upstream guide and state that this app plays them at twice its durations, with rests on the ambient states.
+- [x] Frame selection (state + elapsed animation time → sprite frame) is a pure function, and the renderer draws frames through it.
+- [x] A table-driven test covers all nine states: every frame boundary, each cycle duration, the three rests selecting the first frame, wrap-around after several cycles, and elapsed time at or below zero selecting the first frame. Expected values are written out in the test, not read from the production timing table.
+- [x] Cycle duration includes the rest, and scene lengths follow it; stage and layout tests with hard-coded scene times are updated to the new cycles.
+- [x] The pet README and code comments no longer call the timings provisional; they cite the upstream guide and state that this app plays them at twice its durations, with rests on the ambient states.

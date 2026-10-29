@@ -3,7 +3,7 @@ import { createAnimationClock } from "./animation-clock.mjs";
 import { drawingPaused } from "./draw-pause.mjs";
 import { frameHandler } from "./frame.mjs";
 import { resolvePets } from "./pet-config.mjs";
-import { exitTarget, fitLimit, sceneOffset } from "./layout.mjs";
+import { exitSlot, fitLimit, sceneOffset } from "./layout.mjs";
 import { createMessages, subscribeLanguage } from "./messages.mjs";
 
 import { CODEX_V1_FRAME_TIMINGS_MS, frameAt } from "./animations.mjs";
@@ -139,12 +139,12 @@ function render() {
   const exits = new Map();
   for (const pet of pets.values()) {
     const geometry = { homeLeft: pet.node.offsetLeft, petWidth: pet.node.offsetWidth, scale: config.scale };
-    const target = exitTarget({ home: pet.character.home, ...geometry });
-    exits.set(pet.team, Math.min(exits.get(pet.team) ?? Infinity, target));
+    const slot = exitSlot({ home: pet.character.home, ...geometry });
+    exits.set(pet.team, Math.min(exits.get(pet.team) ?? Infinity, slot));
     const offset = sceneOffset(pet.character, geometry);
     pet.node.style.setProperty("--scene-offset", `${offset}px`);
   }
-  for (const [key, target] of exits) stage.setExitTarget(key, target);
+  for (const [key, slot] of exits) stage.setExitSlot(key, slot);
 }
 
 function updateFitLimit() {

@@ -3,20 +3,20 @@
 // the larger inter-team gap, and one trailing sessions badge plus its gap.
 const CELL_WIDTH = 192, TAG_SPACE = 24, TEAM_GAP = 16, PET_GAP = 4;
 const SIDE_PADDING = 8, WORKER_BADGE = 48, SESSIONS_BADGE = 96;
+const slotWidth = scale => CELL_WIDTH * scale + TAG_SPACE + PET_GAP;
 
 // Leave one pixel for rounding in DOM offsets and widths.
-export function exitTarget({ home, homeLeft, petWidth, scale }) {
-  return home - (homeLeft + petWidth + 1) / (CELL_WIDTH * scale + TAG_SPACE + PET_GAP);
+export function exitSlot({ home, homeLeft, petWidth, scale }) {
+  return home - (homeLeft + petWidth + 1) / slotWidth(scale);
 }
 
 // Pixel translation from the untransformed flex slot, including exits.
 export function sceneOffset({ x, home }, { scale }) {
-  const slotWidth = CELL_WIDTH * scale + TAG_SPACE + PET_GAP;
-  return (x - home) * slotWidth;
+  return (x - home) * slotWidth(scale);
 }
 
 export function fitLimit({ width, scale }) {
-  const perTeam = CELL_WIDTH * scale + TAG_SPACE + PET_GAP + WORKER_BADGE + TEAM_GAP;
+  const perTeam = slotWidth(scale) + WORKER_BADGE + TEAM_GAP;
   return Math.max(0, Math.min(16, Math.floor((width - 2 * SIDE_PADDING - SESSIONS_BADGE) / perTeam)));
 }
 

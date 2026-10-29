@@ -29,8 +29,8 @@ export function createStage({ now }) {
     setFitLimit(n) {
       fitLimit = Math.max(0, Math.min(16, Math.floor(n)));
     },
-    setExitTarget(key, target) {
-      teams.get(key)?.scenes.setExitTarget(target);
+    setExitSlot(key, exitSlot) {
+      teams.get(key)?.scenes.setExitSlot(exitSlot);
     },
     apply(event) {
       if (event.source === "leader") {

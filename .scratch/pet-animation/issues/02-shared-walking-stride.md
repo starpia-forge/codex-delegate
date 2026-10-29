@@ -4,9 +4,9 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Worker scene travel and leader wander derive their speed from the same stride constant and the running cycle duration.
-- [ ] Wander never leaves ±0.25 slot and repeats every 20 s.
-- [ ] Stage tests cover walk-in, walk-back and wander pacing against the shared stride.
-- [ ] Code or docs note that exits are not yet held to the stride.
+- [x] Worker scene travel and leader wander derive their speed from the same stride constant and the running cycle duration.
+- [x] Wander never leaves ±0.25 slot and repeats every 20 s.
+- [x] Stage tests cover walk-in, walk-back and wander pacing against the shared stride.
+- [x] Code or docs note that exits are not yet held to the stride.

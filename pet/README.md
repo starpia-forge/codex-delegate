@@ -82,6 +82,8 @@ at twice its durations, collected in `CODEX_V1_FRAME_TIMINGS_MS` in
 `app/ui/animations.mjs`. Ambient states rest on their first frame after playback:
 `idle` for 2400 ms, `waiting` for 1500 ms, and `review` for 1000 ms. These rests
 are not doubled. All states keep looping while active; scene cycles include rests.
+Walking, including exits off the strip, moves at a shared stride of half a slot per
+running cycle, so pets in teams further right take longer to leave.
 
 Tests: `npm.cmd test`. The runner tests use fake Codex, a fake HTTP listener,
 isolated homes and a runner copied from the generated `codex-implement` skill.

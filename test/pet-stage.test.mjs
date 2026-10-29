@@ -123,16 +123,16 @@ test("an unmeasured failure report shows two failed cycles, one leader failed cy
   assert.equal(stage.snapshot().teams[0].leader.displayState, "running");
 });
 
-test("a refreshed exit target during a report changes only that team's completion time", () => {
+test("a refreshed exit slot during a report changes only that team's completion time", () => {
   const { stage, at } = harness();
   for (const team of ["123", "456"]) {
     stage.apply(leader("prompt", 1000, { team }));
     stage.apply(event({ type: "heartbeat", team, worker: team }));
   }
-  stage.setExitTarget("123", -2);
+  stage.setExitSlot("123", -2);
   for (const team of ["123", "456"]) stage.apply(event({ type: "end", outcome: "success", seq: 2, team, worker: team }));
   at(4800);
-  stage.setExitTarget("123", -3);
+  stage.setExitSlot("123", -3);
   at(7860);
   assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-left", 0.5, "left"]);
   at(9980);

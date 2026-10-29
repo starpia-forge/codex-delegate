@@ -6,8 +6,15 @@ Agreed design: the renderer, which knows each team's home position, the pet widt
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] An exiting pet covers the shared stride per running cycle in on-screen distance, whatever its team's position and the pet scale (0.3 to 1.0).
-- [ ] The scene still completes, and the pet is removed, once it is fully off the strip.
-- [ ] Covered at a seam that combines the scene timing with the layout.
+- [x] An exiting pet covers the shared stride per running cycle in on-screen distance, whatever its team's position and the pet scale (0.3 to 1.0).
+- [x] The scene still completes, and the pet is removed, once it is fully off the strip.
+- [x] Covered at a seam that combines the scene timing with the layout.
+
+## Comments
+
+Decisions made during implementation, beyond the agreed design:
+
+- Until the renderer has measured a team, its exits target one slot left of the leader (the previous slot-space target).
+- When a layout change moves the edge while an exit is in flight, the exit is re-planned from the pet's current position towards the new edge. It never turns around or snaps back; a pet already past the new edge finishes at once, facing left.
