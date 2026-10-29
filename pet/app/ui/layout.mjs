@@ -4,14 +4,14 @@
 const CELL_WIDTH = 192, TAG_SPACE = 24, TEAM_GAP = 16, PET_GAP = 4;
 const SIDE_PADDING = 8, WORKER_BADGE = 48, SESSIONS_BADGE = 96;
 
-// Pixel translation from the untransformed flex slot. Exits use strip
-// coordinates so later teams leave the window rather than their neighbour.
-export function sceneOffset({ x, home, exit }, { homeLeft, petWidth, scale }) {
+// Leave one pixel for rounding in DOM offsets and widths.
+export function exitTarget({ home, homeLeft, petWidth, scale }) {
+  return home - (homeLeft + petWidth + 1) / (CELL_WIDTH * scale + TAG_SPACE + PET_GAP);
+}
+
+// Pixel translation from the untransformed flex slot, including exits.
+export function sceneOffset({ x, home }, { scale }) {
   const slotWidth = CELL_WIDTH * scale + TAG_SPACE + PET_GAP;
-  if (exit) {
-    const from = (exit.from - home) * slotWidth;
-    return from + (-homeLeft - petWidth - from) * exit.progress;
-  }
   return (x - home) * slotWidth;
 }
 

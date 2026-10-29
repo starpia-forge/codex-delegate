@@ -11,22 +11,19 @@ function move(from, to) {
   return { duration: Math.abs(to - from) / STRIDE * cycleDuration(displayState), from, to, displayState, facing };
 }
 const hold = (displayState, duration, x, facing) => ({ displayState, duration, from: x, to: x, facing });
-// Slot-space travel supplies pacing; the renderer projects this final phase
-// from its origin all the way beyond the strip's left edge. On-screen exits
-// do not yet keep the shared stride (ticket 03).
-const leave = from => ({ ...move(from, -1), exit: true });
+const leave = (from, to) => ({ ...move(from, to), exit: true });
 
 function sample(scene, time, slot) {
   let elapsed = time - scene.began;
   for (const phase of scene.phases) {
     if (elapsed < phase.duration) {
       const x = phase.from === phase.to ? phase.from : phase.from + (phase.to - phase.from) * elapsed / phase.duration;
-      return { ...view(phase.displayState, x, phase.facing),
-        ...(phase.exit ? { exit: { from: phase.from, progress: elapsed / phase.duration } } : {}) };
+      return view(phase.displayState, x, phase.facing);
     }
     elapsed -= phase.duration;
   }
-  return view("running", slot);
+  const last = scene.phases.at(-1);
+  return last.exit ? view(last.displayState, last.to, last.facing) : view("running", slot);
 }
 
 // A slow, bounded stroll with pauses. Its phase depends only on wall time,
@@ -48,7 +45,28 @@ export function createScenes({ now }) {
   const workers = new Map();
   let time = now();
   const began = time;
+  let exitTarget = -1; // Until the renderer reports geometry, keep the old slot target.
   return {
+    setExitTarget(target) {
+      if (target === exitTarget) return;
+      exitTarget = target;
+      for (const scene of workers.values()) {
+        const phase = scene.phases.at(-1);
+        if (!phase.exit) continue;
+        const start = scene.ends - phase.duration;
+        if (time >= start) {
+          // Re-plan from the current position, even when the new edge is
+          // already behind us. Never turn around or snap back to the slot.
+          const x = sample(scene, time, scene.slot).x;
+          scene.phases = [leave(x, Math.min(x, target))];
+          scene.began = time;
+          scene.ends = time + scene.phases[0].duration;
+        } else {
+          Object.assign(phase, leave(phase.from, target));
+          scene.ends = start + phase.duration;
+        }
+      }
+    },
     start(id, slot, hasLeader) {
       time = now();
       workers.set(id, { began: time, slot, phases: [move(BESIDE, slot)],
@@ -62,7 +80,7 @@ export function createScenes({ now }) {
         const failed = cycleDuration("failed");
         const acknowledge = hasLeader ? failed : 0;
         const phases = [hold("failed", failed * 2, origin, current.facing),
-          hold("idle", acknowledge, origin, current.facing), leave(origin)];
+          hold("idle", acknowledge, origin, current.facing), leave(origin, exitTarget)];
         workers.set(id, { began: time, slot, phases, ends: time + phases.reduce((sum, phase) => sum + phase.duration, 0),
           pose: hasLeader ? { state: "failed", start: time + failed * 2, duration: failed } : null });
         return;
@@ -70,7 +88,7 @@ export function createScenes({ now }) {
       const back = move(origin, BESIDE);
       const jump = hold("jumping", cycleDuration("jumping"), BESIDE, "left");
       const review = hasLeader ? cycleDuration("review") : 0;
-      const phases = [back, jump, hold("idle", review, BESIDE, "left"), leave(BESIDE)];
+      const phases = [back, jump, hold("idle", review, BESIDE, "left"), leave(BESIDE, exitTarget)];
       workers.set(id, { began: time, slot, phases, ends: time + phases.reduce((sum, phase) => sum + phase.duration, 0),
         pose: hasLeader ? { state: "review", start: time + back.duration + jump.duration, duration: review } : null });
     },

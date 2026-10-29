@@ -70,7 +70,7 @@ test("delegation waves for one cycle and workers walk in at half a slot per runn
   assert.deepEqual(display(stage.snapshot().teams[0].workers[1]), ["running", 2, "right"]);
 });
 
-test("a success report walks back at half a slot per running cycle, jumps, acknowledges, and exits", () => {
+test("an unmeasured success report walks back, jumps, acknowledges, and exits to minus one slot", () => {
   const { stage, at } = harness();
   stage.apply(leader("prompt"));
   stage.apply(event());
@@ -98,7 +98,7 @@ test("a success report walks back at half a slot per running cycle, jumps, ackno
   assert.deepEqual(display(stage.snapshot().teams[0].leader), ["running", 0, "right"]);
 });
 
-test("a failure report shows two failed cycles, one leader failed cycle, then leaves facing left", () => {
+test("an unmeasured failure report shows two failed cycles, one leader failed cycle, then exits to minus one slot", () => {
   const { stage, at } = harness();
   stage.apply(leader("prompt"));
   stage.apply(event());
@@ -121,6 +121,29 @@ test("a failure report shows two failed cycles, one leader failed cycle, then le
   at(19800);
   assert.equal(stage.snapshot().teams[0].workers.length, 0);
   assert.equal(stage.snapshot().teams[0].leader.displayState, "running");
+});
+
+test("a refreshed exit target during a report changes only that team's completion time", () => {
+  const { stage, at } = harness();
+  for (const team of ["123", "456"]) {
+    stage.apply(leader("prompt", 1000, { team }));
+    stage.apply(event({ type: "heartbeat", team, worker: team }));
+  }
+  stage.setExitTarget("123", -2);
+  for (const team of ["123", "456"]) stage.apply(event({ type: "end", outcome: "success", seq: 2, team, worker: team }));
+  at(4800);
+  stage.setExitTarget("123", -3);
+  at(7860);
+  assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-left", 0.5, "left"]);
+  at(9980);
+  assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-left", 0, "left"]);
+  at(14220);
+  assert.equal(stage.snapshot().teams[1].workers.length, 0, "unmeasured team keeps its fallback timing");
+  assert.deepEqual(display(stage.snapshot().teams[0].workers[0]), ["running-left", -1, "left"]);
+  at(22699);
+  assert.ok(stage.snapshot().teams[0].workers[0].x < -2.99);
+  at(22700);
+  assert.equal(stage.snapshot().teams[0].workers.length, 0);
 });
 
 for (const outcome of ["success", "failed"]) test(`waiting suppresses delegation and ${outcome} report poses while workers keep acting`, () => {

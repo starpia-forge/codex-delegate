@@ -3,7 +3,7 @@ import { createAnimationClock } from "./animation-clock.mjs";
 import { drawingPaused } from "./draw-pause.mjs";
 import { frameHandler } from "./frame.mjs";
 import { resolvePets } from "./pet-config.mjs";
-import { fitLimit, sceneOffset } from "./layout.mjs";
+import { exitTarget, fitLimit, sceneOffset } from "./layout.mjs";
 import { createMessages, subscribeLanguage } from "./messages.mjs";
 
 import { CODEX_V1_FRAME_TIMINGS_MS, frameAt } from "./animations.mjs";
@@ -112,6 +112,7 @@ function render() {
       teams.get(team.key).append(pet.node);
       if (pet.character?.displayState !== character.displayState) pet.began = animation.now();
       pet.character = character;
+      pet.team = team.key;
       pet.tag.textContent = character.role === "leader" ? "leader" : `${character.role} · ${character.label}`;
     }
     const teamNode = teams.get(team.key);
@@ -135,11 +136,15 @@ function render() {
   } else sessionsBadge.remove();
   // Measure after reconciling every team: offsetLeft excludes the previous
   // transform and includes the team's actual place in the strip.
+  const exits = new Map();
   for (const pet of pets.values()) {
-    const offset = sceneOffset(pet.character, { homeLeft: pet.node.offsetLeft,
-      petWidth: pet.node.offsetWidth, scale: config.scale });
+    const geometry = { homeLeft: pet.node.offsetLeft, petWidth: pet.node.offsetWidth, scale: config.scale };
+    const target = exitTarget({ home: pet.character.home, ...geometry });
+    exits.set(pet.team, Math.min(exits.get(pet.team) ?? Infinity, target));
+    const offset = sceneOffset(pet.character, geometry);
     pet.node.style.setProperty("--scene-offset", `${offset}px`);
   }
+  for (const [key, target] of exits) stage.setExitTarget(key, target);
 }
 
 function updateFitLimit() {
