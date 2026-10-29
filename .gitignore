@@ -1,3 +1,4 @@
 .scratch/codex/
 dist/
+node_modules/
 /pet/app/ui/notices/THIRD-PARTY-NOTICES.txt

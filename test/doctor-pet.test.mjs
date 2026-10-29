@@ -228,7 +228,7 @@ for (const [description, config, problem] of [
   });
 }
 
-const manifest = { id: "custom", displayName: "Custom", description: "Test pet", spritesheetPath: "sheet.png" };
+const manifest = { id: "custom", displayName: "Custom", description: "Test pet", spritesheetPath: "sheet.webp" };
 for (const [description, fields, sheet, problem] of [
   ["missing", null, null, /package not found/],
   ["bad manifest JSON", "{", null, /invalid manifest JSON/],
@@ -249,11 +249,14 @@ for (const [description, fields, sheet, problem] of [
       if (sheet !== null) {
         let bytes = sheet;
         if (["small", "opaque"].includes(sheet)) {
-          bytes = Buffer.from(defaultPetFiles[`default-pets/leader/${JSON.parse(defaultPetFiles["default-pets/leader/pet.json"]).spritesheetPath}`]);
-          if (sheet === "small") bytes.writeUInt32BE(100, 16);
-          else bytes[25] = 2;
+          // Independent VP8L header fixtures; don't mutate PNG offsets in bundled WebP bytes.
+          bytes = Buffer.alloc(26);
+          bytes.write("RIFF"); bytes.writeUInt32LE(18, 4);
+          bytes.write("WEBPVP8L", 8); bytes.writeUInt32LE(5, 16); bytes[20] = 0x2f;
+          const width = sheet === "small" ? 100 : 1536;
+          bytes.writeUInt32LE(((width - 1) | ((1872 - 1) << 14) | (sheet === "opaque" ? 0 : 1 << 28)) >>> 0, 21);
         }
-        writeFileSync(join(dir, "sheet.png"), bytes);
+        writeFileSync(join(dir, manifest.spritesheetPath), bytes);
       }
     }
     const result = await f.run();
@@ -287,7 +290,7 @@ test("doctor warns per slot when the spritesheet is a directory", async t => {
   const f = await installedFixture(t);
   writeFileSync(join(f.petRoot, "pet.json"), JSON.stringify({ pets: { leader: "custom", critic: "custom" } }));
   const dir = join(f.codexHome, "pets", "custom");
-  mkdirSync(join(dir, "sheet.png"), { recursive: true });
+  mkdirSync(join(dir, manifest.spritesheetPath), { recursive: true });
   writeFileSync(join(dir, "pet.json"), JSON.stringify(manifest));
   const result = await f.run();
   assert.equal(result.code, 0, result.output);
@@ -303,7 +306,7 @@ test("doctor accepts a valid package from CODEX_HOME", async t => {
   const dir = join(f.codexHome, "pets", "custom");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "pet.json"), JSON.stringify(manifest));
-  writeFileSync(join(dir, "sheet.png"), defaultPetFiles[`default-pets/leader/${JSON.parse(defaultPetFiles["default-pets/leader/pet.json"]).spritesheetPath}`]);
+  writeFileSync(join(dir, manifest.spritesheetPath), defaultPetFiles[`default-pets/leader/${JSON.parse(defaultPetFiles["default-pets/leader/pet.json"]).spritesheetPath}`]);
   const result = await f.run();
   assert.equal(result.code, 0, result.output);
   assert.match(result.stdout, /\[OK  \] Pet packages/);
