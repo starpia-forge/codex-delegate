@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { bundledPetName, resolvePets } from "../pet/app/ui/pet-config.mjs";
 
 const slots = ["leader", "researcher", "critic", "implementer", "computer-user"];
-const bundled = name => ({ name, source: "bundled" });
+const bundledRoot = fileURLToPath(new URL("../pet/app/ui/assets/", import.meta.url)).replaceAll("\\", "/").replace(/\/$/, "");
+const bundledManifests = Object.fromEntries(await Promise.all(slots.map(async slot =>
+  [slot, JSON.parse(await readFile(join(bundledRoot, slot, "pet.json"), "utf8"))])));
+const bundled = name => ({ name, source: "bundled", dir: `${bundledRoot}/${name}`,
+  manifest: bundledManifests[name], sheetPath: `${bundledRoot}/${name}/${bundledManifests[name].spritesheetPath}`, mime: "image/png" });
 const manifest = { id: "custom", displayName: "Custom pet", description: "Test pet", spritesheetPath: "spritesheet.png" };
-const realSheet = () => readFile(new URL("../pet/app/ui/assets/leader/spritesheet.png", import.meta.url));
+const realSheet = () => readFile(bundled("leader").sheetPath);
 
 async function packageAt(h, base, name, fields = manifest, sheet) {
   const dir = join(base, "pets", name);
@@ -57,9 +63,9 @@ async function harness(t) {
     await mkdir(join(path, ".."), { recursive: true });
     await writeFile(path, value);
   };
-  return { home, codexHome, put,
+  return { root, home, codexHome, put,
     config: value => put(join(home, ".codex-delegate", "pet.json"), JSON.stringify(value)),
-    resolve: (options = {}) => resolvePets({ home, codexHome, readFile: reader, ...options }),
+    resolve: (options = {}) => resolvePets({ home, codexHome, readFile: reader, bundledRoot, readBundledFile: reader, ...options }),
   };
 }
 
@@ -155,6 +161,7 @@ test("local pets override Codex pets; explicit and default Codex homes are suppo
   assert.deepEqual(result.pets.researcher.manifest, manifest);
   assert.equal(result.pets.researcher.sheetPath.replaceAll("\\", "/"), join(local, "spritesheet.png").replaceAll("\\", "/"));
   assert.equal(result.pets.researcher.mime, "image/png");
+  assert.deepEqual(result.pets.researcher.fallback, bundled("researcher"));
   assert.equal(result.pets.critic.source, "codex");
   assert.equal(result.pets.critic.dir.replaceAll("\\", "/"), codex.replaceAll("\\", "/"));
   assert.deepEqual(result.pets.leader, bundled("leader"));
@@ -278,7 +285,8 @@ test("all five real bundled placeholder packages pass the resolver's package val
     const asset = new URL(`../pet/app/ui/assets/${slot}/`, import.meta.url);
     const dir = join(h.home, ".codex-delegate", "pets", slot);
     await h.put(join(dir, "pet.json"), await readFile(new URL("pet.json", asset)));
-    await h.put(join(dir, "spritesheet.png"), await readFile(new URL("spritesheet.png", asset)));
+    const sheet = bundledManifests[slot].spritesheetPath;
+    await h.put(join(dir, sheet), await readFile(new URL(sheet, asset)));
   }
   const result = await h.resolve();
   for (const slot of slots) {
@@ -287,4 +295,54 @@ test("all five real bundled placeholder packages pass the resolver's package val
     assert.equal(result.pets[slot].mime, "image/png");
   }
   assert.deepEqual(result.issues, []);
+});
+
+test("bundled manifests determine sheet paths and MIME types independent of filename", async t => {
+  const h = await harness(t);
+  const result = await h.resolve({ bundledRoot: "./embedded", readBundledFile: async path => {
+    if (path.endsWith("/pet.json")) return Buffer.from(JSON.stringify({ ...manifest, spritesheetPath: "art/default.data" }));
+    if (path.endsWith("/art/default.data")) return webp("VP8L");
+    return null;
+  } });
+  assert.deepEqual(result.issues, []);
+  for (const slot of slots) {
+    assert.equal(result.pets[slot].sheetPath, `./embedded/${slot}/art/default.data`);
+    assert.equal(result.pets[slot].mime, "image/webp");
+  }
+});
+
+test("a custom sheet with a valid header that fails decoding resolves to its bundled slot", async t => {
+  const h = await harness(t);
+  await h.config({ pets: { researcher: "custom" } });
+  const invalidSheet = png(); // Valid dimensions and alpha, but an empty IDAT cannot decode.
+  await packageAt(h, h.codexHome, "custom", manifest, invalidSheet);
+  assert.equal((await h.resolve()).pets.researcher.source, "codex");
+  let decoded;
+  const result = await h.resolve({ decodeSheet: async (bytes, mime) => {
+    decoded = { bytes, mime };
+    throw new Error("image decoder rejected empty IDAT");
+  } });
+  assert.deepEqual(decoded, { bytes: invalidSheet, mime: "image/png" });
+  assert.deepEqual(result.pets.researcher, bundled("researcher"));
+  assert.deepEqual(result.issues.map(issue => [issue.code, issue.slot]), [["sheet-decode", "researcher"]]);
+});
+
+test("placeholder generation replaces each slot with exactly its manifest and referenced sheet, keeping the artwork", async t => {
+  const h = await harness(t);
+  const script = join(h.root, "generate-placeholders.mjs");
+  await h.put(script, await readFile(new URL("../pet/generate-placeholders.mjs", import.meta.url)));
+  const generatedRoot = join(h.root, "app/ui/assets");
+  for (const slot of slots) await h.put(join(generatedRoot, slot, "old-art.webp"), "stale artwork");
+  execFileSync(process.execPath, [script], { windowsHide: true });
+  const result = await h.resolve({ bundledRoot: generatedRoot, readBundledFile: async path => {
+    try { return await readFile(path); } catch { return null; }
+  } });
+  assert.deepEqual(result.issues, []);
+  for (const slot of slots) {
+    const pet = result.pets[slot];
+    assert.deepEqual((await readdir(pet.dir)).sort(), ["pet.json", pet.manifest.spritesheetPath].sort());
+    assert.deepEqual((await readdir(bundled(slot).dir)).sort(), ["pet.json", bundledManifests[slot].spritesheetPath].sort());
+    assert.deepEqual(await readFile(pet.sheetPath), await readFile(bundled(slot).sheetPath));
+    assert.deepEqual(pet.manifest, bundledManifests[slot]);
+  }
 });

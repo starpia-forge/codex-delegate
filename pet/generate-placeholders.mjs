@@ -1,5 +1,5 @@
 // Original placeholder artwork; no image library or Python required.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -58,6 +58,7 @@ for (const [role, color] of Object.entries(colors)) {
   const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header),
     chunk("IDAT", deflateSync(pixels)), chunk("IEND", Buffer.alloc(0))]);
   const dir = join(out, role);
+  rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "spritesheet.png"), png);
   writeFileSync(join(dir, "pet.json"), JSON.stringify({ id: `placeholder-${role}`, displayName: `${role} placeholder`,
