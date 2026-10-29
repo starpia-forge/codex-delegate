@@ -1,0 +1,6 @@
+{
+  "identifier": "licences",
+  "description": "Listen for language changes. Rust IPC dispatch permits only messages and notices for this window.",
+  "windows": ["licences"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}
