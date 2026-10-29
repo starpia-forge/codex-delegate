@@ -4,7 +4,7 @@
 
 **Blocked by:** 07, 13
 
-**Status:** ready-for-human
+**Status:** wontfix
 
 Spec: `.scratch/pet/spec.md` (Pet configuration and artwork)
 
