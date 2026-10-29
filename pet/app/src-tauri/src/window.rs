@@ -5,8 +5,9 @@ use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MonitorFromWindow,
     MONITORINFO, MONITOR_DEFAULTTOPRIMARY, MONITOR_DEFAULTTONULL};
 use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetDesktopWindow,
-    GetForegroundWindow, GetShellWindow, GetWindowLongW, GetWindowRect, SetWindowPos,
-    GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, WS_CAPTION};
+    GetForegroundWindow, GetShellWindow, GetWindowLongW, GetWindowRect, IsWindowVisible, SetWindowPos,
+    GWL_EXSTYLE, GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOACTIVATE, WS_CAPTION, WS_EX_TOPMOST};
 
 // Its own type: Tauri manages one state per type, and `Ready` is also an `Arc<AtomicBool>`.
 #[derive(Clone, Default)]
@@ -18,6 +19,27 @@ pub struct Fullscreen {
 #[tauri::command]
 pub fn fullscreen_paused(state: tauri::State<Fullscreen>) -> bool {
     state.paused.load(Ordering::Acquire)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ZOrderAction {
+    None,
+    BehindForeground,
+    Topmost,
+}
+
+fn z_order_action(force: bool, paused: bool, was_paused: bool,
+    foreground_changed: bool, topmost: bool, visible: bool) -> ZOrderAction {
+    // A forced refresh prepares the strip before the show transition makes it visible.
+    if !force && !visible {
+        ZOrderAction::None
+    } else if paused {
+        ZOrderAction::BehindForeground
+    } else if force || was_paused || foreground_changed || !topmost {
+        ZOrderAction::Topmost
+    } else {
+        ZOrderAction::None
+    }
 }
 
 // Monitor bounds and window rectangles are physical pixels. A captioned,
@@ -52,20 +74,38 @@ pub fn refresh(win: &WebviewWindow, state: &Fullscreen, force: bool) -> Result<(
         let paused = fullscreen(foreground, own);
         let was_paused = state.paused.swap(paused, Ordering::AcqRel);
         let last_fg = state.foreground.swap(foreground.0 as usize, Ordering::AcqRel);
+        let topmost = GetWindowLongW(own, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0;
+        let action = z_order_action(force, paused, was_paused,
+            foreground.0 as usize != last_fg, topmost, IsWindowVisible(own).as_bool());
+        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
         // Keep Tauri's window flags in sync with native z-order, too: show and
         // click-through setters must not restore a stale always-on-top style.
-        if force || paused != was_paused {
-            win.set_always_on_top(!paused).map_err(|e| e.to_string())?;
-        }
-        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
-        if paused {
-            // Dropping topmost alone leaves the strip above the app.
-            SetWindowPos(own, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
-            SetWindowPos(own, Some(foreground), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
-        } else if force || was_paused || foreground.0 as usize != last_fg {
-            SetWindowPos(own, Some(HWND_TOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+        match action {
+            ZOrderAction::None => {},
+            ZOrderAction::BehindForeground => {
+                if force || !was_paused {
+                    win.set_always_on_top(false).map_err(|e| e.to_string())?;
+                }
+                // Dropping topmost alone leaves the strip above the app.
+                SetWindowPos(own, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+                SetWindowPos(own, Some(foreground), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+            },
+            ZOrderAction::Topmost => {
+                win.set_always_on_top(true).map_err(|e| e.to_string())?;
+                SetWindowPos(own, Some(HWND_TOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+                // A cold start behind fullscreen can silently refuse TOPMOST.
+                // Only reset the native band when the ordinary assert failed.
+                if GetWindowLongW(own, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 == 0 {
+                    SetWindowPos(own, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+                    SetWindowPos(own, Some(HWND_TOPMOST), 0, 0, 0, 0, flags).map_err(|e| e.to_string())?;
+                }
+            },
         }
         if paused != was_paused { let _ = win.emit("pet-fullscreen", paused); }
+        if action == ZOrderAction::Topmost
+            && GetWindowLongW(own, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 == 0 {
+            return Err("strip did not become topmost".into());
+        }
     }
     Ok(())
 }
@@ -85,5 +125,65 @@ pub fn watch(win: WebviewWindow, state: Fullscreen) {
             }
         }
         std::thread::sleep(Duration::from_millis(300));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visible_pets_recover_topmost_without_a_foreground_or_fullscreen_change() {
+        assert_eq!(z_order_action(false, false, false, false, false, true),
+            ZOrderAction::Topmost);
+    }
+
+    #[test]
+    fn watcher_leaves_hidden_pets_alone_even_when_fullscreen_or_foreground_changes() {
+        for paused in [false, true] {
+            for was_paused in [false, true] {
+                for foreground_changed in [false, true] {
+                    for topmost in [false, true] {
+                        assert_eq!(z_order_action(false, paused, was_paused,
+                            foreground_changed, topmost, false), ZOrderAction::None);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fullscreen_keeps_visible_pets_directly_behind_the_foreground_window() {
+        // Entry, subsequent ticks, and switching between fullscreen windows.
+        for (was_paused, foreground_changed) in [(false, true), (true, false), (true, true)] {
+            assert_eq!(z_order_action(false, true, was_paused, foreground_changed, true, true),
+                ZOrderAction::BehindForeground);
+        }
+    }
+
+    #[test]
+    fn leaving_fullscreen_restores_topmost_even_if_the_foreground_is_unchanged() {
+        assert_eq!(z_order_action(false, false, true, false, false, true),
+            ZOrderAction::Topmost);
+    }
+
+    #[test]
+    fn foreground_change_reasserts_topmost_for_visible_pets() {
+        assert_eq!(z_order_action(false, false, false, true, true, true),
+            ZOrderAction::Topmost);
+    }
+
+    #[test]
+    fn unchanged_visible_topmost_pets_need_no_action() {
+        assert_eq!(z_order_action(false, false, false, false, true, true),
+            ZOrderAction::None);
+    }
+
+    #[test]
+    fn forced_show_prepares_hidden_pets_for_the_current_fullscreen_state() {
+        assert_eq!(z_order_action(true, true, true, false, false, false),
+            ZOrderAction::BehindForeground);
+        assert_eq!(z_order_action(true, false, false, false, true, false),
+            ZOrderAction::Topmost);
     }
 }
