@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (Translation catalogue; Pet preferences; Pet shell)
 
@@ -21,3 +21,7 @@ Spec: `.scratch/pet-tray/spec.md` (Translation catalogue; Pet preferences; Pet s
   - Hiding and restarting without a stored language, which leaves `language` absent and follows a changed Windows language.
   - An explicit language surviving later visibility changes and a failed save.
 - [ ] Manual: the app starts in Korean under a Korean Windows display language and in English otherwise. A live switch updates the menu and the badges.
+
+## Comments
+
+- 2026-10-29: Implemented on `feat/pet-tray` (merged with review fixes in e138a48). Automated criteria verified by `npm test`, `cargo test` and `cargo build --release`. Manual desktop checks in this ticket are not yet run; they are carried by ticket 08 against the release bundle.

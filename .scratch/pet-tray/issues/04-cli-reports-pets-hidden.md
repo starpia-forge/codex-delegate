@@ -4,7 +4,7 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (CLI; Pet preferences)
 
@@ -14,3 +14,7 @@ Spec: `.scratch/pet-tray/spec.md` (CLI; Pet preferences)
 - [ ] `install --without-pet` and `uninstall` remove the preferences file together with the pet state.
 - [ ] An update leaves the preferences file byte for byte unchanged.
 - [ ] These cases are covered by CLI child-process tests with an isolated home, following the existing doctor and install pet tests.
+
+## Comments
+
+- 2026-10-29: Implemented on `feat/pet-tray` (merged with review fixes in e138a48). Automated criteria verified by `npm test`, `cargo test` and `cargo build --release`. Manual desktop checks in this ticket are not yet run; they are carried by ticket 08 against the release bundle.

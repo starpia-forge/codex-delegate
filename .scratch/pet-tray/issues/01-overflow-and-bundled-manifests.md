@@ -7,7 +7,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (Overflow naming; Fan-art default pets: bundled resolution)
 
@@ -25,3 +25,7 @@ Spec: `.scratch/pet-tray/spec.md` (Overflow naming; Fan-art default pets: bundle
   - Each bundled slot directory contains exactly its manifest and referenced sheet.
 - [ ] `doctor`, run from the packed npm package against an installed bundle, resolves the bundled defaults without package warnings.
 - [ ] Manual: the rebuilt app shows the placeholders and the overflow badges exactly as before.
+
+## Comments
+
+- 2026-10-29: Implemented on `feat/pet-tray` (merged with review fixes in e138a48). Automated criteria verified by `npm test`, `cargo test` and `cargo build --release`. Manual desktop checks in this ticket are not yet run; they are carried by ticket 08 against the release bundle.

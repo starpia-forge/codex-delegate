@@ -4,7 +4,7 @@
 
 **Blocked by:** 03, 05, 06
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (Pet shell: licences window; Licence notices)
 
@@ -21,3 +21,7 @@ Spec: `.scratch/pet-tray/spec.md` (Pet shell: licences window; Licence notices)
   - Clicking Licences twice keeps one window.
   - It opens in the right language after a switch, and follows a switch made while it is open.
   - Opening it never makes the strip block clicks.
+
+## Comments
+
+- 2026-10-29: Implemented on `feat/pet-tray` (merged with review fixes in e138a48). Automated criteria verified by `npm test`, `cargo test` and `cargo build --release`. Manual desktop checks in this ticket are not yet run; they are carried by ticket 08 against the release bundle.

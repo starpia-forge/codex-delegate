@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (Pet preferences; Pet shell)
 
@@ -39,3 +39,7 @@ Spec: `.scratch/pet-tray/spec.md` (Pet preferences; Pet shell)
   - Showing during computer use is out of capture from the first visible frame, including after a forced exclusion failure and retry.
   - Showing during fullscreen, or while entering fullscreen during the acknowledgement wait, never appears above the fullscreen window.
   - Workers that start, finish or expire while hidden appear in their current state on reveal.
+
+## Comments
+
+- 2026-10-29: Implemented on `feat/pet-tray` (merged with review fixes in e138a48). Automated criteria verified by `npm test`, `cargo test` and `cargo build --release`. Manual desktop checks in this ticket are not yet run; they are carried by ticket 08 against the release bundle.

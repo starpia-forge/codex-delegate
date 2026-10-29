@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (Fan-art default pets)
 
@@ -21,3 +21,7 @@ Spec: `.scratch/pet-tray/spec.md` (Fan-art default pets)
 - [ ] `.scratch/pet/issues/15-default-pets.md` gets a comment saying it is superseded by ADR 0002 and this ticket.
 - [ ] Manual: the rebuilt app shows all five characters, and each animates its nine pet states correctly (`idle`, `running-right`, `running-left`, `waving`, `jumping`, `failed`, `waiting`, `running`, `review`).
 - [ ] Manual: running the placeholder generator and rebuilding brings the placeholders back, with no fan-art sheet left in the assets or the packaged bundle.
+
+## Comments
+
+- 2026-10-29: Implemented on `feat/pet-tray` (merged with review fixes in e138a48). Automated criteria verified by `npm test`, `cargo test` and `cargo build --release`. Manual desktop checks in this ticket are not yet run; they are carried by ticket 08 against the release bundle.
