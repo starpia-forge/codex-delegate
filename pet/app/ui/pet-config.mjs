@@ -1,7 +1,6 @@
 // Shared by the webview and Node callers. All filesystem access is injected.
 const slots = ["leader", "researcher", "critic", "implementer", "computer-user"];
 export const bundledPetName = role => slots.includes(role) ? role : "implementer";
-const bundled = name => ({ name, source: "bundled" });
 const join = (...parts) => parts.map((part, i) => String(part).replace(/\\/g, "/")
   .replace(i === 0 ? /\/+$/g : /^\/+|\/+$/g, "")).join("/");
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -48,7 +47,8 @@ function sheetHeader(bytes) {
   return null;
 }
 
-async function validatePackage(dir, bytes, readFile) {
+async function validatePackage(dir, bytes, readFile, decodeSheet) {
+  if (bytes === null) return { issue: { code: "manifest-missing" } };
   let manifest;
   try { manifest = JSON.parse(new TextDecoder().decode(bytes)); }
   catch { return { issue: { code: "manifest-json" } }; }
@@ -69,11 +69,25 @@ async function validatePackage(dir, bytes, readFile) {
   if (!header) return { issue: { code: "sheet-format" } };
   if (header.width !== 1536 || header.height !== 1872) return { issue: { code: "sheet-size" } };
   if (!header.alpha) return { issue: { code: "sheet-not-transparent" } };
+  if (decodeSheet) {
+    try { await decodeSheet(sheet, header.mime); }
+    catch { return { issue: { code: "sheet-decode" } }; }
+  }
   return { manifest, sheetPath, mime: header.mime };
 }
 
-export async function resolvePets({ home, codexHome, readFile }) {
-  const result = { scale: 0.6, pets: Object.fromEntries(slots.map(slot => [slot, bundled(slot)])), issues: [] };
+// Bundled paths belong to the caller: embedded URLs in the app, installed
+// default-pets paths in doctor. Both readers return bytes or null for missing files.
+export async function resolvePets({ home, codexHome, readFile, bundledRoot, readBundledFile, decodeSheet }) {
+  const result = { scale: 0.6, pets: {}, issues: [] };
+  const defaults = Object.create(null);
+  for (const name of slots) {
+    const dir = join(bundledRoot, name);
+    const { issue, ...artwork } = await validatePackage(dir, await readBundledFile(join(dir, "pet.json")), readBundledFile);
+    defaults[name] = { name, source: "bundled", dir, ...artwork };
+    if (issue) result.issues.push({ ...issue, slot: name, name, source: "bundled", dir });
+  }
+  const bundled = name => defaults[name];
   let config = {};
   const bytes = await readFile(join(home, ".codex-delegate", "pet.json"));
   if (bytes !== null) {
@@ -117,9 +131,9 @@ export async function resolvePets({ home, codexHome, readFile }) {
       const bytes = await readFile(join(dir, "pet.json"));
       if (bytes === null) continue;
       present = true;
-      const { issue, ...artwork } = await validatePackage(dir, bytes, readFile);
+      const { issue, ...artwork } = await validatePackage(dir, bytes, readFile, decodeSheet);
       if (issue) result.issues.push({ ...issue, slot, name, source, dir });
-      else result.pets[slot] = { name, source, dir, ...artwork };
+      else result.pets[slot] = { name, source, dir, ...artwork, fallback: bundled(bundledPetName(slot)) };
       break;
     }
     if (present) continue;

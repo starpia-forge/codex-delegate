@@ -235,5 +235,5 @@ test("concurrent real hooks delivered in reverse timestamp order leave the lates
   for (const event of [...h.events].reverse()) stage.apply(event);
   assert.deepEqual(stage.snapshot(), { teams: [{ key: "43210", leader: {
     state: "review", session: "session-a", displayState: "review", x: 0, facing: "right",
-  }, workers: [], hiddenWorkers: 0 }], hiddenSessions: 0 });
+  }, workers: [], overflowWorkers: 0 }], overflowSessions: 0 });
 });

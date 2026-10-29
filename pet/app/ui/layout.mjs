@@ -28,16 +28,16 @@ export function applyOverflow(teams, limit, workerAppearance) {
   const visibleWorkers = new Set(candidates.flatMap(team => team.workers)
     .sort((a, b) => workerAppearance.get(a.worker) - workerAppearance.get(b.worker))
     .slice(0, Math.max(0, limit - visibleLeaders.size)));
-  let hiddenSessions = leaders.length - visibleLeaders.size;
+  let overflowSessions = leaders.length - visibleLeaders.size;
   const visibleTeams = candidates.map(team => {
     const workers = team.workers.filter(worker => visibleWorkers.has(worker));
-    return { ...team, workers, hiddenWorkers: team.workers.length - workers.length };
+    return { ...team, workers, overflowWorkers: team.workers.length - workers.length };
   }).filter(team => {
     if (team.leader || team.workers.length) return true;
-    // A fully hidden leaderless team shares the sessions badge, so badge
+    // A leaderless team entirely in overflow shares the sessions badge, so badge
     // count remains bounded by visible pets even with many orphan workers.
-    hiddenSessions++;
+    overflowSessions++;
     return false;
   });
-  return { teams: visibleTeams, hiddenSessions };
+  return { teams: visibleTeams, overflowSessions };
 }

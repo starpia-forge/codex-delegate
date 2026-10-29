@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fitLimit, sceneOffset } from "../pet/app/ui/layout.mjs";
+import { applyOverflow, fitLimit, sceneOffset } from "../pet/app/ui/layout.mjs";
 import { createStage } from "../pet/app/ui/stage.mjs";
 
 for (const outcome of ["success", "failed"]) {
@@ -49,4 +49,16 @@ test("fit limit responds to scale and width and stays between zero and sixteen",
   assert.equal(fitLimit({ width: 395, scale: 1 }), 0);
   assert.equal(fitLimit({ width: 0, scale: 0.3 }), 0);
   assert.equal(fitLimit({ width: 10000, scale: 0.3 }), 16);
+});
+
+test("overflow projection counts workers and sessions without discarding their state", () => {
+  const teams = [
+    { key: "first", leader: { state: "idle" }, workers: [{ worker: "w1" }, { worker: "w2" }] },
+    { key: "second", leader: { state: "running" }, workers: [] },
+  ];
+  assert.deepEqual(applyOverflow(teams, 1, new Map([["w1", 1], ["w2", 2]])), {
+    teams: [{ key: "first", leader: { state: "idle" }, workers: [], overflowWorkers: 2 }],
+    overflowSessions: 1,
+  });
+  assert.equal(teams[0].workers.length, 2);
 });

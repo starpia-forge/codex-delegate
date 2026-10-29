@@ -313,7 +313,7 @@ process.stdin.on('end', () => {
   assert.deepEqual(stages[0].teams[0].workers.map(w => [w.role, w.label]), [["implementer", "quick-task"]]);
   // The ended worker stays only for its report scene, then leaves for good.
   assert.equal(stages[1].teams[0].workers.length, 1);
-  assert.deepEqual(JSON.parse(h.lines("late")[0]), { teams: [], hiddenSessions: 0 });
+  assert.deepEqual(JSON.parse(h.lines("late")[0]), { teams: [], overflowSessions: 0 });
 });
 
 for (const mode of ["foreign", "protocol", "missing-version", "unauthorized", "silent", "silent-post", "error-post"]) {

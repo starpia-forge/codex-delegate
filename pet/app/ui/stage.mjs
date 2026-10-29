@@ -99,7 +99,7 @@ export function createStage({ now }) {
         if (!team.leader && !team.workers.size) teams.delete(key);
         for (const id of team.workers.keys()) liveWorkers.add(id);
       }
-      // Keep live (including overflow-hidden) pets' ordering and generations.
+      // Keep live (including overflow) pets' ordering and generations.
       // Inactive metadata outlives the delivery spool, then expires together.
       for (const [id, { seen }] of workerTimes) {
         if (!liveWorkers.has(id) && time - seen >= RETENTION_MS) {
