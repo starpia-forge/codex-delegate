@@ -1,14 +1,24 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
-import { listen, release, unusedPetPort } from "./helpers/pet-release.mjs";
+import { bundleFiles, listen, release, unusedPetPort } from "./helpers/pet-release.mjs";
+import { zip } from "./helpers/zip.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
+const bundledAssets = new URL("../pet/app/ui/assets/", import.meta.url);
+const defaultPetFiles = {};
+for (const slot of ["leader", "researcher", "critic", "implementer", "computer-user"]) {
+  const asset = new URL(`${slot}/`, bundledAssets);
+  const bytes = readFileSync(new URL("pet.json", asset));
+  const { spritesheetPath } = JSON.parse(bytes);
+  defaultPetFiles[`default-pets/${slot}/pet.json`] = bytes;
+  defaultPetFiles[`default-pets/${slot}/${spritesheetPath}`] = readFileSync(new URL(spritesheetPath, asset));
+}
 
 async function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "doctor checks "));
@@ -49,6 +59,7 @@ async function installedFixture(t) {
   const state = join(f.petRoot, "pet-state");
   mkdirSync(state, { recursive: true });
   mkdirSync(join(f.petRoot, "pet"));
+  cpSync(bundledAssets, join(f.petRoot, "pet", "default-pets"), { recursive: true });
   writeFileSync(join(f.petRoot, "pet", "codex-delegate-pet.exe"), "fake executable, never run");
   writeFileSync(join(state, "token"), "doctor-test-token\n");
   const command = `node "${join(f.petRoot, "pet", "hook", "leader-hook.mjs")}"`;
@@ -78,7 +89,7 @@ test("doctor without an installed pet prints no pet or WebView2 lines and never 
 
 test("doctor reports the pinned pet bundle after a real install", async t => {
   const f = await fixture(t);
-  await release(t, f);
+  await release(t, f, { bytes: zip({ ...bundleFiles, ...defaultPetFiles }) });
   const installed = await f.run(["install", "--with-pet"]);
   assert.equal(installed.code, 0, installed.output);
   const result = await f.run();
@@ -89,7 +100,25 @@ test("doctor reports the pinned pet bundle after a real install", async t => {
   assert.match(result.stdout, /\[OK  \] Pet WebView2 runtime/);
   assert.match(result.stdout, /\[OK  \] Pet configuration/);
   assert.match(result.stdout, /\[OK  \] Pet packages/);
+  assert.doesNotMatch(result.stdout, /\[WARN\] Pet packages/);
   assert.match(result.stdout, /\[OK  \] Pet port - .*pet app not running/);
+});
+
+test("doctor resolves installed bundled manifests and diagnoses their sheets", async t => {
+  const f = await installedFixture(t);
+  const dir = join(f.petRoot, "pet", "default-pets", "leader");
+  const manifestPath = join(dir, "pet.json");
+  const manifest = JSON.parse(readFileSync(manifestPath));
+  renameSync(join(dir, manifest.spritesheetPath), join(dir, "renamed-sheet.data"));
+  writeFileSync(manifestPath, JSON.stringify({ ...manifest, spritesheetPath: "renamed-sheet.data" }));
+  const valid = await f.run();
+  assert.equal(valid.code, 0, valid.output);
+  assert.match(valid.stdout, /\[OK  \] Pet packages/);
+  assert.doesNotMatch(valid.stdout, /\[WARN\] Pet packages/);
+  writeFileSync(join(dir, "renamed-sheet.data"), "corrupt sheet");
+  const broken = await f.run();
+  assert.equal(broken.code, 0, broken.output);
+  assert.match(broken.stdout, /\[WARN\] Pet packages \(leader\).*bundled: .*default-pets.*spritesheet must be PNG or WebP.*reinstall/);
 });
 
 for (const change of [{ tag: "pet-v2.0.0", version: "2.0.0" }, { sha256: "b".repeat(64) }, { version: "2.0.0" }]) {
@@ -220,7 +249,7 @@ for (const [description, fields, sheet, problem] of [
       if (sheet !== null) {
         let bytes = sheet;
         if (["small", "opaque"].includes(sheet)) {
-          bytes = Buffer.from(readFileSync(new URL("../pet/app/ui/assets/leader/spritesheet.png", import.meta.url)));
+          bytes = Buffer.from(defaultPetFiles[`default-pets/leader/${JSON.parse(defaultPetFiles["default-pets/leader/pet.json"]).spritesheetPath}`]);
           if (sheet === "small") bytes.writeUInt32BE(100, 16);
           else bytes[25] = 2;
         }
@@ -274,7 +303,7 @@ test("doctor accepts a valid package from CODEX_HOME", async t => {
   const dir = join(f.codexHome, "pets", "custom");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "pet.json"), JSON.stringify(manifest));
-  writeFileSync(join(dir, "sheet.png"), readFileSync(new URL("../pet/app/ui/assets/leader/spritesheet.png", import.meta.url)));
+  writeFileSync(join(dir, "sheet.png"), defaultPetFiles[`default-pets/leader/${JSON.parse(defaultPetFiles["default-pets/leader/pet.json"]).spritesheetPath}`]);
   const result = await f.run();
   assert.equal(result.code, 0, result.output);
   assert.match(result.stdout, /\[OK  \] Pet packages/);
