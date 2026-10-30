@@ -214,11 +214,10 @@ mod tests {
     }
 
     #[test]
-    fn choosing_a_language_remembers_that_choice_including_the_current_language() {
+    fn setting_a_language_stores_and_persists_every_choice_even_a_repeat() {
         let dir = TestDir::new();
         let path = dir.0.join("pet-preferences.json");
         let mut store = PreferenceStore::load(path.clone());
-        assert_eq!(store.current().effective_language(0x0412), Lang::Ko);
         for chosen in [Lang::Ko, Lang::En, Lang::En, Lang::Ko] {
             store.set_language(chosen).unwrap();
             assert_eq!(store.current().language, Some(chosen));

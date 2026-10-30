@@ -14,17 +14,23 @@ fn language_submenu_label(language: Lang) -> String {
     if language == Lang::En { translated.into() } else { format!("{translated} (Language)") }
 }
 
-const LANGUAGES: [(Lang, &str, &str); 2] = [
-    (Lang::En, "language-en", "English"),
-    (Lang::Ko, "language-ko", "한국어"),
+struct LanguageChoice {
+    lang: Lang,
+    menu_id: &'static str,
+    endonym: &'static str,
+}
+
+const LANGUAGES: [LanguageChoice; 2] = [
+    LanguageChoice { lang: Lang::En, menu_id: "language-en", endonym: "English" },
+    LanguageChoice { lang: Lang::Ko, menu_id: "language-ko", endonym: "한국어" },
 ];
 
-fn language_choices(current: Lang) -> impl Iterator<Item = (&'static str, &'static str, bool)> {
-    LANGUAGES.into_iter().map(move |(language, id, endonym)| (id, endonym, language == current))
+fn language_choices(current: Lang) -> impl Iterator<Item = (&'static LanguageChoice, bool)> {
+    LANGUAGES.iter().map(move |choice| (choice, choice.lang == current))
 }
 
 fn language_for_menu_id(id: &str) -> Option<Lang> {
-    LANGUAGES.iter().find(|(_, menu_id, _)| *menu_id == id).map(|(language, _, _)| *language)
+    LANGUAGES.iter().find(|choice| choice.menu_id == id).map(|choice| choice.lang)
 }
 
 struct TrayItems {
@@ -32,20 +38,26 @@ struct TrayItems {
     name_tags: CheckMenuItem<tauri::Wry>,
     cursor_clearance: CheckMenuItem<tauri::Wry>,
     licences: MenuItem<tauri::Wry>,
-    language: Submenu<tauri::Wry>,
-    language_choices: Vec<CheckMenuItem<tauri::Wry>>,
+    language_menu: Submenu<tauri::Wry>,
+    language_items: Vec<(Lang, CheckMenuItem<tauri::Wry>)>,
 }
 impl TrayItems {
     fn relabel(&self, language: Lang) -> tauri::Result<()> {
-        self.show.set_text(text("tray.showPets", language))?;
-        self.name_tags.set_text(text("tray.showNameTags", language))?;
-        self.cursor_clearance.set_text(text("tray.clearAroundCursor", language))?;
-        self.licences.set_text(text("tray.licences", language))?;
-        self.language.set_text(language_submenu_label(language))?;
-        for (item, (_, _, checked)) in self.language_choices.iter().zip(language_choices(language)) {
-            item.set_checked(checked)?;
+        let mut first_error = None;
+        let mut attempt = |result: tauri::Result<()>| {
+            if let Err(error) = result { first_error.get_or_insert(error); }
+        };
+        // Native check items toggle before dispatch. Restore every check first,
+        // and attempt all updates even if a native menu operation fails.
+        for (lang, item) in &self.language_items {
+            attempt(item.set_checked(*lang == language));
         }
-        Ok(())
+        attempt(self.show.set_text(text("tray.showPets", language)));
+        attempt(self.name_tags.set_text(text("tray.showNameTags", language)));
+        attempt(self.cursor_clearance.set_text(text("tray.clearAroundCursor", language)));
+        attempt(self.licences.set_text(text("tray.licences", language)));
+        attempt(self.language_menu.set_text(language_submenu_label(language)));
+        first_error.map_or(Ok(()), Err)
     }
 }
 
@@ -69,6 +81,11 @@ impl Transition {
     fn show_name_tags(&self) -> bool { self.preferences.current().show_name_tags() }
     fn cursor_clearance(&self) -> bool { self.preferences.current().cursor_clearance() }
     fn language(&self) -> Lang { self.preferences.current().effective_language(self.windows_language) }
+    fn choose_language(&mut self, language: Lang) -> bool {
+        let previous = self.language();
+        let _ = self.preferences.set_language(language); // Store reports failures; memory wins.
+        self.language() != previous
+    }
     fn active(&self, generation: u64) -> bool {
         self.generation == generation && self.running && self.pending && !self.hidden()
     }
@@ -116,13 +133,12 @@ impl Visibility {
 
     fn set_language(&self, app: &AppHandle, items: &TrayItems, language: Lang) {
         let mut state = self.0.lock().unwrap();
-        let previous = state.language();
-        let _ = state.preferences.set_language(language);
+        let changed = state.choose_language(language);
         let current = state.language();
         // Native check items toggle before dispatch, including the current one.
         // Always restore exactly one check, even when the language is unchanged.
         let _ = items.relabel(current);
-        if current == previous { return; }
+        if !changed { return; }
         licences::set_language(app, current);
         // Broadcast reaches both webviews. Keep the tray tooltip
         // as the untranslated app name and version.
@@ -256,23 +272,23 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         let state = visibility.0.lock().unwrap();
         (state.hidden(), state.show_name_tags(), state.cursor_clearance(), state.language())
     };
-    let language = Submenu::with_id(app, "language", "", true)?;
-    let mut choices = Vec::new();
-    for (id, endonym, checked) in language_choices(current) {
-        let item = CheckMenuItem::with_id(app, id, endonym, true, checked, None::<&str>)?;
-        language.append(&item)?;
-        choices.push(item);
+    let language_menu = Submenu::with_id(app, "language", "", true)?;
+    let mut language_items = Vec::new();
+    for (choice, checked) in language_choices(current) {
+        let item = CheckMenuItem::with_id(app, choice.menu_id, choice.endonym, true, checked, None::<&str>)?;
+        language_menu.append(&item)?;
+        language_items.push((choice.lang, item));
     }
     let items = TrayItems {
         show: CheckMenuItem::with_id(app, "show-pets", "", true, !hidden, None::<&str>)?,
         name_tags: CheckMenuItem::with_id(app, "show-name-tags", "", true, name_tags, None::<&str>)?,
         cursor_clearance: CheckMenuItem::with_id(app, "clear-around-cursor", "", true, cursor_clearance, None::<&str>)?,
         licences: MenuItem::with_id(app, "licences", "", true, None::<&str>)?,
-        language,
-        language_choices: choices,
+        language_menu,
+        language_items,
     };
     items.relabel(current)?;
-    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance, &items.licences, &items.language])?;
+    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance, &items.licences, &items.language_menu])?;
     let click_show = items.show.clone();
     let icon = app.default_window_icon().expect("pet app icon").clone();
     TrayIconBuilder::with_id("pets")
@@ -314,6 +330,28 @@ mod tests {
     use crate::prefs::TestDir;
 
     #[test]
+    fn choosing_a_language_stores_the_choice_and_reports_only_effective_changes() {
+        let dir = TestDir::new();
+        let mut state = Transition {
+            preferences: PreferenceStore::load(dir.0.join("pet-preferences.json")),
+            windows_language: 0x0412,
+            generation: 0, ready: false, pending: true, running: false,
+            retry_requested: false, retry_attempt: 0, frame: None,
+        };
+        assert_eq!(state.preferences.current().language, None);
+        assert_eq!(state.language(), Lang::Ko);
+
+        assert!(!state.choose_language(Lang::Ko));
+        assert_eq!(state.language(), Lang::Ko);
+        assert_eq!(state.preferences.current().language, Some(Lang::Ko));
+
+        assert!(state.choose_language(Lang::En));
+        assert_eq!(state.language(), Lang::En);
+        assert!(!state.choose_language(Lang::En));
+        assert_eq!(state.language(), Lang::En);
+    }
+
+    #[test]
     fn language_submenu_label_always_includes_the_english_word() {
         assert_eq!(language_submenu_label(Lang::En), "Language");
         assert_eq!(language_submenu_label(Lang::Ko), "언어 (Language)");
@@ -329,7 +367,9 @@ mod tests {
             (Some(Lang::Ko), 0x0409, [("language-en", "English", false), ("language-ko", "한국어", true)]),
         ] {
             let effective = Preferences { language: stored, ..Preferences::default() }.effective_language(windows);
-            assert_eq!(language_choices(effective).collect::<Vec<_>>(), expected);
+            let choices: Vec<_> = language_choices(effective)
+                .map(|(choice, checked)| (choice.menu_id, choice.endonym, checked)).collect();
+            assert_eq!(choices, expected);
         }
     }
 
