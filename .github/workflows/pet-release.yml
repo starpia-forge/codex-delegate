@@ -10,6 +10,7 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       PET_RELEASE_TAG: ${{ github.ref_name }}
     steps:

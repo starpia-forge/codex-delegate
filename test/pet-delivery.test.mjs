@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -30,6 +30,8 @@ async function harness(t, overrides = {}) {
   cpSync(clients, join(bundle, "client"), { recursive: true });
   writeFileSync(join(state, "token"), token);
   const server = createServer();
+  const sockets = new Set();
+  server.on("connection", socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
   await new Promise(resolve => server.close(resolve));
@@ -97,6 +99,9 @@ setTimeout(() => process.exit(), 15000).unref();
         if (owner.id && owner.pid !== process.pid) process.kill(owner.pid);
       } catch {}
     }
+    // Hooks run in registration order: close sockets here, before awaiting the
+    // server, rather than in a later test hook that shutdown could block forever.
+    for (const socket of sockets) socket.destroy();
     if (server.listening) await new Promise(resolve => server.close(resolve));
     rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   });
@@ -123,6 +128,23 @@ ${source}`;
     },
   };
 }
+
+test("delivery fixture cleanup closes an unfinished HTTP request without waiting for the client", { timeout: 10000 }, async t => {
+  let client, watchdog, rescued = false;
+  t.after(() => { clearTimeout(watchdog); client?.destroy(); });
+  await t.test("a silent listener still has a connected client at teardown", async t => {
+    const h = await harness(t);
+    const arrived = new Promise(resolve => h.server.once("request", resolve));
+    await new Promise(resolve => h.server.listen(h.port, "127.0.0.1", resolve));
+    client = request({ hostname: "127.0.0.1", port: h.port, path: "/health", agent: false });
+    client.on("error", () => {});
+    client.end();
+    await arrived;
+    // Start after setup: only rescue a stuck teardown, even on a slow runner.
+    watchdog = setTimeout(() => { rescued = true; client.destroy(); }, 2000);
+  });
+  assert.equal(rescued, false, "server teardown waited for the client to disconnect");
+});
 
 test("an absent app starts in the background and receives an authenticated event after delayed health", async t => {
   const h = await harness(t);
@@ -320,9 +342,6 @@ for (const mode of ["foreign", "protocol", "missing-version", "unauthorized", "s
   test(`${mode} listener causes no spool or launch`, async t => {
     const h = await harness(t);
     const requests = [];
-    const sockets = new Set();
-    h.server.on("connection", socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
-    t.after(() => { for (const socket of sockets) socket.destroy(); });
     h.server.on("request", (req, res) => {
       requests.push(req.url);
       assert.equal(req.headers["x-codex-delegate-pet-token"], token);
