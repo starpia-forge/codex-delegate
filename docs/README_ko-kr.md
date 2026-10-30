@@ -20,7 +20,7 @@ Node.js 18.18 이상, git, Codex CLI(`npm i -g @openai/codex` 후 `codex login`)
 ```sh
 # 설치 (최신 버전, 또는 태그 고정)
 npx github:starpia-forge/codex-delegate install
-npx github:starpia-forge/codex-delegate#v0.3.0 install
+npx github:starpia-forge/codex-delegate#v0.4.0 install
 
 # 사용자 폴더 대신 현재 프로젝트에 설치
 npx github:starpia-forge/codex-delegate install --scope project

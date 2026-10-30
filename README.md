@@ -20,7 +20,7 @@ Requires Node.js 18.18+, git and the Codex CLI (`npm i -g @openai/codex`, then `
 ```sh
 # Install (latest, or pinned to a tag)
 npx github:starpia-forge/codex-delegate install
-npx github:starpia-forge/codex-delegate#v0.3.0 install
+npx github:starpia-forge/codex-delegate#v0.4.0 install
 
 # Install into the current project instead of your user folders
 npx github:starpia-forge/codex-delegate install --scope project
