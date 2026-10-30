@@ -4,7 +4,7 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-visibility/spec.md` (Solution 2, Decisions). Supersedes the `hideNearCursor` configuration key from ticket 02. Follow the ticket 04 pattern for name tags.
 
@@ -18,3 +18,4 @@ Spec: `.scratch/pet-visibility/spec.md` (Solution 2, Decisions). Supersedes the 
 ## Comments
 
 - 2026-10-30: Implemented on `ticket/pet-visibility-06`. Clearance is stored as `cursorClearance` in the pet preferences (default on); the cursor poller gate reads it via `Visibility::cursor_clearance_active`, and `set_cursor_clearance` was removed. The renderer listens for `pet-cursor-clearance` and drops the mask at once. `npm test` (414) and `cargo test` (44) pass; native tray manual checks not yet run.
+- 2026-10-30: Merged to `feat/pet-visibility` with review fixes (a7d5fce); `npm test` 414/414 and `cargo test` 43/43 pass. Not yet checked by hand in the running app.

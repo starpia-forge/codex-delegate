@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions). Supersedes "keeps the tag's space" from tickets 01 and 04.
 
@@ -17,3 +17,4 @@ Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions). Supersedes "kee
 ## Comments
 
 - 2026-10-30: Implemented on `ticket/pet-visibility-05`: name tags off now sets `display: none` on each tag (was `visibility: hidden`), so pets drop onto the 4 px bottom padding; `.pet` keeps its fixed width, so horizontal layout is unchanged. Renderer tests and `pet/README.md` (incl. manual check) updated; `npm test` 412/412 pass. Native visual check not run.
+- 2026-10-30: Merged to `feat/pet-visibility` with review fixes (a7d5fce); `npm test` 414/414 and `cargo test` 43/43 pass. Not yet checked by hand in the running app.
