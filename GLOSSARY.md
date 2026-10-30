@@ -20,6 +20,10 @@ _Avoid_: profile, persona
 Operating a native desktop application through its screen: taking screenshots, clicking, typing. Driving a web browser is not computer use.
 _Avoid_: desktop automation, GUI automation
 
+**Release**:
+A numbered version of codex-delegate. It fixes the skills, the installer and the pet app together under one version.
+_Avoid_: pet release, pet version
+
 **Pet**:
 An optional desktop character that stands for one leader session or one worker, and shows what it is doing. Every running leader and worker has its own pet, so concurrent workers of the same role appear as separate pets.
 _Avoid_: buddy, mascot, avatar, overlay
