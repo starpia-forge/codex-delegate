@@ -9,6 +9,7 @@ import { resolvePets } from "../pet/app/ui/pet-config.mjs";
 const configProblems = {
   "config-invalid": "invalid JSON or object",
   "scale-out-of-range": "must be a number from 0.3 to 1.0",
+  "name-tags-invalid": "must be a boolean",
   "unknown-key": "unknown key",
   "pets-invalid": "must be an object mapping slots to pet names",
   "pet-name": "invalid pet name",

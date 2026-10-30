@@ -69,10 +69,10 @@ async function harness(t) {
   };
 }
 
-test("no configuration uses all five bundled slot pets at scale 0.6", async t => {
+test("no configuration uses all five bundled slot pets at scale 0.6 with name tags", async t => {
   const h = await harness(t);
   const result = await h.resolve();
-  assert.deepEqual(result, { scale: 0.6,
+  assert.deepEqual(result, { scale: 0.6, nameTags: true,
     pets: Object.fromEntries(slots.map(slot => [slot, bundled(slot)])), issues: [] });
   const characters = { leader: "momo", researcher: "mikan", critic: "sion", implementer: "shamiko", "computer-user": "lico" };
   for (const [slot, character] of Object.entries(characters)) {
@@ -83,6 +83,34 @@ test("no configuration uses all five bundled slot pets at scale 0.6", async t =>
     assert.equal(pet.manifest.description,
       (await readFile(new URL("../pet/notices/fan-art-notice.txt", import.meta.url), "utf8")).trim());
     assert.deepEqual((await readdir(pet.dir)).sort(), ["pet.json", pet.manifest.spritesheetPath].sort());
+  }
+});
+
+test("configuration accepts nameTags true", async t => {
+  const h = await harness(t);
+  await h.config({ nameTags: true });
+  const result = await h.resolve();
+  assert.equal(result.nameTags, true);
+  assert.deepEqual(result.issues, []);
+});
+
+test("configuration accepts nameTags false without changing scale or pets", async t => {
+  const h = await harness(t);
+  await h.config({ nameTags: false });
+  const result = await h.resolve();
+  assert.equal(result.nameTags, false);
+  assert.equal(result.scale, 0.6);
+  assert.deepEqual(result.pets, Object.fromEntries(slots.map(slot => [slot, bundled(slot)])));
+  assert.deepEqual(result.issues, []);
+});
+
+test("configuration reports non-boolean nameTags values and keeps name tags enabled", async t => {
+  const h = await harness(t);
+  for (const nameTags of ["false", "true", "", 0, 1, null, [], {}]) {
+    await h.config({ nameTags });
+    const result = await h.resolve();
+    assert.equal(result.nameTags, true);
+    assert.deepEqual(result.issues, [{ code: "name-tags-invalid", key: "nameTags" }]);
   }
 });
 

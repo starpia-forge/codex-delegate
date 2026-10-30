@@ -104,6 +104,8 @@ function render() {
         canvas.width = 192; canvas.height = 208;
         const tag = document.createElement("span");
         tag.className = "tag";
+        // Keep the tag's space so hiding it never moves the pet.
+        if (!config.nameTags) tag.style.visibility = "hidden";
         node.append(canvas, tag);
         pets.set(character.id, { node, canvas, tag, began: animation.now() });
       }

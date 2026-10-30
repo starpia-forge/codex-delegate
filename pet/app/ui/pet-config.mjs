@@ -79,7 +79,7 @@ async function validatePackage(dir, bytes, readFile, decodeSheet) {
 // Bundled paths belong to the caller: embedded URLs in the app, installed
 // default-pets paths in doctor. Both readers return bytes or null for missing files.
 export async function resolvePets({ home, codexHome, readFile, bundledRoot, readBundledFile, decodeSheet }) {
-  const result = { scale: 0.6, pets: {}, issues: [] };
+  const result = { scale: 0.6, nameTags: true, pets: {}, issues: [] };
   const defaults = Object.create(null);
   for (const name of slots) {
     const dir = join(bundledRoot, name);
@@ -103,8 +103,12 @@ export async function resolvePets({ home, codexHome, readFile, bundledRoot, read
     if (Number.isFinite(config.scale) && config.scale >= 0.3 && config.scale <= 1) result.scale = config.scale;
     else result.issues.push({ code: "scale-out-of-range", key: "scale" });
   }
+  if (Object.hasOwn(config, "nameTags")) {
+    if (typeof config.nameTags === "boolean") result.nameTags = config.nameTags;
+    else result.issues.push({ code: "name-tags-invalid", key: "nameTags" });
+  }
   for (const key of Object.keys(config)) {
-    if (key !== "scale" && key !== "pets") result.issues.push({ code: "unknown-key", key });
+    if (key !== "scale" && key !== "pets" && key !== "nameTags") result.issues.push({ code: "unknown-key", key });
   }
   const names = Object.create(null);
   const configuredSlots = new Set(slots);
