@@ -97,12 +97,22 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 ```json
 {
   "scale": 0.6,
+  "hideNearCursor": true,
   "pets": { "leader": "my-pet", "researcher": "critic" }
 }
 ```
 
 `scale` accepts numbers from 0.3 through 1.0. `pets` accepts any role name
 matching `[a-z][a-z0-9-]*`, including user roles; values are pet folder names.
+
+`hideNearCursor` accepts a boolean and defaults to `true`. The whole strip gives
+way within a circle 500 logical pixels in diameter around the pointer: transparent up
+to radius 190 px, fading linearly to opaque at 250 px. It follows directly;
+`false` disables both the mask and cursor polling. Cursor polling runs about
+60 Hz within 250 logical px of the strip and 10 Hz farther away, and stops
+while pets are hidden or the strip is paused for fullscreen. The strip stays
+click-through at every display scale.
+
 Unknown keys and invalid values are ignored. Missing or invalid JSON uses
 defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic issues
 alongside the selected pets. The renderer reads configuration and packages once

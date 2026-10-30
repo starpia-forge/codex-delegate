@@ -3,6 +3,7 @@ import { createAnimationClock } from "./animation-clock.mjs";
 import { drawingPaused } from "./draw-pause.mjs";
 import { frameHandler } from "./frame.mjs";
 import { resolvePets } from "./pet-config.mjs";
+import { clearanceMask } from "./cursor-clearance.mjs";
 import { exitSlot, fitLimit, sceneOffset } from "./layout.mjs";
 import { createMessages, subscribeLanguage } from "./messages.mjs";
 
@@ -68,6 +69,11 @@ const animation = createAnimationClock({ now: () => performance.now() });
 const pause = { hidden: true, fullscreen: false };
 const paused = () => drawingPaused(pause);
 const root = document.getElementById("stage");
+function updateCursor(pointer) {
+  const mask = clearanceMask(pointer, config.hideNearCursor && !paused());
+  root.style.maskImage = mask;
+  root.style.webkitMaskImage = mask;
+}
 const teams = new Map(), pets = new Map();
 const sessionsBadge = document.createElement("span");
 sessionsBadge.className = "overflow sessions-overflow";
@@ -191,10 +197,13 @@ function update() {
 }
 function updatePause() {
   animation.setPaused(paused());
+  // Drop the previous position immediately; resume waits for a fresh sample.
+  if (paused()) updateCursor(null);
   if (!paused()) render();
 }
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
 await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
+await window.__TAURI__.event.listen("pet-cursor", ({ payload }) => updateCursor(payload));
 let fullscreenEvents = 0, visibilityEvents = 0;
 // Subscribe before reading either preferences or the catalogue. An event received
 // during startup wins over a potentially older command response.
@@ -221,6 +230,7 @@ const visibilityVersion = visibilityEvents;
 const preferences = await languageSubscription.read(() => invoke("pet_preferences"));
 if (visibilityVersion === visibilityEvents) pause.hidden = preferences.hidden === true;
 updatePause();
+await invoke("set_cursor_clearance", { enabled: config.hideNearCursor });
 await window.__TAURI__.core.invoke("renderer_ready");
 // Lifecycle runs on wall time even when animation frames are paused.
 setInterval(() => { stage.tick(); update(); }, 250);

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod capture;
+mod cursor;
 mod liveness;
 mod licences;
 mod messages;
@@ -154,6 +155,7 @@ fn main() {
         .manage(capture.clone())
         .manage(fullscreen.clone())
         .manage(visibility)
+        .manage(cursor::CursorClearance::default())
         .manage(Arc::new(AtomicU64::new(0.6_f64.to_bits())) as PetScale)
         .invoke_handler(|invoke| {
             if !licences::command_allowed(invoke.message.webview_ref().label(), invoke.message.command()) {
@@ -161,6 +163,7 @@ fn main() {
                 return true;
             }
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![renderer_ready, pet_paths, read_pet_file, set_pet_scale,
+                cursor::set_cursor_clearance,
                 capture::computer_use_live, window::fullscreen_paused, show::pet_preferences, show::frame_ready,
                 messages::messages, notices::notices];
             handler(invoke)
@@ -173,6 +176,8 @@ fn main() {
             *event_app.lock().unwrap() = Some(app.handle().clone());
             let capture_win = win.clone();
             std::thread::spawn(move || capture::watch(capture_win, capture));
+            let cursor_win = win.clone();
+            std::thread::spawn(move || cursor::watch(cursor_win));
             std::thread::spawn(move || window::watch(win, fullscreen));
             let handle = app.handle().clone();
             std::thread::spawn(move || liveness::watch(handle, ready, sessions));

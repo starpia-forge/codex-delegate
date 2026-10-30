@@ -62,6 +62,8 @@ impl Visibility {
 
     pub fn language(&self) -> Lang { self.0.lock().unwrap().language() }
 
+    pub fn hidden(&self) -> bool { self.0.lock().unwrap().hidden() }
+
     fn toggle_language(&self, app: &AppHandle, items: &TrayItems) {
         let mut state = self.0.lock().unwrap();
         let windows_language = state.windows_language;

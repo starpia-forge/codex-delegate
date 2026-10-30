@@ -262,7 +262,18 @@ test("doctor skips WebView2 off Windows", async t => {
   assert.doesNotMatch(result.stdout, /WebView2/);
 });
 
+test("doctor accepts boolean cursor clearance settings", async t => {
+  const f = await installedFixture(t);
+  for (const hideNearCursor of [false, true]) {
+    writeFileSync(join(f.petRoot, "pet.json"), JSON.stringify({ hideNearCursor }));
+    const result = await f.run();
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.stdout, /\[OK  \] Pet configuration/);
+  }
+});
+
 for (const [description, config, problem] of [
+  ["non-boolean cursor clearance", '{"hideNearCursor":"false"}', /hideNearCursor:.*must be a boolean/],
   ["bad JSON", "{", /pet\.json: invalid JSON or object/],
   ["unknown key and out-of-range scale", '{"scale":2,"surprise":true}', /scale:.*0\.3.*1.*surprise: unknown key/],
   ["invalid pets map", '{"pets":[]}', /pets:.*object/],

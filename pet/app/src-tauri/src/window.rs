@@ -18,6 +18,8 @@ pub struct Fullscreen {
 }
 
 impl Fullscreen {
+    pub fn paused(&self) -> bool { self.paused.load(Ordering::Acquire) }
+
     fn topmost_refusal_started(&self, topmost: bool) -> bool {
         let was_refused = self.topmost_refused.swap(!topmost, Ordering::AcqRel);
         !topmost && !was_refused
@@ -26,7 +28,7 @@ impl Fullscreen {
 
 #[tauri::command]
 pub fn fullscreen_paused(state: tauri::State<Fullscreen>) -> bool {
-    state.paused.load(Ordering::Acquire)
+    state.paused()
 }
 
 #[derive(Debug, PartialEq, Eq)]
