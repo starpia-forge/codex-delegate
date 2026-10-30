@@ -41,7 +41,7 @@ struct Transition {
 }
 impl Transition {
     fn hidden(&self) -> bool { self.preferences.current().hidden.unwrap_or(false) }
-    fn name_tags(&self) -> bool { self.preferences.current().show_name_tags() }
+    fn show_name_tags(&self) -> bool { self.preferences.current().show_name_tags() }
     fn language(&self) -> Lang { self.preferences.current().effective_language(self.windows_language) }
     fn active(&self, generation: u64) -> bool {
         self.generation == generation && self.running && self.pending && !self.hidden()
@@ -60,7 +60,7 @@ impl Visibility {
         let mut preferences = state.preferences.current().json();
         // The renderer needs the effective language; this never writes it to disk.
         preferences["language"] = state.language().code().into();
-        preferences["nameTags"] = state.name_tags().into();
+        preferences["nameTags"] = state.show_name_tags().into();
         preferences
     }
 
@@ -70,7 +70,7 @@ impl Visibility {
 
     fn toggle_name_tags(&self, app: &AppHandle) -> bool {
         let mut state = self.0.lock().unwrap();
-        let enabled = !state.name_tags();
+        let enabled = !state.show_name_tags();
         let _ = state.preferences.set_name_tags(enabled); // Store reports failures; memory wins.
         let _ = app.emit_to("main", "pet-name-tags", json!({ "nameTags": enabled }));
         enabled
@@ -213,7 +213,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let (hidden, name_tags, current) = {
         let visibility = app.state::<Visibility>();
         let state = visibility.0.lock().unwrap();
-        (state.hidden(), state.name_tags(), state.language())
+        (state.hidden(), state.show_name_tags(), state.language())
     };
     let items = TrayItems {
         show: CheckMenuItem::with_id(app, "show-pets", "", true, !hidden, None::<&str>)?,
@@ -258,17 +258,22 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prefs::TestDir;
 
     #[test]
     fn renderer_preferences_restore_name_tags_even_while_pets_are_hidden() {
-        // An unavailable directory supplies defaults without touching real preferences.
-        let path = std::env::temp_dir().join(format!("pet-show-missing-{}", std::process::id()))
-            .join("pet-preferences.json");
+        let dir = TestDir::new();
+        let path = dir.0.join("pet-preferences.json");
         assert_eq!(Visibility::new(PreferenceStore::load(path.clone())).preferences()["nameTags"], true);
-        let mut store = PreferenceStore::load(path);
-        let _ = store.set_hidden(true);
-        let _ = store.set_name_tags(false);
+        let mut store = PreferenceStore::load(path.clone());
+        store.set_hidden(true).unwrap();
+        store.set_name_tags(false).unwrap();
         let visibility = Visibility::new(store);
+        assert_eq!(visibility.preferences()["nameTags"], false);
+        assert_eq!(visibility.preferences()["hidden"], true);
+        let restarted = PreferenceStore::load(path);
+        assert_eq!(restarted.current().name_tags, Some(false));
+        let visibility = Visibility::new(restarted);
         assert_eq!(visibility.preferences()["nameTags"], false);
         assert_eq!(visibility.preferences()["hidden"], true);
     }

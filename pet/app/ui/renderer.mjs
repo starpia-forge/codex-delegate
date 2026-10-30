@@ -78,10 +78,13 @@ function updateCursor(pointer) {
 }
 const teams = new Map(), pets = new Map();
 let nameTags = true;
+function updateNameTagVisibility(tag) {
+  // Visibility retains the tag's space, including while drawing is paused.
+  tag.style.visibility = nameTags ? "visible" : "hidden";
+}
 function setNameTags(enabled) {
   nameTags = enabled;
-  // Visibility retains the tag's space, including while drawing is paused.
-  for (const pet of pets.values()) pet.tag.style.visibility = nameTags ? "visible" : "hidden";
+  for (const pet of pets.values()) updateNameTagVisibility(pet.tag);
 }
 const sessionsBadge = document.createElement("span");
 sessionsBadge.className = "overflow sessions-overflow";
@@ -118,8 +121,7 @@ function render() {
         canvas.width = 192; canvas.height = 208;
         const tag = document.createElement("span");
         tag.className = "tag";
-        // Keep the tag's space so hiding it never moves the pet.
-        tag.style.visibility = nameTags ? "visible" : "hidden";
+        updateNameTagVisibility(tag);
         node.append(canvas, tag);
         pets.set(character.id, { node, canvas, tag, began: animation.now() });
       }

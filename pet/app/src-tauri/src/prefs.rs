@@ -91,6 +91,28 @@ impl PreferenceStore {
 }
 
 #[cfg(test)]
+pub(crate) struct TestDir(pub(crate) PathBuf);
+#[cfg(test)]
+impl TestDir {
+    pub(crate) fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        loop {
+            let path = std::env::temp_dir().join(format!("pet-prefs-{}-{}", std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self(path),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("cannot create test directory: {error}"),
+            }
+        }
+    }
+}
+#[cfg(test)]
+impl Drop for TestDir {
+    fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -162,20 +184,6 @@ mod tests {
         assert_eq!(store.current().language, Some(Lang::Ko));
         store.toggle_language(0x0409).unwrap();
         assert_eq!(PreferenceStore::load(path).current().language, Some(Lang::En));
-    }
-
-    struct TestDir(PathBuf);
-    impl TestDir {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!("pet-prefs-{}-{}", std::process::id(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-    impl Drop for TestDir {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
     }
 
     #[test]
