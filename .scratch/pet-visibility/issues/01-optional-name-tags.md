@@ -8,8 +8,12 @@
 
 Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions)
 
-- [ ] `resolvePets` returns `nameTags` (default `true`); a non-boolean value is ignored with an issue (like `scale-out-of-range`), and the key is no longer reported as unknown.
-- [ ] With `nameTags: false` the renderer draws no tag; pet slot width, fit limit and strip height are unchanged.
-- [ ] `pet-doctor` reports a bad `nameTags` value and accepts a valid one.
-- [ ] Tests (plain Node) through the resolver: default, `true`, `false`, invalid value.
-- [ ] `npm test` passes.
+- [x] `resolvePets` returns `nameTags` (default `true`); a non-boolean value is ignored with an issue (like `scale-out-of-range`), and the key is no longer reported as unknown.
+- [x] With `nameTags: false` the renderer draws no tag; pet slot width, fit limit and strip height are unchanged.
+- [x] `pet-doctor` reports a bad `nameTags` value and accepts a valid one.
+- [x] Tests (plain Node) through the resolver: default, `true`, `false`, invalid value.
+- [x] `npm test` passes.
+
+## Comments
+
+- 2026-10-30: Implemented on `ticket/pet-visibility-01`: resolver returns `nameTags` (invalid values -> `name-tags-invalid`), renderer hides tags with `visibility: hidden` so layout is unchanged, pet-doctor reports bad values; `npm test` 399/399 pass.
