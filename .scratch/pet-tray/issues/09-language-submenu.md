@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-tray/spec.md` (user stories 29–30, Pet shell tray contents). Supersedes ticket 05's one-step toggle.
 
@@ -19,3 +19,4 @@ Spec: `.scratch/pet-tray/spec.md` (user stories 29–30, Pet shell tray contents
 ## Comments
 
 - 2026-10-30: Implemented on `ticket/pet-tray-09`: Language submenu with endonym check items, `set_language` replaces the toggle; cargo build/test (46) and npm test (414) pass. Manual tray checklist on real Windows not yet run.
+- 2026-10-30: Merged to `feat/language-submenu` with review fixes (f79a4fe); `cargo test` 47/47 and `npm test` 414/414 pass. Tray submenu not yet checked by hand.
