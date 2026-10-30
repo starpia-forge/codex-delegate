@@ -1,0 +1,15 @@
+# 02: Cursor clearance
+
+**What to build:** Within a 500 logical-pixel circle around the mouse pointer the strip is not drawn, fading softly at the edge, following the pointer directly. `hideNearCursor: false` turns it off.
+
+**Blocked by:** None (can start immediately)
+
+**Status:** ready-for-agent
+
+Spec: `.scratch/pet-visibility/spec.md` (Solution 2, Decisions)
+
+- [ ] `resolvePets` returns `hideNearCursor` (default `true`); a non-boolean value is ignored with an issue; `pet-doctor` accepts and checks it.
+- [ ] Rust side polls the cursor and sends its position to the webview in strip-relative logical pixels (correct at display scales other than 100%): about 60 Hz within 250 px of the strip, about 10 Hz otherwise, none while pets are hidden or the strip is paused for fullscreen, none when `hideNearCursor` is false. The window stays click-through.
+- [ ] Webview applies a per-pixel mask to the whole strip (pets, name tags, overflow badges): opacity 0 for radius ≤ 190 px, linear 0→1 for 190–250 px, 1 beyond; no lag or fade timing.
+- [ ] Mask geometry/opacity is a pure module with plain Node tests (centre, feather band, outside, pointer off the strip).
+- [ ] `npm test` passes and the Rust build and tests pass.

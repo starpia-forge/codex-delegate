@@ -36,6 +36,14 @@ _Avoid_: pet on, pet active
 The user's choice to keep every pet off the screen while the pet stays enabled. It lasts until the user shows the pets again.
 _Avoid_: disabled, off, paused
 
+**Name tag**:
+The label under a pet that tells which leader or worker it stands for. It names the session or worker, not the pet's artwork.
+_Avoid_: pet name, label
+
+**Cursor clearance**:
+Pets giving way to the mouse pointer: within an invisible circle around the pointer the strip is not drawn, fading out softly at the circle's edge. It follows the pointer and changes nothing else about the pets.
+_Avoid_: hover hide, mouse fade, hidden
+
 **Overflow**:
 Pets that don't fit on the screen and are shown only as a count beside the visible ones.
 _Avoid_: hidden workers, hidden sessions
