@@ -1,4 +1,12 @@
 fn main() {
+    let package = std::path::Path::new("../../../package.json");
+    println!("cargo:rerun-if-changed={}", package.display());
+    let package: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(package).expect("read repository package.json")
+    ).expect("parse repository package.json");
+    let version = package["version"].as_str().expect("package.json version must be a string");
+    println!("cargo:rustc-env=RELEASE_VERSION={version}");
+
     let generated = std::path::Path::new("../ui/notices/THIRD-PARTY-NOTICES.txt");
     let stub = std::path::Path::new("../../notices/development-stub.txt");
     // Watch an existing directory so a missing generated file doesn't make

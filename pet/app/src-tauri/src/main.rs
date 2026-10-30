@@ -21,10 +21,7 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use liveness::{LeaderSessions, Sessions};
 
 const DEFAULT_PORT: u16 = 47800;
-const BUNDLE_VERSION: &str = match option_env!("CODEX_DELEGATE_PET_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+const BUNDLE_VERSION: &str = env!("RELEASE_VERSION");
 const MAX_CONNECTIONS: usize = 8;
 
 // Acquire before spawning, and release even on an I/O error or handler panic.
@@ -299,7 +296,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn health_reports_the_builds_bundle_version() {
+    fn health_reports_the_release_version_from_package_json() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
@@ -313,7 +310,8 @@ mod tests {
         handler.join().unwrap().unwrap();
         let (_, body) = response.split_once("\r\n\r\n").unwrap();
         let body: Value = serde_json::from_str(body).unwrap();
-        assert_eq!(body["version"], option_env!("CODEX_DELEGATE_PET_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
+        let package: Value = serde_json::from_str(include_str!("../../../../package.json")).unwrap();
+        assert_eq!(body["version"], package["version"]);
     }
 
     #[test]

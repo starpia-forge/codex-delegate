@@ -60,8 +60,9 @@ Invoke-RestMethod "http://127.0.0.1:$env:CODEX_DELEGATE_PET_PORT/quit" -Method P
 
 Manual checks for this ticket:
 
-1. Health returns `app: codex-delegate-pet`, `protocol: 1`, and the bundle version
-   set at build time by `CODEX_DELEGATE_PET_VERSION` (Cargo version if unset locally).
+1. Health returns `app: codex-delegate-pet`, `protocol: 1`, and the Release version
+   read at build time from the repository's `package.json`, matching the tray
+   tooltip and executable version metadata.
 2. A real worker shows a running pet with `researcher · task-one` above the
    primary monitor's taskbar. Transparent pixels reveal the desktop; clicking
    the pet reaches the window below. It never takes keyboard focus or adds a
@@ -248,9 +249,9 @@ Package-only changes can keep the existing bundle pin. The bundle contains
 `default-pets/` from `app/ui/assets/`. The assets are committed, so the release
 build does not regenerate placeholders.
 
-1. Choose `pet-vX.Y.Z`. If desired, bump the app version in
-   `app/src-tauri/tauri.conf.json` and `app/src-tauri/Cargo.toml` (and refresh
-   `Cargo.lock`). Commit the source changes normally and run `npm.cmd test`.
+1. Choose `pet-vX.Y.Z` matching the repository's `package.json` version.
+   Every app build takes its version from that file. Commit the source changes
+   normally and run `npm.cmd test`.
 2. Tag that commit and push the tag, for example:
 
    ```powershell
@@ -259,8 +260,8 @@ build does not regenerate placeholders.
    ```
 
 3. Wait for the **Pet release** GitHub Actions workflow. It tests the shipped
-   package, sets `CODEX_DELEGATE_PET_VERSION` to the tag without `pet-v` for
-   `/health`, builds on Windows with the locked Rust dependencies, and creates
+   package, builds on Windows with the locked Rust dependencies and the version
+   from `package.json`, and creates
    a GitHub Release with `codex-delegate-pet-windows-x64.zip` and its `.sha256`
    file. Verify the release bundle installs before updating the package pin.
 4. Copy the pin JSON from the workflow job summary into the repository's
@@ -274,9 +275,9 @@ build does not regenerate placeholders.
 To preview the bundle locally after building the release executable:
 
 ```powershell
-$env:CODEX_DELEGATE_PET_VERSION = '1.2.3'
+$releaseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
 cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
-node scripts/pet-bundle.mjs --tag pet-v1.2.3 --out dist
+node scripts/pet-bundle.mjs --tag "pet-v$releaseVersion" --out dist
 ```
 
 The script accepts `--exe <path>` for another executable, writes the zip,
