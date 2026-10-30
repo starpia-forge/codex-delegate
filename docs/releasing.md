@@ -35,7 +35,7 @@ A Release fixes the skills, installer and pet together under the version in
    the downloaded zip matches its `.sha256`, and `doctor` reports the installed
    bundle matches `X.Y.Z`. With the app running in that isolated home, confirm
    `/health` reports `X.Y.Z` and the installed executable's FileVersion is
-   `X.Y.Z` (or `X.Y.Z.0`). Other `doctor` checks need Codex installed and logged
+   `X.Y.Z`. Other `doctor` checks need Codex installed and logged
    in for the isolated home. Close the terminal after verification.
 
 From the version bump until the workflow publishes the assets, installs from

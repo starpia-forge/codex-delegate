@@ -124,7 +124,7 @@ export function petsHidden() {
   } catch { return false; }
 }
 
-export function petRelease(root) {
+export function readPetRelease(root) {
   const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const tag = `v${version}`;
   const asset = "codex-delegate-pet-windows-x64.zip";
@@ -354,7 +354,7 @@ export function preparePetRemoval({ dryRun = false } = {}) {
 
 export async function preparePet({ root, pkg, dryRun = false }) {
   const existing = readPetMarker();
-  const release = petRelease(root);
+  const release = readPetRelease(root);
   const { tag, asset, version, url, checksumUrl } = release;
   const settingsPath = existing?.settingsPath ?? resolve(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
   const bundle = join(petRoot(), "pet");
@@ -389,9 +389,9 @@ export async function preparePet({ root, pkg, dryRun = false }) {
     }
   };
   const checksum = (await download(checksumUrl)).toString("utf8");
-  const line = checksum.match(/^([a-f0-9]{64})  ([^\r\n]+)(?:\r?\n)?$/i);
-  if (!line || line[0] !== checksum || line[2] !== asset) throw new Error(`Invalid pet checksum file (${checksumUrl})`);
-  const sha256 = line[1].toLowerCase();
+  const match = checksum.match(/^(?<hash>[a-f0-9]{64})  (?<file>[^\r\n]+)(?:\r?\n)?$/i);
+  if (!match || match.groups.file !== asset) throw new Error(`Invalid pet checksum file (${checksumUrl})`);
+  const sha256 = match.groups.hash.toLowerCase();
   const bytes = await download(url);
   if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error("Pet checksum mismatch (SHA-256); nothing was changed");
 

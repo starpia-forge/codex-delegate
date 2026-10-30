@@ -1,10 +1,12 @@
 import { createHash, randomInt } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readPetRelease } from "../../bin/pet.mjs";
 import { zip } from "./zip.mjs";
 
-export const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
-export const asset = "codex-delegate-pet-windows-x64.zip";
+export const { asset, tag, version } = readPetRelease(fileURLToPath(new URL("../../", import.meta.url)));
+export const legacyBundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
 
 export const bundleFiles = {
   "codex-delegate-pet.exe": "fake executable, never run",
@@ -44,15 +46,17 @@ export async function unusedPetPort(t) {
 
 export async function release(t, f, options = {}) {
   const bytes = options.bytes ?? zip(bundleFiles);
-  const bundle = { tag: `v${version}`, asset, sha256: createHash("sha256").update(bytes).digest("hex"), version };
-  const paths = [`/v${version}/${asset}.sha256`, `/v${version}/${asset}`];
+  const bundle = { tag, asset, sha256: createHash("sha256").update(bytes).digest("hex"), version };
+  const bundlePath = `/${tag}/${asset}`;
+  const checksumPath = `${bundlePath}.sha256`;
+  const paths = [checksumPath, bundlePath];
   const requests = [];
   const server = await listen(t, (req, res) => {
     requests.push(req.url);
-    if (req.url === paths[0]) {
+    if (req.url === checksumPath) {
       res.writeHead(options.checksumStatus ?? options.status ?? 200);
       res.end(options.checksum ?? `${options.sha256 ?? bundle.sha256}  ${asset}\n`);
-    } else if (req.url === paths[1]) {
+    } else if (req.url === bundlePath) {
       res.writeHead(options.zipStatus ?? options.status ?? 200);
       res.end(bytes);
     } else { res.writeHead(404); res.end(); }
@@ -60,5 +64,5 @@ export async function release(t, f, options = {}) {
   Object.assign(f.env, {
     CODEX_DELEGATE_PET_BASE_URL: `http://127.0.0.1:${server.address().port}`,
   });
-  return { requests, bundle, paths, options };
+  return { requests, bundle, bundlePath, checksumPath, paths, options };
 }

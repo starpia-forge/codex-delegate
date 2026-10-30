@@ -4,6 +4,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { readPetRelease } from "../bin/pet.mjs";
 import { zip } from "./zip.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -16,9 +17,10 @@ try {
     check: { type: "boolean" },
     notices: { type: "string" },
   } });
-  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  if (values["expect-tag"] !== undefined && values["expect-tag"] !== `v${version}`) {
-    throw new Error(`Expected tag ${values["expect-tag"]} does not match Release v${version}`);
+  if (values.check && values["expect-tag"] === undefined) throw new Error("--check requires --expect-tag <tag>");
+  const { asset, tag } = readPetRelease(root);
+  if (values["expect-tag"] !== undefined && values["expect-tag"] !== tag) {
+    throw new Error(`Expected tag ${values["expect-tag"]} does not match Release ${tag}`);
   }
   if (values.check) process.exit(0);
   if (!values.notices) throw new Error("--notices <path> is required");
@@ -53,7 +55,6 @@ try {
   add(join(root, "pet/hook/leader-hook.mjs"), "hook/leader-hook.mjs");
   add(join(root, "pet/app/ui/assets"), "default-pets", true);
   const bytes = zip(entries);
-  const asset = "codex-delegate-pet-windows-x64.zip";
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const out = resolve(values.out);
   mkdirSync(out, { recursive: true });

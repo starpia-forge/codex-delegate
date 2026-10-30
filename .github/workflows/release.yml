@@ -44,7 +44,7 @@ jobs:
           if ($versionInfo.ProductVersion -ne $releaseVersion) {
             throw "Executable ProductVersion '$($versionInfo.ProductVersion)' does not match package version '$releaseVersion'"
           }
-          if ($versionInfo.FileVersion -ne $releaseVersion -and $versionInfo.FileVersion -ne "$releaseVersion.0") {
+          if ($versionInfo.FileVersion -ne $releaseVersion) {
             throw "Executable FileVersion '$($versionInfo.FileVersion)' does not match package version '$releaseVersion'"
           }
       - name: Package the pet bundle

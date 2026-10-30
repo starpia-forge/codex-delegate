@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
 import { zip } from "./helpers/zip.mjs";
-import { asset, bundleFiles, release, unusedPetPort, version } from "./helpers/pet-release.mjs";
+import { asset, bundleFiles, legacyBundle, release, unusedPetPort, version } from "./helpers/pet-release.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 const events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "Notification", "Stop", "StopFailure", "PostToolUse"];
@@ -296,7 +296,7 @@ for (const enabled of [false, true]) {
       // Exercise ownership across an interrupted command migration.
       marker.hooks.Stop = 'node "old leader-hook.mjs"';
       settings.hooks.Stop[0].hooks[0].command = marker.hooks.Stop;
-      marker.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+      marker.bundle = legacyBundle;
       writeFileSync(markerPath, JSON.stringify(marker));
       writeFileSync(f.settingsPath, JSON.stringify(settings));
     }
@@ -521,7 +521,7 @@ test("reinstall over a legacy marker replaces owned leaves, preserves user hooks
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const markerPath = join(f.petRoot, "pet-state", ".codex-delegate.json");
   const marker = JSON.parse(readFileSync(markerPath));
-  marker.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+  marker.bundle = legacyBundle;
   writeFileSync(markerPath, JSON.stringify(marker));
   const tokenPath = join(f.petRoot, "pet-state", "token");
   const token = readFileSync(tokenPath, "utf8");
@@ -581,7 +581,7 @@ for (const enabled of [false, true]) {
       assert.notEqual(result.code, 0, result.output);
       assert.match(result.output, message);
       assert.match(result.output, /Nothing was changed/);
-      assert.deepEqual(r.requests, failure.includes("checksum") && failure !== "checksum mismatch" ? [r.paths[0]] : r.paths);
+      assert.deepEqual(r.requests, failure.includes("checksum") && failure !== "checksum mismatch" ? [r.checksumPath] : r.paths);
       assert.deepEqual(snapshot(f.root), before);
     });
   }
@@ -647,9 +647,10 @@ for (const target of ["checksum", "zip"]) {
           assert.ok(result.output.includes(version), result.output);
           assert.match(result.output, /Release.*no pet bundle.*workflow may still be running.*retry later.*install from a tagged Release/is);
         } else {
-          assert.ok(result.output.includes(`Pet download failed (${f.env.CODEX_DELEGATE_PET_BASE_URL}${r.paths[target === "checksum" ? 0 : 1]}): HTTP 503`), result.output);
+          const path = target === "checksum" ? r.checksumPath : r.bundlePath;
+          assert.ok(result.output.includes(`Pet download failed (${f.env.CODEX_DELEGATE_PET_BASE_URL}${path}): HTTP 503`), result.output);
         }
-        assert.deepEqual(r.requests, target === "checksum" ? [r.paths[0]] : r.paths);
+        assert.deepEqual(r.requests, target === "checksum" ? [r.checksumPath] : r.paths);
         assert.deepEqual(snapshot(f.root), before);
       });
     }
@@ -686,7 +687,7 @@ test("plain install downloads nothing when disabled and updates an enabled pet w
   writeFileSync(join(f.petRoot, "pet", "obsolete.txt"), "old bundle");
   const markerPath = join(state, ".codex-delegate.json");
   const legacy = JSON.parse(readFileSync(markerPath));
-  legacy.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+  legacy.bundle = legacyBundle;
   writeFileSync(markerPath, JSON.stringify(legacy));
   const otherConfig = join(f.root, "other config");
   const result = await f.run(["install"], { CLAUDE_CONFIG_DIR: otherConfig });
@@ -866,7 +867,7 @@ test("user-scope list reports the installed legacy marker and recorded settings 
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const markerPath = join(f.petRoot, "pet-state", ".codex-delegate.json");
   const marker = JSON.parse(readFileSync(markerPath));
-  marker.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+  marker.bundle = legacyBundle;
   writeFileSync(markerPath, JSON.stringify(marker));
   const installed = snapshot(f.root);
   const result = await f.run(["list"], { CLAUDE_CONFIG_DIR: join(f.root, "another config") });

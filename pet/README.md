@@ -268,16 +268,9 @@ the hash and output paths. `--expect-tag` rejects a tag that differs from
 only, without reading bundle inputs or writing files. Local output is a preview;
 a locally built executable can differ from the workflow's executable.
 
-For a published Release, `CODEX_DELEGATE_PET_BASE_URL` is not needed.
-`codex-delegate install --with-pet` downloads the Release's `.sha256` file first,
-then the zip, from `v` + the installed package version. It requires one checksum
-line naming the expected asset and verifies the zip before changing files.
-If either asset is missing, retry later while the workflow finishes or install
-from a tagged Release. A plain user-scope `install` with the pet enabled also
-stops without changing skills, hooks or the existing bundle. A dry run prints
-the zip URL and checksum source without making requests. `doctor` compares the
-installed bundle and running app with the package version; `list` reads the
-installed marker, including legacy markers. To verify an install, run
+See the [root README](../README.md) for installation and diagnostics, and the
+[Release procedure](../docs/releasing.md) for verification against a published Release.
+To verify an install, run
 `node bin/cli.mjs install --scope user --agent claude-code --with-pet` with
 `HOME`, `USERPROFILE`, `CLAUDE_CONFIG_DIR`, and `CODEX_HOME` pointing to isolated
 test directories. Restart Claude Code to load the installed hooks.

@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { petHealth, petsHidden, readPetMarker, petRelease } from "./pet.mjs";
 import { resolvePets } from "../pet/app/ui/pet-config.mjs";
+import { petHealth, petsHidden, readPetMarker, readPetRelease } from "./pet.mjs";
 
 const configProblems = {
   "config-invalid": "invalid JSON or object",
@@ -46,7 +46,7 @@ export async function checkPet(root, check) {
   if (!marker) return;
   if (petsHidden()) check("ok", "Pet visibility", "Pets are hidden; show them from the pet's tray icon.");
   let release;
-  try { release = petRelease(root); }
+  try { release = readPetRelease(root); }
   catch (error) { check("fail", "Pet bundle", `cannot read Release: ${error.message}`); }
   const bundle = join(homedir(), ".codex-delegate", "pet");
   const missing = [bundle, join(bundle, "codex-delegate-pet.exe")].find(path => !existsSync(path));

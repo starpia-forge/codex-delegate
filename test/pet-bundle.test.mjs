@@ -74,15 +74,22 @@ test("bundle CLI refuses omitted, missing or stub notices before writing anythin
   }
 });
 
+test("bundle CLI requires --expect-tag with --check and writes nothing when omitted", t => {
+  const work = mkdtempSync(join(tmpdir(), "missing Release tag "));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const result = spawnSync(process.execPath, [script, "--check", "--out", join(work, "dist")], { encoding: "utf8" });
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /--check requires --expect-tag/);
+  assert.deepEqual(readdirSync(work), []);
+});
+
 test("bundle CLI checks the package's Release tag before reading inputs or writing artifacts", t => {
   const work = mkdtempSync(join(tmpdir(), "check Release tag "));
   t.after(() => rmSync(work, { recursive: true, force: true }));
   const args = [script, "--out", join(work, "dist"), "--exe", join(work, "missing.exe")];
-  for (const flags of [["--check"], ["--check", "--expect-tag", `v${version}`]]) {
-    const result = spawnSync(process.execPath, [...args, ...flags], { encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(readdirSync(work), []);
-  }
+  const result = spawnSync(process.execPath, [...args, "--check", "--expect-tag", `v${version}`], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(readdirSync(work), []);
   for (const flags of [["--expect-tag", "v999.0.0"], ["--check", "--expect-tag", "v999.0.0"], ["--tag", `v${version}`]]) {
     const result = spawnSync(process.execPath, [...args, ...flags], { encoding: "utf8" });
     assert.notEqual(result.status, 0, result.stderr);

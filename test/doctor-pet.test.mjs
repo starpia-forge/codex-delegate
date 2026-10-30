@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
-import { asset, bundleFiles, listen, release, unusedPetPort, version } from "./helpers/pet-release.mjs";
+import { asset, bundleFiles, legacyBundle, listen, release, tag, unusedPetPort, version } from "./helpers/pet-release.mjs";
 import { zip } from "./helpers/zip.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
@@ -23,7 +23,7 @@ for (const slot of ["leader", "researcher", "critic", "implementer", "computer-u
 async function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "doctor checks "));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const f = { root, ...fakeCodex(root, `
+  const f = { root, cli, ...fakeCodex(root, `
 if (process.argv.includes("--version")) console.log("codex-cli test");
 else if (process.argv.slice(2).join(" ") === "login status") console.log("Logged in");
 else process.exitCode = 1;
@@ -41,7 +41,7 @@ else process.exitCode = 1;
   f.petRoot = join(f.home, ".codex-delegate");
   f.settingsPath = join(f.claudeHome, "settings.json");
   f.run = (args = ["doctor"], extraEnv = {}) => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, ...args], {
+    const child = spawn(process.execPath, [f.cli, ...args], {
       cwd: root, env: { ...f.env, ...extraEnv }, windowsHide: true, timeout: 15000,
     });
     let stdout = "", stderr = "";
@@ -55,7 +55,7 @@ else process.exitCode = 1;
 
 async function installedFixture(t) {
   const f = await fixture(t);
-  const bundle = { tag: `v${version}`, asset, sha256: "a".repeat(64), version };
+  const bundle = { tag, asset, sha256: "a".repeat(64), version };
   const state = join(f.petRoot, "pet-state");
   mkdirSync(state, { recursive: true });
   mkdirSync(join(f.petRoot, "pet"));
@@ -69,7 +69,8 @@ async function installedFixture(t) {
   writeFileSync(f.markerPath, JSON.stringify(marker));
   writeFileSync(f.settingsPath, JSON.stringify({ hooks: Object.fromEntries(Object.entries(hooks)
     .map(([event, command]) => [event, [{ hooks: [{ type: "command", command }] }]])) }));
-  return { ...f, marker };
+  f.marker = marker;
+  return f;
 }
 
 test("doctor without an installed pet prints no pet or WebView2 lines and never probes the port", async t => {
@@ -170,7 +171,7 @@ test("doctor resolves installed bundled manifests and diagnoses their sheets", a
   assert.match(broken.stdout, /\[WARN\] Pet packages \(leader\).*bundled: .*default-pets.*spritesheet must be PNG or WebP.*reinstall/);
 });
 
-for (const change of [{}, { sha256: "b".repeat(64) }, { tag: "pet-v0.2.0", sha256: "c".repeat(64) }]) {
+for (const change of [{}, { sha256: "b".repeat(64) }, { tag: legacyBundle.tag, sha256: "c".repeat(64) }]) {
   test(`doctor accepts matching Release versions regardless of tag and hash (${Object.keys(change).join() || "unchanged"})`, async t => {
     const f = await installedFixture(t);
     writeFileSync(f.markerPath, JSON.stringify({ ...f.marker, bundle: { ...f.marker.bundle, ...change } }));
@@ -183,7 +184,7 @@ for (const change of [{}, { sha256: "b".repeat(64) }, { tag: "pet-v0.2.0", sha25
 
 test("doctor warns when a legacy marker differs from the package's Release", async t => {
   const f = await installedFixture(t);
-  writeFileSync(f.markerPath, JSON.stringify({ ...f.marker, bundle: { ...f.marker.bundle, tag: "pet-v0.2.0", version: "0.2.0" } }));
+  writeFileSync(f.markerPath, JSON.stringify({ ...f.marker, bundle: legacyBundle }));
   const result = await f.run();
   assert.equal(result.code, 0, result.output);
   assert.ok(result.stdout.includes(`[WARN] Pet bundle - installed 0.2.0 (pet-v0.2.0), expected ${version} (v${version}); run codex-delegate install --with-pet`), result.output);
@@ -352,6 +353,25 @@ for (const [description, fields, sheet, problem] of [
     assert.match(result.stdout, /\[OK  \] Pet configuration/);
   });
 }
+
+test("doctor reports an unreadable Release as FAIL and continues its checks", async t => {
+  const f = await installedFixture(t);
+  const packageRoot = join(f.root, "package");
+  for (const path of ["bin", "package.json", "install-manifest.json", "src/runner/roles.json", "pet/app/ui/pet-config.mjs"]) {
+    cpSync(new URL(`../${path}`, import.meta.url), join(packageRoot, path), { recursive: true });
+  }
+  f.cli = join(packageRoot, "bin", "cli.mjs");
+  const fake = join(f.bin, "fake-codex.cjs");
+  writeFileSync(fake, `
+if (process.argv.includes("--version")) require("node:fs").writeFileSync(${JSON.stringify(join(packageRoot, "package.json"))}, "{");
+${readFileSync(fake, "utf8")}`);
+  const result = await f.run();
+  assert.equal(result.code, 1, result.output);
+  assert.match(result.stdout, /\[FAIL\] Pet bundle - cannot read Release:/);
+  assert.match(result.stdout, /\[OK  \] Pet hooks/);
+  assert.match(result.stdout, /\[OK  \] Pet port/);
+  assert.doesNotMatch(result.output, /Usage:/);
+});
 
 test("doctor warns per slot when the spritesheet is a directory", async t => {
   const f = await installedFixture(t);
