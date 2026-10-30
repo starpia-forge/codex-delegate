@@ -1,6 +1,6 @@
 # Spec: Optional name tags and cursor clearance
 
-Status: resolved
+Status: ready-for-agent
 
 ## Problem Statement
 
@@ -8,18 +8,18 @@ Every **pet** always carries its **name tag**, which some users find noisy once 
 
 ## Solution
 
-1. **Name tags become optional.** A checked **Show name tags** item in the tray menu, directly under **Show pets** (한국어: **이름표 표시**), turns every name tag on or off at once, without restarting the app. The choice is remembered with the other tray preferences (pets hidden, language) and survives restarts and bundle updates; the default is on. It stays usable while pets are hidden. With name tags off, no name tag is drawn. The layout is unchanged: pet slot width, per-row fit and strip height stay exactly as with name tags on, so toggling the option never moves a pet.
-2. **Cursor clearance.** Around the mouse pointer there is an invisible circle 500 logical (CSS) pixels in diameter. Inside it the strip is not drawn: radius 0–190 px fully transparent, 190–250 px fading from transparent to opaque, beyond 250 px untouched. The cut-out applies per pixel to everything the strip draws (pets, name tags, overflow badges), so a pet half inside the circle loses only that half. It follows the pointer directly with no lag or fade-in time. A top-level boolean `hideNearCursor` (default `true`) turns it off; the diameter is fixed.
+1. **Name tags become optional.** A checked **Show name tags** item in the tray menu, directly under **Show pets** (한국어: **이름표 표시**), turns every name tag on or off at once, without restarting the app. The choice is remembered with the other tray preferences (pets hidden, language) and survives restarts and bundle updates; the default is on. It stays usable while pets are hidden. With name tags off, no name tag is drawn and its space goes too: each pet drops by the tag's height so it stands just above the taskbar, keeping only the strip's 4 px bottom padding (the same as the overflow badges). Only the vertical position changes: pet slot width, per-row fit and strip window size stay as they are, and the switch is instant, without animation.
+2. **Cursor clearance.** Around the mouse pointer there is an invisible circle 500 logical (CSS) pixels in diameter. Inside it the strip is not drawn: radius 0–190 px fully transparent, 190–250 px fading from transparent to opaque, beyond 250 px untouched. The cut-out applies per pixel to everything the strip draws (pets, name tags, overflow badges), so a pet half inside the circle loses only that half. It follows the pointer directly with no lag or fade-in time. A checked **Clear around cursor** item in the tray menu, directly under **Show name tags** (한국어: **커서 주변 숨기기**), turns it on or off without restarting; turning it off stops reading the pointer and removes the cut-out at once. The choice is remembered with the other tray preferences; the default is on. The diameter is fixed.
 
 ## Decisions
 
 - Name tag means the label under a pet naming the leader or worker it stands for, not the pet artwork's name (`GLOSSARY.md`).
-- `hideNearCursor` is validated by the shared resolver `pet/app/ui/pet-config.mjs`, like `scale`: a non-boolean value is ignored with an issue and the default is used; `pet-doctor` therefore accepts it and reports bad values. It is read only at app start.
 - Name tags are a tray preference, not a `pet.json` key (ticket 04 supersedes ticket 01's `nameTags` key, which was never released). `nameTags` in `pet.json` is reported as an unknown key. `list` and `doctor` don't report name tags being off: unlike pets hidden, it can't be mistaken for a fault.
-- `hideNearCursor` stays in `pet.json`; moving it to the tray is out of scope.
+- Cursor clearance is a tray preference too (ticket 06 supersedes ticket 02's `hideNearCursor` key, never released); `hideNearCursor` in `pet.json` is reported as an unknown key, and `list`/`doctor` don't report it.
+- Ticket 05 supersedes ticket 01/04's "name tags off never moves a pet": pets drop vertically by the tag's height.
 - Units are logical pixels so the circle looks the same size at any display scale, matching pet sizes.
 - The strip window stays click-through and the webview receives no mouse events, so the pointer position comes from the Rust side (polling the cursor) and is sent to the webview in strip-relative logical pixels.
-- Polling: about 60 Hz while the pointer is within 250 px of the strip, about 10 Hz otherwise; no polling while **pets hidden** or while the strip is paused behind a fullscreen app.
+- Polling: about 60 Hz while the pointer is within 250 px of the strip, about 10 Hz otherwise; no polling while **pets hidden**, while the strip is paused behind a fullscreen app, or while cursor clearance is off.
 - The pointer is treated the same whether a person or a `computer-user` worker moves it (the strip is excluded from capture then anyway).
 - No ADR: every decision here is cheap to reverse.
 
