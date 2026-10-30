@@ -193,6 +193,32 @@ the same workers and pet scale. Tray changes take effect without restarting.
    fullscreen app (view Task Manager on a second monitor if available), then
    show pets or leave fullscreen and confirm cursor clearance resumes.
 
+Manual language submenu check: use the rebuilt app and isolated home above.
+Keep overflow badges visible and the **Licences** window open while switching.
+
+1. Right-click the tray icon. Confirm the order is **Show pets**, **Show name
+   tags**, **Clear around cursor**, **Licences**, then the **Language** submenu.
+   In English its label is **Language**; in Korean it is **언어 (Language)**.
+   Opening the submenu must leave the current language unchanged.
+2. With no `language` key in the isolated home's
+   `.codex-delegate/pet-state/pet-preferences.json`, restart on Korean Windows
+   and confirm only **한국어** is checked; on English or another non-Korean
+   Windows display language, only **English** is checked. Both entries must
+   always read **English** and **한국어**, regardless of the display language.
+3. Choose the other language. Tray labels, overflow badge text and tooltips,
+   and the open licences window's title and headings must update immediately.
+   The tray tooltip stays `codex-delegate pet <version>` in both languages.
+   Reopen the submenu and confirm exactly the chosen entry is checked.
+4. Choose the already-checked entry. Confirm the language and visible content
+   stay the same and that the entry remains checked when the submenu reopens.
+   Repeat switching both ways, including while pets are hidden, then show pets
+   and confirm the current language is used. Left-click must still toggle pets;
+   right-click must still open the menu.
+5. Restart after choosing each language and confirm the choice and checkmark
+   survive, including when the stored choice differs from Windows. Repeat the
+   no-stored-choice check by removing only `language` from the isolated
+   preferences file while the app is stopped, preserving other preferences.
+
 ## Releasing the pet bundle
 
 Cut a pet release only when the pet app, client, hook, or default pets change.

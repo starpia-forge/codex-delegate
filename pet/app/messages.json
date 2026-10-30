@@ -3,7 +3,7 @@
   "tray.showNameTags": { "en": "Show name tags", "ko": "이름표 표시" },
   "tray.showPets": { "en": "Show pets", "ko": "펫 표시" },
   "tray.licences": { "en": "Licences", "ko": "라이선스" },
-  "tray.language": { "en": "Language: English", "ko": "언어: 한국어" },
+  "tray.language": { "en": "Language", "ko": "언어" },
   "licences.title": { "en": "Licences", "ko": "라이선스" },
   "licences.project": { "en": "codex-delegate — MIT", "ko": "codex-delegate — MIT" },
   "licences.fanArt": { "en": "Fan-art notice", "ko": "팬 아트 고지" },

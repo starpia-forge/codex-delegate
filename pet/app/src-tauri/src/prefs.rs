@@ -79,10 +79,8 @@ impl PreferenceStore {
         self.value.cursor_clearance = Some(enabled);
         self.save()
     }
-    pub fn toggle_language(&mut self, windows_language: u16) -> std::io::Result<()> {
-        self.value.language = Some(match self.value.effective_language(windows_language) {
-            Lang::En => Lang::Ko, Lang::Ko => Lang::En,
-        });
+    pub fn set_language(&mut self, language: Lang) -> std::io::Result<()> {
+        self.value.language = Some(language);
         self.save()
     }
     fn save(&self) -> std::io::Result<()> {
@@ -146,8 +144,8 @@ mod tests {
             store.set_cursor_clearance(enabled).unwrap();
             store.set_hidden(false).unwrap();
             store.set_name_tags(true).unwrap();
-            store.toggle_language(0x0409).unwrap();
-            store.toggle_language(0x0409).unwrap();
+            store.set_language(Lang::En).unwrap();
+            store.set_language(Lang::Ko).unwrap();
             let restarted = PreferenceStore::load(path.clone());
             assert_eq!(restarted.current().cursor_clearance, Some(enabled));
             let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -189,13 +187,13 @@ mod tests {
     }
 
     #[test]
-    fn toggle_saves_preserve_unknown_top_level_preferences() {
+    fn preference_changes_preserve_unknown_top_level_preferences() {
         let dir = TestDir::new();
         let path = dir.0.join("pet-preferences.json");
         std::fs::write(&path, r#"{"hidden":false,"future":{"mode":"auto","values":[1,true]}}"#).unwrap();
         let mut store = PreferenceStore::load(path.clone());
         store.set_hidden(true).unwrap();
-        store.toggle_language(0x0409).unwrap();
+        store.set_language(Lang::Ko).unwrap();
         let saved: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(saved, serde_json::json!({
             "hidden": true, "language": "ko", "future": {"mode": "auto", "values": [1, true]}
@@ -216,16 +214,16 @@ mod tests {
     }
 
     #[test]
-    fn switching_cycles_from_the_effective_language_and_remembers_the_choice() {
+    fn choosing_a_language_remembers_that_choice_including_the_current_language() {
         let dir = TestDir::new();
         let path = dir.0.join("pet-preferences.json");
         let mut store = PreferenceStore::load(path.clone());
-        store.toggle_language(0x0412).unwrap();
-        assert_eq!(store.current().language, Some(Lang::En));
-        store.toggle_language(0x0412).unwrap();
-        assert_eq!(store.current().language, Some(Lang::Ko));
-        store.toggle_language(0x0409).unwrap();
-        assert_eq!(PreferenceStore::load(path).current().language, Some(Lang::En));
+        assert_eq!(store.current().effective_language(0x0412), Lang::Ko);
+        for chosen in [Lang::Ko, Lang::En, Lang::En, Lang::Ko] {
+            store.set_language(chosen).unwrap();
+            assert_eq!(store.current().language, Some(chosen));
+            assert_eq!(PreferenceStore::load(path.clone()).current().language, Some(chosen));
+        }
     }
 
     #[test]
@@ -291,14 +289,14 @@ mod tests {
         let dir = TestDir::new();
         let path = dir.0.join("pet-preferences.json");
         let mut store = PreferenceStore::load(path.clone());
-        store.toggle_language(0x0409).unwrap();
+        store.set_language(Lang::Ko).unwrap();
         store.set_hidden(true).unwrap();
         assert_eq!(PreferenceStore::load(path.clone()).current(),
             Preferences { hidden: Some(true), language: Some(Lang::Ko), ..Preferences::default() });
         let original = std::fs::read_to_string(&path).unwrap();
         use std::os::windows::fs::OpenOptionsExt;
         let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(&path).unwrap();
-        assert!(store.toggle_language(0x0412).is_err());
+        assert!(store.set_language(Lang::En).is_err());
         assert_eq!(store.current().language, Some(Lang::En));
         assert!(store.set_hidden(false).is_err());
         assert_eq!(store.current(), Preferences { hidden: Some(false), language: Some(Lang::En), ..Preferences::default() });
