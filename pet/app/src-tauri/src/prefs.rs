@@ -26,7 +26,7 @@ pub struct Preferences {
 
 impl Preferences {
     pub fn show_name_tags(self) -> bool { self.name_tags.unwrap_or(true) }
-    pub fn clear_around_cursor(self) -> bool { self.cursor_clearance.unwrap_or(true) }
+    pub fn cursor_clearance(self) -> bool { self.cursor_clearance.unwrap_or(true) }
 
     pub fn effective_language(self, windows_language: u16) -> Lang {
         self.language.unwrap_or_else(|| {
@@ -127,13 +127,13 @@ mod tests {
 
     #[test]
     fn cursor_clearance_defaults_on_when_absent_or_invalid() {
-        assert!(Preferences::default().clear_around_cursor());
+        assert!(Preferences::default().cursor_clearance());
         let dir = TestDir::new();
-        assert!(PreferenceStore::load(dir.0.join("missing.json")).current().clear_around_cursor());
+        assert!(PreferenceStore::load(dir.0.join("missing.json")).current().cursor_clearance());
         for input in ["{}", r#"{"hidden":true,"language":"ko"}"#, r#"{"cursorClearance":"false"}"#, "null", "{"] {
-            assert!(Preferences::parse(input).clear_around_cursor(), "{input}");
+            assert!(Preferences::parse(input).cursor_clearance(), "{input}");
         }
-        assert!(!Preferences::parse(r#"{"cursorClearance":false}"#).clear_around_cursor());
+        assert!(!Preferences::parse(r#"{"cursorClearance":false}"#).cursor_clearance());
     }
 
     #[test]

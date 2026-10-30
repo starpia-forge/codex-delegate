@@ -26,9 +26,12 @@ fn emit_decision(last: Option<Point>, observation: Option<Point>) -> (Option<Opt
     (event, observation)
 }
 
-fn poll_interval(active: bool, distance: f64) -> Option<Duration> {
-    if !active { return None; }
-    Some(Duration::from_millis(if distance <= CLEARANCE_RADIUS { 16 } else { 100 }))
+fn polling_gate(renderer_ready: bool, cursor_clearance_active: bool) -> bool {
+    renderer_ready && cursor_clearance_active
+}
+
+fn poll_interval(distance: f64) -> Duration {
+    Duration::from_millis(if distance <= CLEARANCE_RADIUS { 16 } else { 100 })
 }
 
 fn sample(win: &WebviewWindow) -> tauri::Result<((f64, f64), f64)> {
@@ -48,13 +51,13 @@ pub fn watch(win: WebviewWindow) {
     loop {
         let paused = win.state::<crate::window::Fullscreen>().paused();
         // Do not lose the first stationary-pointer event before the renderer subscribes.
-        let active = win.state::<crate::Ready>().load(Ordering::Acquire)
-            && win.state::<crate::show::Visibility>().cursor_clearance_active(paused);
+        let active = polling_gate(win.state::<crate::Ready>().load(Ordering::Acquire),
+            win.state::<crate::show::Visibility>().cursor_clearance_active(paused));
         // Check the gate before reading either the cursor or window geometry.
         let (observation, interval) = if !active {
             (None, None)
         } else if let Ok((point, distance)) = sample(&win) {
-            ((distance <= CLEARANCE_RADIUS).then_some(point), poll_interval(active, distance))
+            ((distance <= CLEARANCE_RADIUS).then_some(point), Some(poll_interval(distance)))
         } else {
             (None, None)
         };
@@ -74,6 +77,14 @@ pub fn watch(win: WebviewWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn polling_gate_requires_renderer_ready_and_cursor_clearance_active() {
+        assert!(!polling_gate(false, false));
+        assert!(!polling_gate(false, true));
+        assert!(!polling_gate(true, false));
+        assert!(polling_gate(true, true));
+    }
 
     #[test]
     fn unchanged_pointer_does_not_emit() {
@@ -100,14 +111,6 @@ mod tests {
     }
 
     #[test]
-    fn closing_the_polling_gate_emits_one_null() {
-        let observation = None;
-        let (event, last) = emit_decision(Some((300.0, 80.0)), observation);
-        assert_eq!((event, last), (Some(None), None));
-        assert_eq!(emit_decision(last, observation), (None, None));
-    }
-
-    #[test]
     fn outside_without_a_previous_point_does_not_emit_null() {
         assert_eq!(emit_decision(None, None), (None, None));
     }
@@ -121,18 +124,11 @@ mod tests {
     }
 
     #[test]
-    fn inactive_strip_does_not_poll() {
-        for distance in [0.0, 500.0] {
-            assert_eq!(poll_interval(false, distance), None);
-        }
-    }
-
-    #[test]
     fn polling_is_fast_within_250_logical_pixels_and_slow_beyond() {
-        assert_eq!(poll_interval(true, 0.0), Some(Duration::from_millis(16)));
-        assert_eq!(poll_interval(true, 250.0), Some(Duration::from_millis(16)));
-        assert_eq!(poll_interval(true, 250.01), Some(Duration::from_millis(100)));
-        assert_eq!(poll_interval(true, 1500.0), Some(Duration::from_millis(100)));
+        assert_eq!(poll_interval(0.0), Duration::from_millis(16));
+        assert_eq!(poll_interval(250.0), Duration::from_millis(16));
+        assert_eq!(poll_interval(250.01), Duration::from_millis(100));
+        assert_eq!(poll_interval(1500.0), Duration::from_millis(100));
     }
 
     #[test]

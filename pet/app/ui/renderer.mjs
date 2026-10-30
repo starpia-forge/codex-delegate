@@ -71,7 +71,6 @@ const paused = () => drawingPaused(pause);
 const root = document.getElementById("stage");
 let lastPointer = null;
 let cursorClearance = true;
-let cursorClearanceEvents = 0;
 function updateCursor(pointer) {
   lastPointer = pointer;
   const mask = clearanceMask(pointer, cursorClearance && !paused());
@@ -216,15 +215,15 @@ function updatePause() {
   updateCursor(lastPointer);
   if (!paused()) render();
 }
+let fullscreenEvents = 0, visibilityEvents = 0, nameTagEvents = 0, cursorClearanceEvents = 0;
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
 await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
 await window.__TAURI__.event.listen("pet-cursor", ({ payload }) => updateCursor(payload));
 await window.__TAURI__.event.listen("pet-cursor-clearance", ({ payload }) => {
   cursorClearanceEvents++;
-  cursorClearance = payload.cursorClearance;
+  cursorClearance = payload.cursorClearance !== false;
   updateCursor(lastPointer);
 });
-let fullscreenEvents = 0, visibilityEvents = 0, nameTagEvents = 0;
 // Subscribe before reading either preferences or the catalogue. An event received
 // during startup wins over a potentially older command response.
 const languageSubscription = await subscribeLanguage(window.__TAURI__.event.listen, setLanguage);

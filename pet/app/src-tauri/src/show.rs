@@ -44,7 +44,7 @@ struct Transition {
 impl Transition {
     fn hidden(&self) -> bool { self.preferences.current().hidden.unwrap_or(false) }
     fn show_name_tags(&self) -> bool { self.preferences.current().show_name_tags() }
-    fn clear_around_cursor(&self) -> bool { self.preferences.current().clear_around_cursor() }
+    fn cursor_clearance(&self) -> bool { self.preferences.current().cursor_clearance() }
     fn language(&self) -> Lang { self.preferences.current().effective_language(self.windows_language) }
     fn active(&self, generation: u64) -> bool {
         self.generation == generation && self.running && self.pending && !self.hidden()
@@ -64,7 +64,7 @@ impl Visibility {
         // The renderer needs the effective language; this never writes it to disk.
         preferences["language"] = state.language().code().into();
         preferences["nameTags"] = state.show_name_tags().into();
-        preferences["cursorClearance"] = state.clear_around_cursor().into();
+        preferences["cursorClearance"] = state.cursor_clearance().into();
         preferences
     }
 
@@ -72,7 +72,7 @@ impl Visibility {
 
     pub fn cursor_clearance_active(&self, paused: bool) -> bool {
         let state = self.0.lock().unwrap();
-        state.clear_around_cursor() && !state.hidden() && !paused
+        state.cursor_clearance() && !state.hidden() && !paused
     }
 
     fn toggle_name_tags(&self, app: &AppHandle) -> bool {
@@ -85,7 +85,7 @@ impl Visibility {
 
     fn toggle_cursor_clearance(&self, app: &AppHandle) -> bool {
         let mut state = self.0.lock().unwrap();
-        let enabled = !state.clear_around_cursor();
+        let enabled = !state.cursor_clearance();
         let _ = state.preferences.set_cursor_clearance(enabled); // Store reports failures; memory wins.
         let _ = app.emit_to("main", "pet-cursor-clearance", json!({ "cursorClearance": enabled }));
         enabled
@@ -228,7 +228,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let (hidden, name_tags, cursor_clearance, current) = {
         let visibility = app.state::<Visibility>();
         let state = visibility.0.lock().unwrap();
-        (state.hidden(), state.show_name_tags(), state.clear_around_cursor(), state.language())
+        (state.hidden(), state.show_name_tags(), state.cursor_clearance(), state.language())
     };
     let items = TrayItems {
         show: CheckMenuItem::with_id(app, "show-pets", "", true, !hidden, None::<&str>)?,

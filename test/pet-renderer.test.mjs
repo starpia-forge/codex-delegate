@@ -63,7 +63,7 @@ async function renderer(t, { preferences = { hidden: false, nameTags: true, lang
   } };
 }
 
-test("tray name-tag changes remove tag layout space immediately for existing and future pets", async t => {
+test("tray name-tag changes set display immediately for existing and future pets", async t => {
   const h = await renderer(t);
   h.add("first");
   assert.equal(h.root.querySelectorAll(".tag").length, 1);
