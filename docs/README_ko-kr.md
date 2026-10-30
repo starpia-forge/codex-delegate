@@ -50,6 +50,11 @@ npx github:starpia-forge/codex-delegate install --without-pet   # 끄기 (스킬
 
 Windows 전용이며 WebView2 Runtime이 필요합니다. 켜거나 끈 뒤에는 Claude Code를 재시작하세요. 크기와 사용자 펫은 `~/.codex-delegate/pet.json`에서 설정합니다. 자세한 내용은 [pet/README.md](../pet/README.md)를 참고하세요.
 
+펫은 설치한 버전의 Release에서 내려받으며, 해당 Release의 `.sha256` 파일로 검증합니다.
+새 버전이 공개된 직후에는 펫을 켠 상태의 설치(일반 `install` 포함)가 잠시
+Release가 없다는 안내와 함께 중단될 수 있습니다. 잠시 후 다시 시도하거나
+Release 태그를 지정해 설치하세요.
+
 > I Love まちカドまぞく
 
 ## 워크플로우

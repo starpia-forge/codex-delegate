@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - name: Check the Release tag
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected vX.Y.Z' }
+          node scripts/pet-bundle.mjs --check --expect-tag "$env:RELEASE_TAG"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test the shipped package
+        run: npm.cmd test
+      - name: Test the pet app
+        run: cargo test --locked --manifest-path pet/app/src-tauri/Cargo.toml
+      - name: Install cargo-about
+        run: cargo install cargo-about --version 0.9.3 --locked --features cli
+      - name: Generate third-party notices
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          cargo about generate --format json --locked --fail --manifest-path pet/app/src-tauri/Cargo.toml --config pet/app/src-tauri/about.toml --output-file dist/pet-about.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/pet-notices.mjs --about dist/pet-about.json --out pet/app/ui/notices/THIRD-PARTY-NOTICES.txt
+      - name: Build the pet app
+        run: cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
+      - name: Check the executable version
+        run: |
+          $releaseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $versionInfo = (Get-Item pet/app/src-tauri/target/release/codex-delegate-pet.exe).VersionInfo
+          if ($versionInfo.ProductVersion -ne $releaseVersion) {
+            throw "Executable ProductVersion '$($versionInfo.ProductVersion)' does not match package version '$releaseVersion'"
+          }
+          if ($versionInfo.FileVersion -ne $releaseVersion -and $versionInfo.FileVersion -ne "$releaseVersion.0") {
+            throw "Executable FileVersion '$($versionInfo.FileVersion)' does not match package version '$releaseVersion'"
+          }
+      - name: Package the pet bundle
+        run: node scripts/pet-bundle.mjs --expect-tag "$env:RELEASE_TAG" --notices pet/app/ui/notices/THIRD-PARTY-NOTICES.txt --out dist
+      - name: Publish the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$env:RELEASE_TAG"
+          dist/codex-delegate-pet-windows-x64.zip
+          dist/codex-delegate-pet-windows-x64.zip.sha256
+          --verify-tag --title "$env:RELEASE_TAG" --generate-notes

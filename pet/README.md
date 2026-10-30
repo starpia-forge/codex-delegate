@@ -249,32 +249,8 @@ The bundle contains
 `default-pets/` from `app/ui/assets/`. The assets are committed, so the release
 build does not regenerate placeholders.
 
-The numbered procedure below is historical and awaits ticket 04's workflow and
-release-procedure update. It references the removed `pet-pin.json` and must not
-be used for the current installer.
-
-1. Choose `pet-vX.Y.Z` matching the repository's `package.json` version.
-   Every app build takes its version from that file. Commit the source changes
-   normally and run `npm.cmd test`.
-2. Tag that commit and push the tag, for example:
-
-   ```powershell
-   git tag pet-v1.2.3
-   git push origin pet-v1.2.3
-   ```
-
-3. Wait for the **Pet release** GitHub Actions workflow. It tests the shipped
-   package, builds on Windows with the locked Rust dependencies and the version
-   from `package.json`, and creates
-   a GitHub Release with `codex-delegate-pet-windows-x64.zip` and its `.sha256`
-   file. Verify the release bundle installs before updating the package pin.
-4. Copy the pin JSON from the workflow job summary into the repository's
-   `pet-pin.json`. Its fields are `tag`, `asset`, `sha256`, and `version`; the
-   version is the tag without `pet-v`. You can also download the release's
-   `.sha256` file to get the checksum of the published zip. Commit the pin as a
-   normal commit, for example `chore(pet): pin bundle pet-v1.2.3`.
-5. Run `npm.cmd test` and release the npm package as usual. Its shipped pin
-   selects this pet release; pet and npm versions are independent.
+Follow [the Release procedure](../docs/releasing.md) to publish a Release with
+the bundle and its `.sha256` file.
 
 To preview the bundle locally after generating the third-party notices and
 building the Release executable:
@@ -311,8 +287,8 @@ shipped and verifies the generated runner files. It serves the real bundle
 script's checksum and zip, checks download order, installs into
 an isolated home, then checks that the installed runner sends `start` and
 successful `end` events to an authenticated fake pet listener. It uses a fake
-executable and Codex CLI; the real Windows app and a test-tag workflow run
-still need human verification.
+executable and Codex CLI; the real Windows app and the Release workflow still
+need human verification as described in the Release procedure.
 
 ## Window behaviour
 
