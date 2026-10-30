@@ -97,6 +97,7 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 ```json
 {
   "scale": 0.6,
+  "nameTags": true,
   "hideNearCursor": true,
   "pets": { "leader": "my-pet", "researcher": "critic" }
 }
@@ -105,18 +106,24 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 `scale` accepts numbers from 0.3 through 1.0. `pets` accepts any role name
 matching `[a-z][a-z0-9-]*`, including user roles; values are pet folder names.
 
+`nameTags` accepts a boolean and defaults to `true`. With `false`, no name tags
+are drawn; slot width, row fit and strip height stay unchanged, so pets do not move.
+Non-boolean values are ignored, use the default, and are reported by `doctor`.
+
 `hideNearCursor` accepts a boolean and defaults to `true`. The whole strip gives
 way within a circle 500 logical pixels in diameter around the pointer: transparent up
 to radius 190 px, fading linearly to opaque at 250 px. It follows directly;
 `false` disables both the mask and cursor polling. Cursor polling runs about
 60 Hz within 250 logical px of the strip and 10 Hz farther away, and stops
 while pets are hidden or the strip is paused for fullscreen. The strip stays
-click-through at every display scale.
+click-through at every display scale. Non-boolean values are ignored, use the
+default, and are reported by `doctor`.
 
 Unknown keys and invalid values are ignored. Missing or invalid JSON uses
 defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic issues
 alongside the selected pets. The renderer reads configuration and packages once
-at startup; restart the app to load changes. `doctor` resolves them on each run.
+at startup; restart the app to load changes, including `nameTags` and
+`hideNearCursor`. `doctor` resolves them on each run.
 
 Lookup is `<home>/.codex-delegate/pets/<name>/`, then
 `$CODEX_HOME/pets/<name>/` (default `<home>/.codex/pets/<name>/`), then the bundled
@@ -132,6 +139,32 @@ to `.codex-delegate/pets/my-pet/`, set `pets.researcher` to `my-pet` and `scale`
 to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork,
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
+
+Manual visibility check: use the rebuilt app and isolated home above. Restart
+after each configuration change, keeping the same workers and pet scale.
+
+1. **Name tags:** compare screenshots with `nameTags: true` and `false`,
+   restarting between them. Keep the pointer away and compare matching scene
+   positions: pet positions, row fit and strip height must be identical, with
+   no name tags drawn when `false`.
+2. **Cursor clearance:** with `hideNearCursor: true`, check at 100% display
+   scale, then another scale such as 150%. Around the pointer, expect a fully
+   clear core about 380 logical (CSS) px wide, with a soft edge fading to opaque
+   at about 500 px diameter. It should look the same size relative to the pets
+   at both scales. A pet half inside the circle loses only that half; pets,
+   name tags and overflow badges all give way. Clicking through the strip must
+   still reach the window below.
+3. **Immediate return:** move the pointer away from the strip. Pets must
+   reappear immediately, without fade-in lag.
+4. **Clearance off:** set `hideNearCursor: false` and restart. Move the pointer
+   across the strip: no cut-out should appear anywhere.
+5. **No cursor polling while pets hidden or fullscreen:** restore
+   `hideNearCursor: true` and restart. In Task Manager, watch the pet app's CPU
+   while pets are hidden (uncheck "Show pets" in the tray); compare a stationary
+   pointer with continuous mouse movement near the strip. Expect near-idle CPU
+   with no mouse-driven increase. Repeat while the strip is paused behind a
+   fullscreen app (view Task Manager on a second monitor if available), then
+   show pets or leave fullscreen and confirm cursor clearance resumes.
 
 ## Releasing the pet bundle
 
