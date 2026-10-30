@@ -64,7 +64,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 28. As a user, I want the pet app to start in Korean when my Windows display language is Korean and in English otherwise, so that the first thing I see is in my language.
 29. As a user who can't read the current language, I want the Language submenu to be labelled `Language` in English and `<word for language> (Language)` in any other language, and to list each language in its own name, so that I can always find my way back to a language I read.
 30. As a user, I want to pick a language from the submenu rather than cycle through them, so that one stray click never switches me to a language I can't read.
-31. As a user, I want a language change to apply at once to the tray menu, the tooltip, the overflow badges and an open licences window, so that the app never shows two languages at the same time.
+31. As a user, I want a language change to apply at once to the tray menu, the overflow badges and an open licences window, so that the app never shows two languages at the same time.
 32. As a user, I want my chosen language remembered across idle exits, restarts and bundle updates, so that I choose it once.
 33. As a user who never chose a language, I want the app to keep following my Windows display language, so that changing Windows changes the pets too.
 34. As a user, I want role names, worker labels and pet names left untranslated, so that what I see on a name tag matches what I type in `pet.json` and see in the CLI.
@@ -118,7 +118,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 ### Pet preferences
 
 - A new **pet preferences** file in the pet state directory holds the user's tray choices: `hidden` (boolean) and `language` (`"en"` or `"ko"`). Each key is optional. A missing file, an unreadable file or an invalid value means pets shown and the language follows Windows.
-- `language` is written only when the user switches languages. Until then, the app derives the language from the Windows user display language each time it starts: Korean means `ko`, anything else means `en`.
+- `language` is written only when the user picks a language from the Language submenu, even the one already in effect (picking it pins that language, so the app stops following Windows). Until then, the app derives the language from the Windows user display language each time it starts: Korean means `ko`, anything else means `en`.
 - Only the pet shell writes the file, by writing a temporary file and renaming it over the existing one, the way it already publishes its process file. The installer never writes it. Bundle updates leave it untouched because the state directory survives updates. Removal deletes it with the state directory.
 - Preference changes are serialized on one owner in the shell. When a save fails, the change still applies to the running app, the failure goes to stderr and the temporary file is removed. The next change saves the full current preferences again. A failed save never shows a dialog.
 - The CLI only reads the file, for `list` and `doctor`. It treats the file exactly as the shell does: unknown keys are ignored and invalid values fall back to the defaults.
@@ -139,7 +139,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 - The renderer's drawing pause is derived as `hidden || fullscreen` from two independent flags; it is no longer a single `paused` boolean overwritten by each event. Leaving fullscreen while hidden keeps drawing paused, and showing while fullscreen stays paused. While drawing is paused, the stage's lifecycle keeps ticking on wall time, as it does for fullscreen today.
 - The shell tells the renderer about visibility and language changes through events, and exposes the current preferences through a command for the renderer's start-up.
 - The idle exit, event intake, liveness checks and leader restore behave the same whether pets are shown or hidden.
-- Language switches rebuild the tray menu labels and the tooltip, then notify the renderer and the licences window.
+- Language switches rebuild the tray menu labels and check marks, then notify the renderer and the licences window. The tooltip is not translated, so it does not change.
 - The licences window is a second webview window created on demand. It is decorated, focusable, resizable and has a taskbar entry. It doesn't follow the strip's click-through, topmost or fullscreen handling, and it is not excluded from capture. Opening it while it exists focuses the existing window. Closing it destroys it.
 - The licences window gets its own capability, granting only what it uses: event listening and the two read commands below. The strip's capability is unchanged.
 - The catalogue and the notices document reach both webviews through shell commands (`messages` and `notices`).
@@ -240,7 +240,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
   - Replacing an existing file works and leaves no temporary file.
   - A failed write keeps the in-memory change and leaves the old file intact.
   - Language resolution: a stored language wins; otherwise Korean Windows language ids map to `ko` and all others to `en`.
-  - The language toggle order.
+  - The Language submenu: its label per language, endonyms never translated, exactly the effective language checked, and choosing a language reporting whether the effective language changed.
 - **Not automated**: tray behaviour gets a manual checklist in its ticket, run against the real app on Windows 10, like the existing strip checklist. The checklist:
   - The icon appears with the app and disappears at idle exit.
   - Left-click toggles; right-click opens the menu.
