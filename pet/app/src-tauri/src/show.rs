@@ -11,12 +11,14 @@ fn retry_delay(attempt: u32) -> Duration {
 
 struct TrayItems {
     show: CheckMenuItem<tauri::Wry>,
+    name_tags: CheckMenuItem<tauri::Wry>,
     licences: MenuItem<tauri::Wry>,
     language: MenuItem<tauri::Wry>,
 }
 impl TrayItems {
     fn relabel(&self, language: Lang) -> tauri::Result<()> {
         self.show.set_text(text("tray.showPets", language))?;
+        self.name_tags.set_text(text("tray.showNameTags", language))?;
         self.licences.set_text(text("tray.licences", language))?;
         self.language.set_text(text("tray.language", language))
     }
@@ -39,6 +41,7 @@ struct Transition {
 }
 impl Transition {
     fn hidden(&self) -> bool { self.preferences.current().hidden.unwrap_or(false) }
+    fn name_tags(&self) -> bool { self.preferences.current().show_name_tags() }
     fn language(&self) -> Lang { self.preferences.current().effective_language(self.windows_language) }
     fn active(&self, generation: u64) -> bool {
         self.generation == generation && self.running && self.pending && !self.hidden()
@@ -57,12 +60,21 @@ impl Visibility {
         let mut preferences = state.preferences.current().json();
         // The renderer needs the effective language; this never writes it to disk.
         preferences["language"] = state.language().code().into();
+        preferences["nameTags"] = state.name_tags().into();
         preferences
     }
 
     pub fn language(&self) -> Lang { self.0.lock().unwrap().language() }
 
     pub fn hidden(&self) -> bool { self.0.lock().unwrap().hidden() }
+
+    fn toggle_name_tags(&self, app: &AppHandle) -> bool {
+        let mut state = self.0.lock().unwrap();
+        let enabled = !state.name_tags();
+        let _ = state.preferences.set_name_tags(enabled); // Store reports failures; memory wins.
+        let _ = app.emit_to("main", "pet-name-tags", json!({ "nameTags": enabled }));
+        enabled
+    }
 
     fn toggle_language(&self, app: &AppHandle, items: &TrayItems) {
         let mut state = self.0.lock().unwrap();
@@ -198,18 +210,19 @@ pub fn frame_ready(id: u64, state: tauri::State<Visibility>) {
 }
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let (hidden, current) = {
+    let (hidden, name_tags, current) = {
         let visibility = app.state::<Visibility>();
         let state = visibility.0.lock().unwrap();
-        (state.hidden(), state.language())
+        (state.hidden(), state.name_tags(), state.language())
     };
     let items = TrayItems {
         show: CheckMenuItem::with_id(app, "show-pets", "", true, !hidden, None::<&str>)?,
+        name_tags: CheckMenuItem::with_id(app, "show-name-tags", "", true, name_tags, None::<&str>)?,
         licences: MenuItem::with_id(app, "licences", "", true, None::<&str>)?,
         language: MenuItem::with_id(app, "language", "", true, None::<&str>)?,
     };
     items.relabel(current)?;
-    let menu = Menu::with_items(app, &[&items.show, &items.licences, &items.language])?;
+    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.licences, &items.language])?;
     let click_show = items.show.clone();
     let icon = app.default_window_icon().expect("pet app icon").clone();
     TrayIconBuilder::with_id("pets")
@@ -229,6 +242,9 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             if event.id.as_ref() == "show-pets" {
                 let hidden = app.state::<Visibility>().toggle(app);
                 let _ = items.show.set_checked(!hidden);
+            } else if event.id.as_ref() == "show-name-tags" {
+                let enabled = app.state::<Visibility>().toggle_name_tags(app);
+                let _ = items.name_tags.set_checked(enabled);
             } else if event.id.as_ref() == "language" {
                 app.state::<Visibility>().toggle_language(app, &items);
             } else if event.id.as_ref() == "licences" {
@@ -242,6 +258,20 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_preferences_restore_name_tags_even_while_pets_are_hidden() {
+        // An unavailable directory supplies defaults without touching real preferences.
+        let path = std::env::temp_dir().join(format!("pet-show-missing-{}", std::process::id()))
+            .join("pet-preferences.json");
+        assert_eq!(Visibility::new(PreferenceStore::load(path.clone())).preferences()["nameTags"], true);
+        let mut store = PreferenceStore::load(path);
+        let _ = store.set_hidden(true);
+        let _ = store.set_name_tags(false);
+        let visibility = Visibility::new(store);
+        assert_eq!(visibility.preferences()["nameTags"], false);
+        assert_eq!(visibility.preferences()["hidden"], true);
+    }
 
     #[test]
     fn failed_show_backoff_grows_to_a_five_second_cap_without_overflow() {

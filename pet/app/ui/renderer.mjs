@@ -77,6 +77,12 @@ function updateCursor(pointer) {
   root.style.webkitMaskImage = mask;
 }
 const teams = new Map(), pets = new Map();
+let nameTags = true;
+function setNameTags(enabled) {
+  nameTags = enabled;
+  // Visibility retains the tag's space, including while drawing is paused.
+  for (const pet of pets.values()) pet.tag.style.visibility = nameTags ? "visible" : "hidden";
+}
 const sessionsBadge = document.createElement("span");
 sessionsBadge.className = "overflow sessions-overflow";
 let catalogue = {}, language = "en";
@@ -113,7 +119,7 @@ function render() {
         const tag = document.createElement("span");
         tag.className = "tag";
         // Keep the tag's space so hiding it never moves the pet.
-        if (!config.nameTags) tag.style.visibility = "hidden";
+        tag.style.visibility = nameTags ? "visible" : "hidden";
         node.append(canvas, tag);
         pets.set(character.id, { node, canvas, tag, began: animation.now() });
       }
@@ -208,7 +214,7 @@ function updatePause() {
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
 await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
 await window.__TAURI__.event.listen("pet-cursor", ({ payload }) => updateCursor(payload));
-let fullscreenEvents = 0, visibilityEvents = 0;
+let fullscreenEvents = 0, visibilityEvents = 0, nameTagEvents = 0;
 // Subscribe before reading either preferences or the catalogue. An event received
 // during startup wins over a potentially older command response.
 const languageSubscription = await subscribeLanguage(window.__TAURI__.event.listen, setLanguage);
@@ -224,6 +230,10 @@ await window.__TAURI__.event.listen("pet-visibility", ({ payload }) => {
   pause.hidden = payload.hidden;
   updatePause();
 });
+await window.__TAURI__.event.listen("pet-name-tags", ({ payload }) => {
+  nameTagEvents++;
+  setNameTags(payload.nameTags);
+});
 await window.__TAURI__.event.listen("pet-frame", frameHandler({
   drawFrame, computerUseLive: () => stage.computerUseLive(), invoke,
 }));
@@ -231,7 +241,9 @@ const fullscreenVersion = fullscreenEvents;
 const fullscreen = await invoke("fullscreen_paused");
 if (fullscreenVersion === fullscreenEvents) pause.fullscreen = fullscreen;
 const visibilityVersion = visibilityEvents;
+const nameTagVersion = nameTagEvents;
 const preferences = await languageSubscription.read(() => invoke("pet_preferences"));
+if (nameTagVersion === nameTagEvents) setNameTags(preferences.nameTags !== false);
 if (visibilityVersion === visibilityEvents) pause.hidden = preferences.hidden === true;
 updatePause();
 await invoke("set_cursor_clearance", { enabled: config.hideNearCursor });

@@ -79,7 +79,7 @@ async function validatePackage(dir, bytes, readFile, decodeSheet) {
 // Bundled paths belong to the caller: embedded URLs in the app, installed
 // default-pets paths in doctor. Both readers return bytes or null for missing files.
 export async function resolvePets({ home, codexHome, readFile, bundledRoot, readBundledFile, decodeSheet }) {
-  const result = { scale: 0.6, nameTags: true, hideNearCursor: true, pets: {}, issues: [] };
+  const result = { scale: 0.6, hideNearCursor: true, pets: {}, issues: [] };
   const defaults = Object.create(null);
   for (const name of slots) {
     const dir = join(bundledRoot, name);
@@ -103,12 +103,11 @@ export async function resolvePets({ home, codexHome, readFile, bundledRoot, read
     if (Number.isFinite(config.scale) && config.scale >= 0.3 && config.scale <= 1) result.scale = config.scale;
     else result.issues.push({ code: "scale-out-of-range", key: "scale" });
   }
-  for (const [key, code] of [["nameTags", "name-tags-invalid"], ["hideNearCursor", "hide-near-cursor-invalid"]]) {
-    if (!Object.hasOwn(config, key)) continue;
-    if (typeof config[key] === "boolean") result[key] = config[key];
-    else result.issues.push({ code, key });
+  if (Object.hasOwn(config, "hideNearCursor")) {
+    if (typeof config.hideNearCursor === "boolean") result.hideNearCursor = config.hideNearCursor;
+    else result.issues.push({ code: "hide-near-cursor-invalid", key: "hideNearCursor" });
   }
-  const knownKeys = new Set(["scale", "pets", "nameTags", "hideNearCursor"]);
+  const knownKeys = new Set(["scale", "pets", "hideNearCursor"]);
   for (const key of Object.keys(config)) {
     if (!knownKeys.has(key)) result.issues.push({ code: "unknown-key", key });
   }

@@ -276,7 +276,7 @@ for (const [description, config, problem] of [
   ["non-boolean cursor clearance", '{"hideNearCursor":"false"}', /hideNearCursor:.*must be a boolean/],
   ["bad JSON", "{", /pet\.json: invalid JSON or object/],
   ["unknown key and out-of-range scale", '{"scale":2,"surprise":true}', /scale:.*0\.3.*1.*surprise: unknown key/],
-  ["non-boolean nameTags", '{"nameTags":"false"}', /nameTags: must be a boolean/],
+  ["obsolete nameTags key", '{"nameTags":"false"}', /nameTags: unknown key/],
   ["invalid pets map", '{"pets":[]}', /pets:.*object/],
   ["invalid pet name", '{"pets":{"leader":"../unsafe"}}', /pets\.leader:.*invalid pet name/],
 ]) {
@@ -293,13 +293,12 @@ for (const [description, config, problem] of [
 }
 
 for (const nameTags of [true, false]) {
-  test(`doctor accepts nameTags ${nameTags} in pet configuration`, async t => {
+  test(`doctor reports nameTags ${nameTags} as an unknown configuration key`, async t => {
     const f = await installedFixture(t);
     writeFileSync(join(f.petRoot, "pet.json"), JSON.stringify({ nameTags }));
     const result = await f.run();
     assert.equal(result.code, 0, result.output);
-    assert.match(result.stdout, /\[OK  \] Pet configuration/);
-    assert.doesNotMatch(result.stdout, /\[WARN\] Pet configuration/);
+    assert.match(result.stdout, /\[WARN\] Pet configuration - nameTags: unknown key; ignored/);
   });
 }
 

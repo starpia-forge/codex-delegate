@@ -97,7 +97,6 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 ```json
 {
   "scale": 0.6,
-  "nameTags": true,
   "hideNearCursor": true,
   "pets": { "leader": "my-pet", "researcher": "critic" }
 }
@@ -106,9 +105,12 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 `scale` accepts numbers from 0.3 through 1.0. `pets` accepts any role name
 matching `[a-z][a-z0-9-]*`, including user roles; values are pet folder names.
 
-`nameTags` accepts a boolean and defaults to `true`. With `false`, no name tags
-are drawn; slot width, row fit and strip height stay unchanged, so pets do not move.
-Non-boolean values are ignored, use the default, and are reported by `doctor`.
+The checked **Show name tags** tray item (**이름표 표시** in Korean), directly
+below **Show pets**, turns all name tags on or off immediately, including for
+pets added later. It works while pets are hidden and defaults to on. The choice
+is remembered in `pet-state/pet-preferences.json` alongside pets hidden and
+language, surviving restarts and bundle updates. With name tags off, their space
+is retained: slot width, row fit and strip height stay unchanged, so pets do not move.
 
 `hideNearCursor` accepts a boolean and defaults to `true`. The whole strip gives
 way within a circle 500 logical pixels in diameter around the pointer: transparent up
@@ -122,8 +124,8 @@ default, and are reported by `doctor`.
 Unknown keys and invalid values are ignored. Missing or invalid JSON uses
 defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic issues
 alongside the selected pets. The renderer reads configuration and packages once
-at startup; restart the app to load changes, including `nameTags` and
-`hideNearCursor`. `doctor` resolves them on each run.
+at startup; restart the app to load changes, including `hideNearCursor`.
+`doctor` resolves them on each run.
 
 Lookup is `<home>/.codex-delegate/pets/<name>/`, then
 `$CODEX_HOME/pets/<name>/` (default `<home>/.codex/pets/<name>/`), then the bundled
@@ -143,10 +145,14 @@ Break its manifest and restart to confirm the researcher placeholder appears.
 Manual visibility check: use the rebuilt app and isolated home above. Restart
 after each configuration change, keeping the same workers and pet scale.
 
-1. **Name tags:** compare screenshots with `nameTags: true` and `false`,
-   restarting between them. Keep the pointer away and compare matching scene
-   positions: pet positions, row fit and strip height must be identical, with
-   no name tags drawn when `false`.
+1. **Name tags:** uncheck and recheck **Show name tags** in the tray without
+   restarting. Keep the pointer away and compare matching scene positions:
+   pet positions, row fit and strip height must be identical, with no name tags
+   drawn when unchecked. Add another pet while unchecked and confirm it also
+   has no tag. Hide pets, toggle the item, then show pets and confirm the choice
+   applies. Restart with the item unchecked and confirm both the checkmark and
+   tags stay off. Switch language and confirm **Show name tags** / **이름표 표시**
+   is relabelled without changing its checkmark.
 2. **Cursor clearance:** with `hideNearCursor: true`, check at 100% display
    scale, then another scale such as 150%. Around the pointer, expect a fully
    clear core about 380 logical (CSS) px wide, with a soft edge fading to opaque
