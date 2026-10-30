@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions). Supersedes the `nameTags` configuration key from ticket 01.
 
@@ -19,3 +19,4 @@ Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions). Supersedes the 
 ## Comments
 
 - 2026-10-30: Implemented on `ticket/pet-visibility-04`: checked **Show name tags** tray item stored as `nameTags` in pet preferences (default on), sent to the renderer as `pet-name-tags` and read at startup via `pet_preferences`; `nameTags` dropped from the resolver and doctor. `npm test` (412) and `cargo test` (41) pass; native tray visual check not performed.
+- 2026-10-30: Merged to `feat/pet-visibility` with review fixes (ca6732f); `npm test` 412/412 and `cargo test` 41/41 pass. Tray menu not yet checked by hand.
