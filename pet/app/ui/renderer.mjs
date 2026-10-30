@@ -79,8 +79,9 @@ function updateCursor(pointer) {
 const teams = new Map(), pets = new Map();
 let nameTags = true;
 function updateNameTagVisibility(tag) {
-  // Visibility retains the tag's space, including while drawing is paused.
-  tag.style.visibility = nameTags ? "visible" : "hidden";
+  // Remove the tag's height so the canvas drops to the strip's bottom padding,
+  // including while drawing is paused. The pet's fixed width keeps its slot.
+  tag.style.display = nameTags ? "" : "none";
 }
 function setNameTags(enabled) {
   nameTags = enabled;

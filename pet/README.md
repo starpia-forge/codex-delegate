@@ -109,8 +109,11 @@ The checked **Show name tags** tray item (**이름표 표시** in Korean), direc
 below **Show pets**, turns all name tags on or off immediately, including for
 pets added later. It works while pets are hidden and defaults to on. The choice
 is remembered in `pet-state/pet-preferences.json` alongside pets hidden and
-language, surviving restarts and bundle updates. With name tags off, their space
-is retained: slot width, row fit and strip height stay unchanged, so pets do not move.
+language, surviving restarts and bundle updates. With name tags off, the tags
+leave the layout: pets drop instantly by the tag's height so their canvases sit
+on the strip's 4 px bottom padding, level with the overflow badges just above
+the taskbar. Slot width, gaps, row fit, scene and exit offsets, and strip window
+size stay unchanged. Turning tags back on restores the previous vertical position.
 
 `hideNearCursor` accepts a boolean and defaults to `true`. The whole strip gives
 way within a circle 500 logical pixels in diameter around the pointer: transparent up
@@ -147,10 +150,16 @@ after each configuration change, keeping the same workers and pet scale.
 
 1. **Name tags:** uncheck and recheck **Show name tags** in the tray without
    restarting. Keep the pointer away and compare matching scene positions:
-   pet positions, row fit and strip height must be identical, with no name tags
-   drawn when unchecked. Add another pet while unchecked and confirm it also
-   has no tag. Hide pets, toggle the item, then show pets and confirm the choice
-   applies. Restart with the item unchecked and confirm both the checkmark and
+   unchecking must remove the tags and instantly drop each canvas by the tag's
+   height onto the strip's 4 px bottom padding, level with the overflow badges.
+   Rechecking must restore the previous vertical position without animation.
+   Horizontal positions, slot widths, gaps, visible pet count, scene and exit
+   offsets, and strip window size must stay unchanged. Add another pet while
+   unchecked and confirm it also has no tag and sits at the same bottom edge.
+   Hide pets, turn tags off, add a pet, then show pets and confirm all pets sit
+   at the lower edge. Hide pets again, turn tags on, then show pets and confirm
+   the tags and previous vertical position return for every pet.
+   Restart with the item unchecked and confirm both the checkmark and
    tags stay off. Switch language and confirm **Show name tags** / **이름표 표시**
    is relabelled without changing its checkmark.
 2. **Cursor clearance:** with `hideNearCursor: true`, check at 100% display

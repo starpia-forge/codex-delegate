@@ -4,7 +4,7 @@ import test from "node:test";
 // Minimal browser/Tauri boundaries; run the real renderer, resolver and stage.
 class Element {
   children = [];
-  style = { visibility: "", setProperty(key, value) { this[key] = value; } };
+  style = { display: "", setProperty(key, value) { this[key] = value; } };
   offsetLeft = 0;
   offsetWidth = 139;
   append(...nodes) {
@@ -63,30 +63,30 @@ async function renderer(t, { preferences = { hidden: false, nameTags: true, lang
   } };
 }
 
-test("tray name-tag changes apply immediately to existing and future pets", async t => {
+test("tray name-tag changes remove tag layout space immediately for existing and future pets", async t => {
   const h = await renderer(t);
   h.add("first");
   assert.equal(h.root.querySelectorAll(".tag").length, 1);
   h.emit("pet-name-tags", { nameTags: false });
-  assert.equal(h.root.querySelector(".tag").style.visibility, "hidden");
+  assert.equal(h.root.querySelector(".tag").style.display, "none");
   h.add("second");
   const tags = h.root.querySelectorAll(".tag");
   assert.equal(tags.length, 2);
-  assert.ok(tags.every(tag => tag.style.visibility === "hidden"));
+  assert.ok(tags.every(tag => tag.style.display === "none"));
   h.emit("pet-name-tags", { nameTags: true });
-  assert.ok(tags.every(tag => tag.style.visibility === "visible"));
+  assert.ok(tags.every(tag => tag.style.display === ""));
 });
 
 test("the renderer restores the stored name-tag choice at startup", async t => {
   const h = await renderer(t, { preferences: { hidden: false, nameTags: false, language: "en" } });
   h.add("first");
-  assert.equal(h.root.querySelector(".tag").style.visibility, "hidden");
+  assert.equal(h.root.querySelector(".tag").style.display, "none");
 });
 
 test("a tray toggle during startup wins over an older preference response", async t => {
   const h = await renderer(t, { onRead: emit => emit("pet-name-tags", { nameTags: false }) });
   h.add("first");
-  assert.equal(h.root.querySelector(".tag").style.visibility, "hidden");
+  assert.equal(h.root.querySelector(".tag").style.display, "none");
 });
 
 test("name tags can change while pets are hidden and apply to pets added before showing", async t => {
@@ -94,19 +94,19 @@ test("name tags can change while pets are hidden and apply to pets added before 
   h.add("first");
   h.emit("pet-visibility", { hidden: true });
   h.emit("pet-name-tags", { nameTags: false });
-  assert.equal(h.root.querySelector(".tag").style.visibility, "hidden");
+  assert.equal(h.root.querySelector(".tag").style.display, "none");
   h.add("second");
   h.emit("pet-visibility", { hidden: false });
   const tags = h.root.querySelectorAll(".tag");
   assert.equal(tags.length, 2);
-  assert.ok(tags.every(tag => tag.style.visibility === "hidden"));
+  assert.ok(tags.every(tag => tag.style.display === "none"));
   h.emit("pet-visibility", { hidden: true });
   h.emit("pet-name-tags", { nameTags: true });
-  assert.ok(tags.every(tag => tag.style.visibility === "visible"));
+  assert.ok(tags.every(tag => tag.style.display === ""));
 });
 
 test("missing name-tag preferences default to visible", async t => {
   const h = await renderer(t, { preferences: { hidden: false, language: "en" } });
   h.add("first");
-  assert.equal(h.root.querySelector(".tag").style.visibility, "visible");
+  assert.equal(h.root.querySelector(".tag").style.display, "");
 });
