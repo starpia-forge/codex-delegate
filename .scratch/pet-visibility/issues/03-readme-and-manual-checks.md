@@ -9,7 +9,7 @@
 Spec: `.scratch/pet-visibility/spec.md`
 
 - [x] Configuration section shows both keys with defaults and the restart-to-apply note.
-- [x] Manual checks: name tags off keeps pet positions identical; clearance circle size and soft edge at 100% and at another display scale; pets reappear immediately when the pointer leaves; no effect with `hideNearCursor: false`; no polling while pets hidden.
+- [ ] Manual checks: name tags off keeps pet positions identical; clearance circle size and soft edge at 100% and at another display scale; pets reappear immediately when the pointer leaves; no effect with `hideNearCursor: false`; no polling while pets hidden.
 
 ## Comments
 

@@ -103,16 +103,14 @@ export async function resolvePets({ home, codexHome, readFile, bundledRoot, read
     if (Number.isFinite(config.scale) && config.scale >= 0.3 && config.scale <= 1) result.scale = config.scale;
     else result.issues.push({ code: "scale-out-of-range", key: "scale" });
   }
-  if (Object.hasOwn(config, "nameTags")) {
-    if (typeof config.nameTags === "boolean") result.nameTags = config.nameTags;
-    else result.issues.push({ code: "name-tags-invalid", key: "nameTags" });
+  for (const [key, code] of [["nameTags", "name-tags-invalid"], ["hideNearCursor", "hide-near-cursor-invalid"]]) {
+    if (!Object.hasOwn(config, key)) continue;
+    if (typeof config[key] === "boolean") result[key] = config[key];
+    else result.issues.push({ code, key });
   }
-  if (Object.hasOwn(config, "hideNearCursor")) {
-    if (typeof config.hideNearCursor === "boolean") result.hideNearCursor = config.hideNearCursor;
-    else result.issues.push({ code: "hide-near-cursor-invalid", key: "hideNearCursor" });
-  }
+  const knownKeys = new Set(["scale", "pets", "nameTags", "hideNearCursor"]);
   for (const key of Object.keys(config)) {
-    if (key !== "scale" && key !== "pets" && key !== "nameTags" && key !== "hideNearCursor") result.issues.push({ code: "unknown-key", key });
+    if (!knownKeys.has(key)) result.issues.push({ code: "unknown-key", key });
   }
   const names = Object.create(null);
   const configuredSlots = new Set(slots);

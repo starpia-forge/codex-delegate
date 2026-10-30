@@ -23,9 +23,25 @@ fn distance_to_strip(point: (f64, f64), size: (f64, f64)) -> f64 {
     dx.hypot(dy)
 }
 
+type Point = (f64, f64);
+
+// Twin of the outer radius in pet/app/ui/cursor-clearance.mjs (logical pixels).
+const CLEARANCE_RADIUS: f64 = 250.0;
+
+// The outer Option distinguishes no event from an event carrying null.
+// None observations cover a closed gate, failed sample, or pointer beyond the band.
+fn emit_decision(last: Option<Point>, observation: Option<Point>) -> (Option<Option<Point>>, Option<Point>) {
+    let event = if last != observation { Some(observation) } else { None };
+    (event, observation)
+}
+
+fn clearance_active(enabled: bool, hidden: bool, paused: bool) -> bool {
+    enabled && !hidden && !paused
+}
+
 fn poll_interval(enabled: bool, hidden: bool, paused: bool, distance: f64) -> Option<Duration> {
-    if !enabled || hidden || paused { return None; }
-    Some(Duration::from_millis(if distance <= 250.0 { 16 } else { 100 }))
+    if !clearance_active(enabled, hidden, paused) { return None; }
+    Some(Duration::from_millis(if distance <= CLEARANCE_RADIUS { 16 } else { 100 }))
 }
 
 fn sample(win: &WebviewWindow) -> tauri::Result<((f64, f64), f64)> {
@@ -41,25 +57,28 @@ fn sample(win: &WebviewWindow) -> tauri::Result<((f64, f64), f64)> {
 }
 
 pub fn watch(win: WebviewWindow) {
-    let mut masked = false;
+    let mut last_emitted = None;
     loop {
         let enabled = win.state::<CursorClearance>().0.load(Ordering::Acquire);
         let hidden = win.state::<crate::show::Visibility>().hidden();
         let paused = win.state::<crate::window::Fullscreen>().paused();
         // Check the gate before reading either the cursor or window geometry.
-        let interval = if poll_interval(enabled, hidden, paused, 0.0).is_none() {
-            None
+        let (observation, interval) = if !clearance_active(enabled, hidden, paused) {
+            (None, None)
         } else if let Ok((point, distance)) = sample(&win) {
-            let _ = win.emit("pet-cursor", json!({ "x": point.0, "y": point.1 }));
-            masked = true;
-            poll_interval(enabled, hidden, paused, distance)
+            ((distance <= CLEARANCE_RADIUS).then_some(point), poll_interval(enabled, hidden, paused, distance))
         } else {
-            None
+            (None, None)
         };
-        if interval.is_none() && masked {
-            let _ = win.emit("pet-cursor", serde_json::Value::Null);
-            masked = false;
+        let (event, next) = emit_decision(last_emitted, observation);
+        if let Some(pointer) = event {
+            let payload = match pointer {
+                Some(point) => json!({ "x": point.0, "y": point.1 }),
+                None => serde_json::Value::Null,
+            };
+            let _ = win.emit("pet-cursor", payload);
         }
+        last_emitted = next;
         std::thread::sleep(interval.unwrap_or(Duration::from_millis(100)));
     }
 }
@@ -67,6 +86,53 @@ pub fn watch(win: WebviewWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_pointer_does_not_emit() {
+        let point = Some((300.0, 80.0));
+        assert_eq!(emit_decision(point, point), (None, point));
+    }
+
+    #[test]
+    fn first_or_moved_pointer_emits_the_point() {
+        let point = Some((300.0, 80.0));
+        for last in [None, Some((299.0, 80.0)), Some((300.0, 81.0))] {
+            assert_eq!(emit_decision(last, point), (Some(point), point));
+        }
+    }
+
+    #[test]
+    fn leaving_the_band_emits_one_null_then_nothing() {
+        let (event, last) = emit_decision(Some((300.0, 80.0)), None);
+        assert_eq!(event, Some(None));
+        assert_eq!(last, None);
+        assert_eq!(emit_decision(last, None), (None, None));
+        let point = Some((300.0, 80.0));
+        assert_eq!(emit_decision(last, point), (Some(point), point));
+    }
+
+    #[test]
+    fn closing_any_gate_emits_one_null() {
+        for (enabled, hidden, paused) in [(false, false, false), (true, true, false), (true, false, true)] {
+            let observation = clearance_active(enabled, hidden, paused).then_some((300.0, 80.0));
+            let (event, last) = emit_decision(Some((300.0, 80.0)), observation);
+            assert_eq!((event, last), (Some(None), None));
+            assert_eq!(emit_decision(last, observation), (None, None));
+        }
+    }
+
+    #[test]
+    fn outside_without_a_previous_point_does_not_emit_null() {
+        assert_eq!(emit_decision(None, None), (None, None));
+    }
+
+    #[test]
+    fn failed_sample_clears_a_previous_point_once() {
+        let observation = None; // A failed sample has no usable point.
+        let (event, last) = emit_decision(Some((300.0, 80.0)), observation);
+        assert_eq!((event, last), (Some(None), None));
+        assert_eq!(emit_decision(last, observation), (None, None));
+    }
 
     #[test]
     fn disabled_hidden_or_fullscreen_strip_does_not_poll() {

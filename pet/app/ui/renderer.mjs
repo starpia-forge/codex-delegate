@@ -69,7 +69,9 @@ const animation = createAnimationClock({ now: () => performance.now() });
 const pause = { hidden: true, fullscreen: false };
 const paused = () => drawingPaused(pause);
 const root = document.getElementById("stage");
+let lastPointer = null;
 function updateCursor(pointer) {
+  lastPointer = pointer;
   const mask = clearanceMask(pointer, config.hideNearCursor && !paused());
   root.style.maskImage = mask;
   root.style.webkitMaskImage = mask;
@@ -199,8 +201,8 @@ function update() {
 }
 function updatePause() {
   animation.setPaused(paused());
-  // Drop the previous position immediately; resume waits for a fresh sample.
-  if (paused()) updateCursor(null);
+  // Disable the mask while paused; resume reapplies the last received pointer.
+  updateCursor(lastPointer);
   if (!paused()) render();
 }
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
