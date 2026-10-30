@@ -78,7 +78,7 @@ else {
     { cwd: repo, env, shell: windows },
   ))[0];
   const files = packed.files.map(file => file.path);
-  for (const required of ["pet-pin.json", "bin/cli.mjs", "bin/pet.mjs", "bin/zip.mjs", "pet/app/ui/pet-config.mjs",
+  for (const required of ["bin/cli.mjs", "bin/pet.mjs", "bin/zip.mjs", "pet/app/ui/pet-config.mjs",
     "skills/claude/codex-implement/scripts/codex-run.mjs"]) {
     assert.ok(files.includes(required), `packed package is missing ${required}`);
   }
@@ -92,7 +92,7 @@ else {
   for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
     assert.ok(!Object.hasOwn(packedManifest[field] ?? {}, "sharp"), "the encoder must remain a development dependency only");
   }
-  assert.deepEqual(readFileSync(join(pkg, "pet-pin.json")), readFileSync(join(repo, "pet-pin.json")));
+  assert.ok(!files.includes("pet-pin.json"), "npm package must not ship a pin");
   // build.mjs copies src/runner directly into each authored skill's scripts/.
   const packedScripts = join(pkg, "skills/claude/codex-implement/scripts");
   for (const file of readdirSync(join(repo, "src/runner"))) {
@@ -104,22 +104,23 @@ else {
   const notices = join(repo, "test/fixtures/pet-notices.txt");
   writeFileSync(exe, "fake executable, never run");
   await run(process.execPath, [join(repo, "scripts/pet-bundle.mjs"), "--exe", exe,
-    "--notices", notices, "--out", bundleDir, "--tag", "pet-v1.2.3"], { env });
-  const pinPath = join(bundleDir, "pet-pin.json");
-  const pin = JSON.parse(readFileSync(pinPath, "utf8"));
-  const bytes = readFileSync(join(bundleDir, pin.asset)), downloads = [];
+    "--notices", notices, "--out", bundleDir, "--expect-tag", `v${packedManifest.version}`], { env });
+  const asset = "codex-delegate-pet-windows-x64.zip";
+  const path = `/v${packedManifest.version}/${asset}`;
+  const bytes = readFileSync(join(bundleDir, asset)), downloads = [];
+  const checksum = readFileSync(join(bundleDir, `${asset}.sha256`));
   const releasePort = await listen(t, (req, res) => {
     downloads.push(req.url);
-    if (req.url !== `/${pin.tag}/${pin.asset}`) { res.writeHead(404); res.end(); return; }
-    res.end(bytes);
+    if (req.url === `${path}.sha256`) res.end(checksum);
+    else if (req.url === path) res.end(bytes);
+    else { res.writeHead(404); res.end(); }
   });
   Object.assign(env, {
-    CODEX_DELEGATE_PET_TEST_PIN: pinPath,
     CODEX_DELEGATE_PET_BASE_URL: `http://127.0.0.1:${releasePort}`,
   });
   await run(process.execPath, [join(pkg, "bin/cli.mjs"), "install", "--scope", "user",
     "--agent", "claude-code", "--with-pet"], { cwd: work, env });
-  assert.deepEqual(downloads, [`/${pin.tag}/${pin.asset}`]);
+  assert.deepEqual(downloads, [`${path}.sha256`, path]);
   assert.deepEqual(readFileSync(join(home, ".codex-delegate/pet/THIRD-PARTY-NOTICES")), readFileSync(notices));
   assert.ok(!files.some(file => file.startsWith("pet/app/ui/assets/")), "npm package must not supply doctor's bundled assets");
   writeFileSync(join(codexHome, "models_cache.json"), JSON.stringify({ models: [
@@ -128,6 +129,7 @@ else {
     { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
   ] }));
   const doctor = await run(process.execPath, [join(pkg, "bin/cli.mjs"), "doctor"], { cwd: work, env });
+  assert.ok(doctor.includes(`[OK  ] Pet bundle - ${packedManifest.version}`), doctor);
   assert.match(doctor, /\[OK  \] Pet packages - valid/);
   assert.doesNotMatch(doctor, /\[WARN\] Pet packages/);
   const token = readFileSync(join(home, ".codex-delegate/pet-state/token"), "utf8").trim();
@@ -137,7 +139,7 @@ else {
     if (req.headers["x-codex-delegate-pet-token"] !== token) { res.writeHead(401); res.end(); return; }
     if (req.url === "/health") {
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version: pin.version }));
+      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version: packedManifest.version }));
     } else if (req.url === "/event" && req.method === "POST") {
       let body = "";
       req.on("data", chunk => body += chunk);

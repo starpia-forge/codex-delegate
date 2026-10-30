@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
-import { bundleFiles, listen, release, unusedPetPort } from "./helpers/pet-release.mjs";
+import { asset, bundleFiles, listen, release, unusedPetPort, version } from "./helpers/pet-release.mjs";
 import { zip } from "./helpers/zip.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
@@ -55,7 +55,7 @@ else process.exitCode = 1;
 
 async function installedFixture(t) {
   const f = await fixture(t);
-  const pin = { tag: "pet-v1.2.3", asset: "pet.zip", sha256: "a".repeat(64), version: "1.2.3" };
+  const bundle = { tag: `v${version}`, asset, sha256: "a".repeat(64), version };
   const state = join(f.petRoot, "pet-state");
   mkdirSync(state, { recursive: true });
   mkdirSync(join(f.petRoot, "pet"));
@@ -64,15 +64,12 @@ async function installedFixture(t) {
   writeFileSync(join(state, "token"), "doctor-test-token\n");
   const command = `node "${join(f.petRoot, "pet", "hook", "leader-hook.mjs")}"`;
   const hooks = Object.fromEntries(["SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "Notification", "Stop", "StopFailure", "PostToolUse"].map(event => [event, command]));
-  const marker = { package: "codex-delegate", version: "0.3.0", bundle: pin, settingsPath: f.settingsPath, hooks };
+  const marker = { package: "codex-delegate", version, bundle, settingsPath: f.settingsPath, hooks };
   f.markerPath = join(state, ".codex-delegate.json");
-  f.pinPath = join(f.root, "pin.json");
   writeFileSync(f.markerPath, JSON.stringify(marker));
-  writeFileSync(f.pinPath, JSON.stringify(pin));
-  f.env.CODEX_DELEGATE_PET_TEST_PIN = f.pinPath;
   writeFileSync(f.settingsPath, JSON.stringify({ hooks: Object.fromEntries(Object.entries(hooks)
     .map(([event, command]) => [event, [{ hooks: [{ type: "command", command }] }]])) }));
-  return { ...f, pin, marker };
+  return { ...f, marker };
 }
 
 test("doctor without an installed pet prints no pet or WebView2 lines and never probes the port", async t => {
@@ -132,21 +129,21 @@ for (const [description, preferences] of [
     const listed = await f.run(["list"]);
     assert.equal(listed.code, 0, listed.output);
     const line = listed.stdout.split("\n").find(line => line.startsWith("Pet:"));
-    assert.equal(line, `Pet: enabled, bundle 1.2.3 (pet-v1.2.3) -> ${join(f.petRoot, "pet")}, hooks in ${f.settingsPath}`);
+    assert.equal(line, `Pet: enabled, bundle ${version} (v${version}) -> ${join(f.petRoot, "pet")}, hooks in ${f.settingsPath}`);
     const diagnosed = await f.run();
     assert.equal(diagnosed.code, 0, diagnosed.output);
     assert.doesNotMatch(diagnosed.output, /hidden|Pet visibility|pet-preferences|tray icon/i);
   });
 }
 
-test("doctor reports the pinned pet bundle after a real install", async t => {
+test("doctor reports the matching Release bundle after a real install", async t => {
   const f = await fixture(t);
   await release(t, f, { bytes: zip({ ...bundleFiles, ...defaultPetFiles }) });
   const installed = await f.run(["install", "--with-pet"]);
   assert.equal(installed.code, 0, installed.output);
   const result = await f.run();
   assert.equal(result.code, 0, result.output);
-  assert.match(result.stdout, /\[OK  \] Pet bundle - .*1\.2\.3/);
+  assert.ok(result.stdout.includes(`[OK  ] Pet bundle - ${version}`), result.output);
   assert.match(result.stdout, /\[OK  \] Pet hooks - /);
   assert.ok(result.stdout.includes(f.settingsPath), result.output);
   assert.match(result.stdout, /\[OK  \] Pet WebView2 runtime/);
@@ -173,16 +170,24 @@ test("doctor resolves installed bundled manifests and diagnoses their sheets", a
   assert.match(broken.stdout, /\[WARN\] Pet packages \(leader\).*bundled: .*default-pets.*spritesheet must be PNG or WebP.*reinstall/);
 });
 
-for (const change of [{ tag: "pet-v2.0.0", version: "2.0.0" }, { sha256: "b".repeat(64) }, { version: "2.0.0" }]) {
-  test(`doctor warns when the installed bundle differs from the pin (${Object.keys(change)[0]})`, async t => {
+for (const change of [{}, { sha256: "b".repeat(64) }, { tag: "pet-v0.2.0", sha256: "c".repeat(64) }]) {
+  test(`doctor accepts matching Release versions regardless of tag and hash (${Object.keys(change).join() || "unchanged"})`, async t => {
     const f = await installedFixture(t);
-    writeFileSync(f.pinPath, JSON.stringify({ ...f.pin, ...change }));
+    writeFileSync(f.markerPath, JSON.stringify({ ...f.marker, bundle: { ...f.marker.bundle, ...change } }));
     const result = await f.run();
     assert.equal(result.code, 0, result.output);
-    assert.match(result.stdout, /\[WARN\] Pet bundle - installed 1\.2\.3.*expected .*run codex-delegate install --with-pet/);
-    if (change.version) assert.match(result.stdout, /expected 2\.0\.0/);
+    assert.ok(result.stdout.includes(`[OK  ] Pet bundle - ${version}`), result.output);
+    assert.doesNotMatch(result.stdout, /\[WARN\] Pet bundle/);
   });
 }
+
+test("doctor warns when a legacy marker differs from the package's Release", async t => {
+  const f = await installedFixture(t);
+  writeFileSync(f.markerPath, JSON.stringify({ ...f.marker, bundle: { ...f.marker.bundle, tag: "pet-v0.2.0", version: "0.2.0" } }));
+  const result = await f.run();
+  assert.equal(result.code, 0, result.output);
+  assert.ok(result.stdout.includes(`[WARN] Pet bundle - installed 0.2.0 (pet-v0.2.0), expected ${version} (v${version}); run codex-delegate install --with-pet`), result.output);
+});
 
 test("doctor accepts settings with a UTF-8 BOM and all recorded pet hooks", async t => {
   const f = await installedFixture(t);
@@ -348,17 +353,6 @@ for (const [description, fields, sheet, problem] of [
   });
 }
 
-test("doctor reports an invalid pet pin as FAIL and continues its checks", async t => {
-  const f = await installedFixture(t);
-  writeFileSync(f.pinPath, "{");
-  const result = await f.run();
-  assert.equal(result.code, 1, result.output);
-  assert.match(result.stdout, /\[FAIL\] Pet bundle - .*pin/i);
-  assert.match(result.stdout, /Pet hooks/);
-  assert.match(result.stdout, /Pet port/);
-  assert.doesNotMatch(result.output, /Usage:/);
-});
-
 test("doctor warns per slot when the spritesheet is a directory", async t => {
   const f = await installedFixture(t);
   writeFileSync(join(f.petRoot, "pet.json"), JSON.stringify({ pets: { leader: "custom", critic: "custom" } }));
@@ -393,17 +387,18 @@ for (const status of [200, 503]) {
     const server = await listen(t, (req, res) => {
       requests.push({ path: req.url, method: req.method, token: req.headers["x-codex-delegate-pet-token"] });
       res.writeHead(status);
-      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version: "1.2.3", pid: 4321 }));
+      res.end(JSON.stringify({ app: "codex-delegate-pet", protocol: 1, version, pid: 4321 }));
     });
     const result = await f.run(["doctor"], { CODEX_DELEGATE_PET_PORT: String(server.address().port) });
     assert.equal(result.code, 0, result.output);
-    assert.match(result.stdout, /\[OK  \] Pet port - .*1\.2\.3.*4321/);
+    assert.ok(result.stdout.includes(`pet app ${version}, pid 4321`), result.output);
+    assert.match(result.stdout, /\[OK  \] Pet port/);
     assert.deepEqual(requests, [{ path: "/health", method: "GET", token: "doctor-test-token" }]);
   });
 }
 
 for (const status of [200, 503]) {
-  test(`doctor warns when the running pet version differs from the release pin (HTTP ${status})`, async t => {
+  test(`doctor warns when the running app differs from the package's Release (HTTP ${status})`, async t => {
     const f = await installedFixture(t);
     const server = await listen(t, (req, res) => {
       res.writeHead(status);
@@ -411,12 +406,13 @@ for (const status of [200, 503]) {
     });
     const result = await f.run(["doctor"], { CODEX_DELEGATE_PET_PORT: String(server.address().port) });
     assert.equal(result.code, 0, result.output);
-    assert.match(result.stdout, /\[WARN\] Pet port - .*0\.1\.0.*4321.*expected 1\.2\.3.*install --with-pet/);
+    assert.match(result.stdout, /\[WARN\] Pet port - .*0\.1\.0.*4321.*install --with-pet/);
+    assert.ok(result.stdout.includes(`expected ${version}`), result.output);
     assert.doesNotMatch(result.stdout, /held by something that isn't the pet app/);
   });
 }
 
-const identity = { app: "codex-delegate-pet", protocol: 1, version: "1.2.3" };
+const identity = { app: "codex-delegate-pet", protocol: 1, version };
 for (const [description, body, status = 200] of [
   ["another app", { ...identity, app: "foreign-app" }],
   ["non-JSON", "<html>another server</html>"],

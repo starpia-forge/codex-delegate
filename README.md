@@ -50,6 +50,15 @@ npx github:starpia-forge/codex-delegate install --without-pet   # turn off, keep
 
 Windows only, with the WebView2 Runtime. Restart Claude Code after turning it on or off. Size and custom pets are set in `~/.codex-delegate/pet.json`; see [pet/README.md](pet/README.md).
 
+The pet follows the installed package's `package.json` version: version `X.Y.Z`
+downloads `codex-delegate-pet-windows-x64.zip` from Release `vX.Y.Z`, verified
+against that Release's `.sha256` file. `doctor` checks the installed bundle and
+running app against the same version; `list` shows the installed marker.
+If the Release has no bundle yet, the workflow may still be running. Retry later
+or install from a tagged Release. This also stops a plain user-scope `install`
+when the pet is enabled, leaving skills, hooks and the existing bundle unchanged.
+`install --with-pet --dry-run` shows the URL and checksum source without downloading.
+
 > I Love まちカドまぞく
 
 ## Workflow

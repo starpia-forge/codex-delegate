@@ -32,7 +32,7 @@ Options:
   --agent <id>            Only this agent: ${Object.keys(manifest.agents).join(", ")} (repeatable)
   --force                 Overwrite skills with the same name that this tool did not install
   --dry-run               Show what would change without changing anything
-  --with-pet              Install the pinned Windows pet and Claude Code hooks (user scope)
+  --with-pet              Install the Release's Windows pet and Claude Code hooks (user scope)
   --without-pet           Remove the pet and its owned hooks, keeping skills
   -h, --help              Show this help`;
 

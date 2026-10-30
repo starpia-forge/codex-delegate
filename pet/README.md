@@ -243,11 +243,15 @@ icons (^), drag it onto the taskbar first.
 
 ## Releasing the pet bundle
 
-Cut a pet release only when the pet app, client, hook, or default pets change.
-Package-only changes can keep the existing bundle pin. The bundle contains
+Every Release includes the pet built for the package's `package.json` version.
+The bundle contains
 `codex-delegate-pet.exe`, all of `client/`, `hook/leader-hook.mjs`, and
 `default-pets/` from `app/ui/assets/`. The assets are committed, so the release
 build does not regenerate placeholders.
+
+The numbered procedure below is historical and awaits ticket 04's workflow and
+release-procedure update. It references the removed `pet-pin.json` and must not
+be used for the current installer.
 
 1. Choose `pet-vX.Y.Z` matching the repository's `package.json` version.
    Every app build takes its version from that file. Commit the source changes
@@ -272,29 +276,39 @@ build does not regenerate placeholders.
 5. Run `npm.cmd test` and release the npm package as usual. Its shipped pin
    selects this pet release; pet and npm versions are independent.
 
-To preview the bundle locally after building the release executable:
+To preview the bundle locally after generating the third-party notices and
+building the Release executable:
 
 ```powershell
 $releaseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
 cargo build --release --locked --manifest-path pet/app/src-tauri/Cargo.toml
-node scripts/pet-bundle.mjs --tag "pet-v$releaseVersion" --out dist
+node scripts/pet-bundle.mjs --expect-tag "v$releaseVersion" --notices pet/app/ui/notices/THIRD-PARTY-NOTICES.txt --out dist
 ```
 
-The script accepts `--exe <path>` for another executable, writes the zip,
-`<asset>.sha256`, and `pet-pin.json` into `dist/`, and prints the pin JSON.
-Local output is a preview: use the checksum of the zip actually attached to
-the release when committing the pin, since a locally built executable can
-differ from the workflow's executable.
+The script reads the package version, accepts `--exe <path>` for another
+executable, writes only the zip and `<asset>.sha256` into `dist/`, and prints
+the hash and output paths. `--expect-tag` rejects a tag that differs from
+`v` + the package version before writing anything. Add `--check` to compare
+only, without reading bundle inputs or writing files. Local output is a preview;
+a locally built executable can differ from the workflow's executable.
 
-For a real release, `CODEX_DELEGATE_PET_BASE_URL` is not needed. With the new
-pin, `codex-delegate install --with-pet` downloads and verifies the pinned
-asset from GitHub Releases. To verify it before the npm release, run
+For a published Release, `CODEX_DELEGATE_PET_BASE_URL` is not needed.
+`codex-delegate install --with-pet` downloads the Release's `.sha256` file first,
+then the zip, from `v` + the installed package version. It requires one checksum
+line naming the expected asset and verifies the zip before changing files.
+If either asset is missing, retry later while the workflow finishes or install
+from a tagged Release. A plain user-scope `install` with the pet enabled also
+stops without changing skills, hooks or the existing bundle. A dry run prints
+the zip URL and checksum source without making requests. `doctor` compares the
+installed bundle and running app with the package version; `list` reads the
+installed marker, including legacy markers. To verify an install, run
 `node bin/cli.mjs install --scope user --agent claude-code --with-pet` with
 `HOME`, `USERPROFILE`, `CLAUDE_CONFIG_DIR`, and `CODEX_HOME` pointing to isolated
 test directories. Restart Claude Code to load the installed hooks.
 
-The offline shipped-package smoke test runs `npm pack`, checks the pin and
-generated runner files, installs the extracted package and a test bundle into
+The offline shipped-package smoke test runs `npm pack`, checks that no pin is
+shipped and verifies the generated runner files. It serves the real bundle
+script's checksum and zip, checks download order, installs into
 an isolated home, then checks that the installed runner sends `start` and
 successful `end` events to an authenticated fake pet listener. It uses a fake
 executable and Codex CLI; the real Windows app and a test-tag workflow run

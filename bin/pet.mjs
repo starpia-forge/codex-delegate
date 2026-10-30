@@ -124,11 +124,13 @@ export function petsHidden() {
   } catch { return false; }
 }
 
-export function readPetPin(root) {
-  const pin = JSON.parse(readFileSync(process.env.CODEX_DELEGATE_PET_TEST_PIN || join(root, "pet-pin.json"), "utf8"));
-  if (![pin.tag, pin.asset, pin.version].every(value => typeof value === "string" && value.length)
-    || !/^[a-f0-9]{64}$/i.test(pin.sha256)) throw new Error("Invalid pet pin");
-  return pin;
+export function petRelease(root) {
+  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const tag = `v${version}`;
+  const asset = "codex-delegate-pet-windows-x64.zip";
+  const base = process.env.CODEX_DELEGATE_PET_BASE_URL || "https://github.com/starpia-forge/codex-delegate/releases/download";
+  const url = `${base.replace(/\/$/, "")}/${tag}/${asset}`;
+  return { tag, asset, version, url, checksumUrl: `${url}.sha256` };
 }
 
 export function listPet() {
@@ -352,9 +354,8 @@ export function preparePetRemoval({ dryRun = false } = {}) {
 
 export async function preparePet({ root, pkg, dryRun = false }) {
   const existing = readPetMarker();
-  const pin = readPetPin(root);
-  const base = process.env.CODEX_DELEGATE_PET_BASE_URL || "https://github.com/starpia-forge/codex-delegate/releases/download";
-  const url = `${base.replace(/\/$/, "")}/${pin.tag}/${pin.asset}`;
+  const release = petRelease(root);
+  const { tag, asset, version, url, checksumUrl } = release;
   const settingsPath = existing?.settingsPath ?? resolve(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
   const bundle = join(petRoot(), "pet");
   const state = join(petRoot(), "pet-state");
@@ -362,9 +363,9 @@ export async function preparePet({ root, pkg, dryRun = false }) {
   if (dryRun) {
     console.log(`Pet: ${existing ? "update" : "install"} pet bundle`);
     console.log(`Pet: download ${url}`);
-    console.log(`  verify SHA-256 ${pin.sha256}`);
+    console.log(`  verify SHA-256 from the Release's .sha256 file (${checksumUrl})`);
     if (existsSync(bundle)) console.log(`  move existing pet bundle aside from ${bundle}`);
-    console.log(`  unpack to staging in ${petRoot()}, then move bundle ${pin.version} -> ${bundle}`);
+    console.log(`  unpack to staging in ${petRoot()}, then move bundle ${version} -> ${bundle}`);
     if (existsSync(bundle)) console.log("  remove previous bundle after the new bundle is in place");
     console.log(`  ${existsSync(state) ? "keep" : "create"} state directory ${state}`);
     console.log(`  ${existsSync(join(state, "token")) ? "keep" : "create"} token ${join(state, "token")}`);
@@ -376,13 +377,23 @@ export async function preparePet({ root, pkg, dryRun = false }) {
     console.log("  restart Claude Code so the pet hooks take effect");
     return { steps: [], cleanup() {} };
   }
-  let bytes;
-  try {
-    const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    bytes = Buffer.from(await response.arrayBuffer());
-  } catch (error) { throw new Error(`Pet download failed (${url}): ${error.message}`); }
-  if (createHash("sha256").update(bytes).digest("hex") !== pin.sha256.toLowerCase()) throw new Error("Pet checksum mismatch (SHA-256); nothing was changed");
+  const download = async url => {
+    let response;
+    try {
+      response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error) {
+      if (response?.status === 404) throw new Error(`Release v${version} has no pet bundle yet. The release workflow may still be running; retry later or install from a tagged Release.`);
+      throw new Error(`Pet download failed (${url}): ${error.message}`);
+    }
+  };
+  const checksum = (await download(checksumUrl)).toString("utf8");
+  const line = checksum.match(/^([a-f0-9]{64})  ([^\r\n]+)(?:\r?\n)?$/i);
+  if (!line || line[0] !== checksum || line[2] !== asset) throw new Error(`Invalid pet checksum file (${checksumUrl})`);
+  const sha256 = line[1].toLowerCase();
+  const bytes = await download(url);
+  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error("Pet checksum mismatch (SHA-256); nothing was changed");
 
   const original = readSettings(settingsPath);
   const backupPath = original === null ? null : backupName();
@@ -439,12 +450,12 @@ export async function preparePet({ root, pkg, dryRun = false }) {
   const temp = `${settingsPath}.codex-delegate-temp-${randomUUID()}`;
   const previous = join(petRoot(), `.pet-previous-${randomUUID()}`);
   const previousBundles = readdirSync(petRoot()).filter(name => name.startsWith(".pet-previous-")).map(name => join(petRoot(), name));
-  const marker = { package: pkg.name, version: pkg.version, bundle: pin, settingsPath, hooks, installedAt: new Date().toISOString() };
+  const marker = { package: pkg.name, version: pkg.version, bundle: { tag, asset, sha256, version }, settingsPath, hooks, installedAt: new Date().toISOString() };
   const steps = [];
   const add = (label, apply) => steps.push({ label, apply, status: "not applied" });
   resume = pausePet(steps, state);
   if (existsSync(bundle)) add(`move existing pet bundle to ${previous}`, () => whileLocked(() => renameSync(bundle, previous)));
-  add(`install pet bundle ${pin.version} -> ${bundle}`, () => renameSync(staging, bundle));
+  add(`install pet bundle ${version} -> ${bundle}`, () => renameSync(staging, bundle));
   if (existsSync(bundle)) previousBundles.push(previous);
   for (const path of previousBundles) add(`remove previous pet bundle ${path}`, () => whileLocked(() => rmSync(path, { recursive: true, force: true })));
   add(`create/keep pet state directory ${state}`, () => mkdirSync(state, { recursive: true }));

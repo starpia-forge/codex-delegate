@@ -16,7 +16,6 @@
     "skills",
     "src/runner",
     "install-manifest.json",
-    "pet-pin.json",
     "pet/app/ui/pet-config.mjs"
   ],
   "scripts": {

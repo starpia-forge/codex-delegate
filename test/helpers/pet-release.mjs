@@ -1,8 +1,10 @@
 import { createHash, randomInt } from "node:crypto";
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { zip } from "./zip.mjs";
+
+export const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+export const asset = "codex-delegate-pet-windows-x64.zip";
 
 export const bundleFiles = {
   "codex-delegate-pet.exe": "fake executable, never run",
@@ -40,19 +42,23 @@ export async function unusedPetPort(t) {
   return String(port);
 }
 
-export async function release(t, f, { bytes = zip(bundleFiles), status = 200 } = {}) {
+export async function release(t, f, options = {}) {
+  const bytes = options.bytes ?? zip(bundleFiles);
+  const bundle = { tag: `v${version}`, asset, sha256: createHash("sha256").update(bytes).digest("hex"), version };
+  const paths = [`/v${version}/${asset}.sha256`, `/v${version}/${asset}`];
   const requests = [];
   const server = await listen(t, (req, res) => {
     requests.push(req.url);
-    res.writeHead(status);
-    res.end(bytes);
+    if (req.url === paths[0]) {
+      res.writeHead(options.checksumStatus ?? options.status ?? 200);
+      res.end(options.checksum ?? `${options.sha256 ?? bundle.sha256}  ${asset}\n`);
+    } else if (req.url === paths[1]) {
+      res.writeHead(options.zipStatus ?? options.status ?? 200);
+      res.end(bytes);
+    } else { res.writeHead(404); res.end(); }
   });
-  const pin = { tag: "pet-v1.2.3", asset: "pet.zip", sha256: createHash("sha256").update(bytes).digest("hex"), version: "1.2.3" };
-  const pinPath = join(f.root, "pin.json");
-  writeFileSync(pinPath, JSON.stringify(pin));
   Object.assign(f.env, {
-    CODEX_DELEGATE_PET_TEST_PIN: pinPath,
     CODEX_DELEGATE_PET_BASE_URL: `http://127.0.0.1:${server.address().port}`,
   });
-  return { requests, pin, pinPath };
+  return { requests, bundle, paths, options };
 }

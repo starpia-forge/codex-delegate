@@ -12,12 +12,15 @@ try {
   const { values } = parseArgs({ options: {
     exe: { type: "string", default: join(root, "pet/app/src-tauri/target/release/codex-delegate-pet.exe") },
     out: { type: "string", default: "dist" },
-    tag: { type: "string" },
+    "expect-tag": { type: "string" },
+    check: { type: "boolean" },
     notices: { type: "string" },
   } });
-  if (!/^pet-v\d+\.\d+\.\d+$/.test(values.tag ?? "")) {
-    throw new Error("--tag must be pet-vX.Y.Z (for example pet-v1.2.3)");
+  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  if (values["expect-tag"] !== undefined && values["expect-tag"] !== `v${version}`) {
+    throw new Error(`Expected tag ${values["expect-tag"]} does not match Release v${version}`);
   }
+  if (values.check) process.exit(0);
   if (!values.notices) throw new Error("--notices <path> is required");
   const entries = {};
   function add(source, destination, directory = false) {
@@ -52,13 +55,12 @@ try {
   const bytes = zip(entries);
   const asset = "codex-delegate-pet-windows-x64.zip";
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const pin = JSON.stringify({ tag: values.tag, asset, sha256, version: values.tag.slice(5) }, null, 2) + "\n";
   const out = resolve(values.out);
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, asset), bytes);
   writeFileSync(join(out, `${asset}.sha256`), `${sha256}  ${asset}\n`);
-  writeFileSync(join(out, "pet-pin.json"), pin);
-  process.stdout.write(pin);
+  console.log(`${sha256}  ${join(out, asset)}`);
+  console.log(join(out, `${asset}.sha256`));
 } catch (error) {
   console.error(`pet-bundle: ${error.message}`);
   process.exitCode = 1;

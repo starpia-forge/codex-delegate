@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { petHealth, petsHidden, readPetMarker, readPetPin } from "./pet.mjs";
+import { petHealth, petsHidden, readPetMarker, petRelease } from "./pet.mjs";
 import { resolvePets } from "../pet/app/ui/pet-config.mjs";
 
 const configProblems = {
@@ -45,17 +45,16 @@ export async function checkPet(root, check) {
   const marker = readPetMarker();
   if (!marker) return;
   if (petsHidden()) check("ok", "Pet visibility", "Pets are hidden; show them from the pet's tray icon.");
-  let pin;
-  try { pin = readPetPin(root); }
-  catch (error) { check("fail", "Pet bundle", `cannot read pet pin: ${error.message}`); }
+  let release;
+  try { release = petRelease(root); }
+  catch (error) { check("fail", "Pet bundle", `cannot read Release: ${error.message}`); }
   const bundle = join(homedir(), ".codex-delegate", "pet");
   const missing = [bundle, join(bundle, "codex-delegate-pet.exe")].find(path => !existsSync(path));
-  const matches = pin && marker.bundle?.tag === pin.tag && marker.bundle?.sha256 === pin.sha256
-    && marker.bundle?.version === pin.version;
-  if (!pin) { /* The pin failure is reported above; continue other checks. */ }
+  const matches = release && marker.bundle?.version === release.version;
+  if (!release) { /* The Release failure is reported above; continue other checks. */ }
   else if (missing) check("fail", "Pet bundle", `missing ${missing}; run codex-delegate install --with-pet`);
-  else check(matches ? "ok" : "warn", "Pet bundle", matches ? pin.version
-    : `installed ${marker.bundle?.version ?? "unknown"} (${marker.bundle?.tag ?? "unknown"}), expected ${pin.version} (${pin.tag}); run codex-delegate install --with-pet`);
+  else check(matches ? "ok" : "warn", "Pet bundle", matches ? release.version
+    : `installed ${marker.bundle?.version ?? "unknown"} (${marker.bundle?.tag ?? "unknown"}), expected ${release.version} (${release.tag}); run codex-delegate install --with-pet`);
 
   try {
     const settings = JSON.parse(readFileSync(marker.settingsPath, "utf8").replace(/^\uFEFF/, ""));
@@ -109,9 +108,9 @@ export async function checkPet(root, check) {
   const app = await petHealth();
   if (app.status === "absent") check("ok", "Pet port", `${port}: pet app not running`);
   else if (app.status === "pet") {
-    const mismatch = pin && app.health.version !== pin.version;
+    const mismatch = release && app.health.version !== release.version;
     check(mismatch ? "warn" : "ok", "Pet port", `${port}: pet app ${app.health.version}, pid ${app.health.pid ?? "unknown"}`
-      + (mismatch ? `; expected ${pin.version}; run codex-delegate install --with-pet` : ""));
+      + (mismatch ? `; expected ${release.version}; run codex-delegate install --with-pet` : ""));
   }
   else check("warn", "Pet port", `port ${port} is held by something that isn't the pet app`);
 }

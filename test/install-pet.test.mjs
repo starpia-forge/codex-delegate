@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
 import { zip } from "./helpers/zip.mjs";
-import { bundleFiles, release, unusedPetPort } from "./helpers/pet-release.mjs";
+import { asset, bundleFiles, release, unusedPetPort, version } from "./helpers/pet-release.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 const events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "Notification", "Stop", "StopFailure", "PostToolUse"];
@@ -296,9 +296,9 @@ for (const enabled of [false, true]) {
       // Exercise ownership across an interrupted command migration.
       marker.hooks.Stop = 'node "old leader-hook.mjs"';
       settings.hooks.Stop[0].hooks[0].command = marker.hooks.Stop;
+      marker.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
       writeFileSync(markerPath, JSON.stringify(marker));
       writeFileSync(f.settingsPath, JSON.stringify(settings));
-      writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, version: "1.2.4" }));
     }
     const args = enabled ? ["install"] : ["install", "--with-pet"];
     const originalSettings = readFileSync(f.settingsPath);
@@ -317,7 +317,7 @@ for (const enabled of [false, true]) {
     for (const event of events) assert.equal(settings.hooks[event].length, 1);
     assert.doesNotMatch(readFileSync(f.settingsPath, "utf8"), /old leader-hook/);
     const marker = JSON.parse(readFileSync(join(state, ".codex-delegate.json")));
-    assert.equal(marker.bundle.version, enabled ? "1.2.4" : "1.2.3");
+    assert.equal(marker.bundle.version, version);
     assert.equal(marker.settingsPath, f.settingsPath);
     assert.equal(marker.pendingHooks, undefined);
     assert.deepEqual(readdirSync(f.petRoot).sort(), ["pet", "pet-state"]);
@@ -350,7 +350,7 @@ test("a stale updating flag is cleared even when the next install fails prefligh
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
   const flag = join(f.petRoot, "pet-state", "updating");
   writeFileSync(flag, "interrupted");
-  writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, sha256: "0".repeat(64) }));
+  r.options.sha256 = "0".repeat(64);
   const result = await f.run(["install"]);
   assert.notEqual(result.code, 0);
   assert.match(result.output, /checksum/i);
@@ -391,7 +391,7 @@ for (const scope of ["user", "project"]) {
           const result = await f.run(args);
           assert.equal(result.code, 0, result.output);
           const eligible = scope === "user" && !agents.includes("codex");
-          assert.equal(r.requests.length, eligible && enabled && command === "install" ? 1 : 0);
+          assert.equal(r.requests.length, eligible && enabled && command === "install" ? 2 : 0);
           if (!eligible || !enabled) {
             assert.deepEqual(snapshot(f.petRoot), before);
             assert.deepEqual(readFileSync(f.settingsPath), settings);
@@ -482,13 +482,13 @@ test("BOM settings install and remove successfully, preserving a byte-exact back
   assert.equal(JSON.parse(readFileSync(f.settingsPath)).theme, "dark");
 });
 
-test("fresh install downloads the pin, installs bundle and state, and registers all leader hooks with a backup", async t => {
+test("fresh install verifies the Release checksum before the zip, installs bundle and state, and registers all leader hooks with a backup", async t => {
   const f = await fixture(t);
   const r = await release(t, f);
   const original = readFileSync(f.settingsPath, "utf8");
   const result = await f.run(["install", "--with-pet"]);
   assert.equal(result.code, 0, result.output);
-  assert.deepEqual(r.requests, ["/pet-v1.2.3/pet.zip"]);
+  assert.deepEqual(r.requests, [`/v${version}/${asset}.sha256`, `/v${version}/${asset}`]);
   for (const [path, contents] of Object.entries(bundleFiles)) {
     assert.equal(readFileSync(join(f.petRoot, "pet", path), "utf8"), contents);
   }
@@ -499,7 +499,7 @@ test("fresh install downloads the pin, installs bundle and state, and registers 
   const command = `node "${join(f.petRoot, "pet", "hook", "leader-hook.mjs")}"`;
   assert.equal(marker.package, pkg.name);
   assert.equal(marker.version, pkg.version);
-  assert.deepEqual(marker.bundle, r.pin);
+  assert.deepEqual(marker.bundle, r.bundle);
   assert.equal(marker.settingsPath, f.settingsPath);
   assert.ok(Number.isFinite(Date.parse(marker.installedAt)));
   assert.deepEqual(marker.hooks, Object.fromEntries(events.map(event => [event, command])));
@@ -515,10 +515,14 @@ test("fresh install downloads the pin, installs bundle and state, and registers 
   assert.ok(existsSync(join(f.claudeHome, "skills", "codex-implement", ".codex-delegate.json")));
 });
 
-test("reinstall replaces owned leaves in place, preserves user hooks and state, and never duplicates", async t => {
+test("reinstall over a legacy marker replaces owned leaves, preserves user hooks and state, and never duplicates", async t => {
   const f = await fixture(t);
-  await release(t, f);
+  const r = await release(t, f);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const markerPath = join(f.petRoot, "pet-state", ".codex-delegate.json");
+  const marker = JSON.parse(readFileSync(markerPath));
+  marker.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+  writeFileSync(markerPath, JSON.stringify(marker));
   const tokenPath = join(f.petRoot, "pet-state", "token");
   const token = readFileSync(tokenPath, "utf8");
   writeFileSync(join(f.petRoot, "pet-state", "sessions.json"), "keep session state");
@@ -533,6 +537,7 @@ test("reinstall replaces owned leaves in place, preserves user hooks and state, 
   writeFileSync(f.settingsPath, JSON.stringify(initial));
   const result = await f.run(["install", "--with-pet"]);
   assert.equal(result.code, 0, result.output);
+  assert.deepEqual(JSON.parse(readFileSync(markerPath)).bundle, r.bundle);
   const settings = JSON.parse(readFileSync(f.settingsPath, "utf8"));
   assert.equal(settings.theme, "light");
   assert.deepEqual(settings.permissions, initial.permissions);
@@ -548,23 +553,35 @@ test("reinstall replaces owned leaves in place, preserves user hooks and state, 
 });
 
 for (const enabled of [false, true]) {
-  for (const failure of ["checksum", "download", "settings"]) {
+  for (const [failure, options, message] of [
+    ["checksum mismatch", { sha256: "0".repeat(64) }, /checksum mismatch/i],
+    ["malformed checksum", { checksum: "not a checksum\n" }, /invalid.*checksum/i],
+    ["misnamed checksum", { checksum: `${"a".repeat(64)}  other.zip\n` }, /invalid.*checksum/i],
+    ["extra checksum line", { checksum: `${"a".repeat(64)}  ${asset}\nextra\n` }, /invalid.*checksum/i],
+    ["extra checksum newline", { checksum: `${"a".repeat(64)}  ${asset}\n\n` }, /invalid.*checksum/i],
+    ["short checksum hash", { checksum: `${"a".repeat(63)}  ${asset}\n` }, /invalid.*checksum/i],
+    ["nonhex checksum hash", { checksum: `${"g".repeat(64)}  ${asset}\n` }, /invalid.*checksum/i],
+    ["single checksum separator", { checksum: `${"a".repeat(64)} ${asset}\n` }, /invalid.*checksum/i],
+    ["settings", {}, /cannot parse.*settings/i],
+  ]) {
     test(`${failure} preflight failure leaves ${enabled ? "existing" : "fresh"} skills, pet and settings unchanged`, async t => {
       const f = await fixture(t);
-      const r = await release(t, f, { status: failure === "download" ? 404 : 200 });
+      const r = await release(t, f);
       if (enabled) {
-        // Seed pre-existing files, including an enabled marker, without needing a successful download.
-        for (const dir of [join(f.claudeHome, "skills"), join(f.codexHome, "skills"), join(f.petRoot, "pet"), join(f.petRoot, "pet-state")]) mkdirSync(dir, { recursive: true });
+        const installed = await f.run(["install", "--with-pet"]);
+        assert.equal(installed.code, 0, installed.output);
         writeFileSync(join(f.petRoot, "pet", "keep.txt"), "original bundle");
-        writeFileSync(join(f.petRoot, "pet-state", ".codex-delegate.json"), JSON.stringify({ bundle: { version: "old" } }));
-        writeFileSync(join(f.petRoot, "pet-state", "token"), "original token");
+        writeFileSync(join(f.claudeHome, "skills", "codex-implement", "SKILL.md"), "keep existing skills");
       }
-      if (failure === "checksum") writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, sha256: "0".repeat(64) }));
+      Object.assign(r.options, options);
+      r.requests.length = 0;
       if (failure === "settings") writeFileSync(f.settingsPath, "{ unparseable settings");
       const before = snapshot(f.root);
-      const result = await f.run(["install", "--with-pet"]);
+      const result = await f.run(enabled ? ["install"] : ["install", "--with-pet"]);
       assert.notEqual(result.code, 0, result.output);
-      assert.match(result.output, failure === "checksum" ? /checksum mismatch/i : failure === "download" ? /download failed.*404/i : /cannot parse.*settings/i);
+      assert.match(result.output, message);
+      assert.match(result.output, /Nothing was changed/);
+      assert.deepEqual(r.requests, failure.includes("checksum") && failure !== "checksum mismatch" ? [r.paths[0]] : r.paths);
       assert.deepEqual(snapshot(f.root), before);
     });
   }
@@ -609,6 +626,36 @@ test("missing settings and its parent directory are created", async t => {
   assert.equal(readdirSync(config).some(name => name.includes("backup")), false);
 });
 
+for (const target of ["checksum", "zip"]) {
+  for (const status of [404, 503]) {
+    for (const enabled of [false, true]) {
+      test(`${target} HTTP ${status} leaves ${enabled ? "a plain enabled install" : "a fresh install"} unchanged`, async t => {
+        const f = await fixture(t);
+        const r = await release(t, f);
+        if (enabled) {
+          const installed = await f.run(["install", "--with-pet"]);
+          assert.equal(installed.code, 0, installed.output);
+          writeFileSync(join(f.claudeHome, "skills", "codex-implement", "SKILL.md"), "keep existing skills");
+        }
+        r.options[`${target}Status`] = status;
+        r.requests.length = 0;
+        const before = snapshot(f.root);
+        const result = await f.run(enabled ? ["install"] : ["install", "--with-pet"]);
+        assert.equal(result.code, 1, result.output);
+        assert.match(result.output, /Nothing was changed/);
+        if (status === 404) {
+          assert.ok(result.output.includes(version), result.output);
+          assert.match(result.output, /Release.*no pet bundle.*workflow may still be running.*retry later.*install from a tagged Release/is);
+        } else {
+          assert.ok(result.output.includes(`Pet download failed (${f.env.CODEX_DELEGATE_PET_BASE_URL}${r.paths[target === "checksum" ? 0 : 1]}): HTTP 503`), result.output);
+        }
+        assert.deepEqual(r.requests, target === "checksum" ? [r.paths[0]] : r.paths);
+        assert.deepEqual(snapshot(f.root), before);
+      });
+    }
+  }
+}
+
 test("skill conflicts abort before the pet download", async t => {
   const f = await fixture(t);
   const r = await release(t, f);
@@ -637,17 +684,20 @@ test("plain install downloads nothing when disabled and updates an enabled pet w
   writeFileSync(join(state, "pet-preferences.json"), preferences);
   writeFileSync(join(state, "sessions.json"), "keep sessions");
   writeFileSync(join(f.petRoot, "pet", "obsolete.txt"), "old bundle");
-  writeFileSync(r.pinPath, JSON.stringify({ ...r.pin, version: "1.2.4" }));
+  const markerPath = join(state, ".codex-delegate.json");
+  const legacy = JSON.parse(readFileSync(markerPath));
+  legacy.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+  writeFileSync(markerPath, JSON.stringify(legacy));
   const otherConfig = join(f.root, "other config");
   const result = await f.run(["install"], { CLAUDE_CONFIG_DIR: otherConfig });
   assert.equal(result.code, 0, result.output);
-  assert.deepEqual(r.requests, ["/pet-v1.2.3/pet.zip"]);
+  assert.deepEqual(r.requests, r.paths);
   assert.equal(existsSync(join(f.petRoot, "pet", "obsolete.txt")), false);
   assert.deepEqual(readFileSync(join(state, "token")), token);
   assert.deepEqual(readFileSync(join(state, "pet-preferences.json")), preferences, "update preserves preferences byte for byte");
   assert.equal(readFileSync(join(state, "sessions.json"), "utf8"), "keep sessions");
   const marker = JSON.parse(readFileSync(join(state, ".codex-delegate.json")));
-  assert.equal(marker.bundle.version, "1.2.4");
+  assert.deepEqual(marker.bundle, r.bundle);
   assert.equal(marker.settingsPath, f.settingsPath);
   assert.equal(existsSync(join(otherConfig, "settings.json")), false);
   const settings = JSON.parse(readFileSync(f.settingsPath));
@@ -660,10 +710,10 @@ test("dry run reports every pet action without downloading or changing files", a
   const before = snapshot(f.root);
   const result = await f.run(["install", "--with-pet", "--dry-run"]);
   assert.equal(result.code, 0, result.output);
-  assert.match(result.output, /download.*http:\/\/127\.0\.0\.1:.*\/pet-v1\.2\.3\/pet.zip/i);
-  assert.match(result.output, /SHA-256/i);
+  assert.ok(result.output.includes(`download ${f.env.CODEX_DELEGATE_PET_BASE_URL}/v${version}/${asset}`), result.output);
+  assert.match(result.output, /SHA-256 from the Release's \.sha256 file/);
   assert.match(result.output, /staging/i);
-  assert.match(result.output, /bundle 1\.2\.3/);
+  assert.ok(result.output.includes(`bundle ${version}`), result.output);
   for (const text of [join(f.petRoot, "pet"), join(f.petRoot, "pet-state"), "token", f.settingsPath, "settings.json.codex-delegate-backup-"]) assert.ok(result.output.includes(text), text);
   for (const event of events) assert.ok(result.output.includes(event));
   assert.deepEqual(r.requests, []);
@@ -805,7 +855,7 @@ test("list reports pets hidden from the shell preferences", async t => {
   assert.deepEqual(snapshot(f.root), before, "list only reads preferences");
 });
 
-test("user-scope list reports pet state, bundle version, and recorded settings path", async t => {
+test("user-scope list reports the installed legacy marker and recorded settings path", async t => {
   const f = await fixture(t);
   const r = await release(t, f);
   const before = snapshot(f.root);
@@ -814,14 +864,18 @@ test("user-scope list reports pet state, bundle version, and recorded settings p
   assert.match(empty.output, /^Pet: not installed$/m);
   assert.deepEqual(snapshot(f.root), before);
   assert.equal((await f.run(["install", "--with-pet"])).code, 0);
+  const markerPath = join(f.petRoot, "pet-state", ".codex-delegate.json");
+  const marker = JSON.parse(readFileSync(markerPath));
+  marker.bundle = { tag: "pet-v0.2.0", asset, version: "0.2.0", sha256: "a".repeat(64) };
+  writeFileSync(markerPath, JSON.stringify(marker));
   const installed = snapshot(f.root);
   const result = await f.run(["list"], { CLAUDE_CONFIG_DIR: join(f.root, "another config") });
   assert.equal(result.code, 0, result.output);
-  assert.match(result.output, /^Pet: enabled, bundle 1\.2\.3 \(pet-v1\.2\.3\)/m);
+  assert.match(result.output, /^Pet: enabled, bundle 0\.2\.0 \(pet-v0\.2\.0\)/m);
   assert.ok(result.output.includes(join(f.petRoot, "pet")));
   assert.ok(result.output.includes(`hooks in ${f.settingsPath}`));
   assert.deepEqual(snapshot(f.root), installed);
-  assert.equal(r.requests.length, 1);
+  assert.equal(r.requests.length, 2);
   assert.doesNotMatch((await f.run(["list", "--scope", "project"])).output, /^Pet:/m);
 });
 
@@ -879,7 +933,7 @@ for (const change of ["modified", "appeared", "disappeared"]) {
     assert.notEqual(result.code, 0, result.output);
     assert.match(result.output, /settings changed since preflight/i);
     assert.match(result.output, /applied: copy skill/);
-    assert.match(result.output, /applied: install pet bundle 1\.2\.3/);
+    assert.ok(result.output.includes(`applied: install pet bundle ${version}`), result.output);
     assert.match(result.output, /applied: write pet marker/);
     assert.match(result.output, /failed.*write Claude Code settings/i);
     assert.match(result.output, /Settings backup: none/);
