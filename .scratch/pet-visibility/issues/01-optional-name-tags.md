@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions)
 
@@ -17,3 +17,4 @@ Spec: `.scratch/pet-visibility/spec.md` (Solution 1, Decisions)
 ## Comments
 
 - 2026-10-30: Implemented on `ticket/pet-visibility-01`: resolver returns `nameTags` (invalid values -> `name-tags-invalid`), renderer hides tags with `visibility: hidden` so layout is unchanged, pet-doctor reports bad values; `npm test` 399/399 pass.
+- 2026-10-30: Merged to the integration branch `feat/pet-visibility` with review fixes (7e32b38); `npm test` 409/409 and `cargo test` 38/38 pass. Desktop behaviour not yet checked by hand.

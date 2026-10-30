@@ -1,6 +1,6 @@
 # Spec: Optional name tags and cursor clearance
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

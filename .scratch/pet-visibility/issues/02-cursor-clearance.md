@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-visibility/spec.md` (Solution 2, Decisions)
 
@@ -17,3 +17,4 @@ Spec: `.scratch/pet-visibility/spec.md` (Solution 2, Decisions)
 ## Comments
 
 - 2026-10-30: Implemented on `ticket/pet-visibility-02`: `hideNearCursor` in the resolver and `pet-doctor` (`hide-near-cursor-invalid`), pure mask module `pet/app/ui/cursor-clearance.mjs`, Rust cursor poller `pet/app/src-tauri/src/cursor.rs` (16 ms within 250 px of the strip, 100 ms otherwise, no cursor reads while hidden, paused for fullscreen or disabled), stage-wide CSS mask in the renderer. `npm test`, `cargo build` and `cargo test` pass; display-scale and fullscreen behaviour not yet checked on a live desktop.
+- 2026-10-30: Merged to the integration branch `feat/pet-visibility` with review fixes (7e32b38); `npm test` 409/409 and `cargo test` 38/38 pass. Desktop behaviour not yet checked by hand.
