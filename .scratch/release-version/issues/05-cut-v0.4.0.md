@@ -11,7 +11,7 @@
 - [x] An install from `#v0.4.0` with `--with-pet` into an isolated home passes `doctor`. `/health` reports `0.4.0`, and the executable's file version is `0.4.0`.
 - [x] Upgrading the maintainer's own `pet-v0.2.0` install with `install --with-pet` works: `doctor` is all OK at `0.4.0` and the app restarts on the new bundle.
 - [x] The README release badge shows `v0.4.0`.
-- [ ] Last, and blocking nothing: after confirmation, the `pet-v0.1.1` and `pet-v0.2.1` tags, which have no Release, are deleted from the remote. The `pet-v0.1.0`, `pet-v0.1.2` and `pet-v0.2.0` Releases and tags stay.
+- [x] Last, and blocking nothing: after confirmation, the `pet-v0.1.1` and `pet-v0.2.1` tags, which have no Release, are deleted from the remote. The `pet-v0.1.0`, `pet-v0.1.2` and `pet-v0.2.0` Releases and tags stay.
 
 ## Comments
 
@@ -20,3 +20,4 @@
 - Isolated home (port 47811): `npx github:starpia-forge/codex-delegate#v0.4.0 install --with-pet` succeeded, and every `doctor` pet check is OK at 0.4.0. The only FAIL, "Codex logged in", is expected in an isolated home. The installed executable reports FileVersion and ProductVersion `0.4.0`. Started by hand, it answered authenticated `/health` with `version: "0.4.0"`, then quit cleanly.
 - Maintainer's home: the installed marker said `pet-v0.2.1` (version 0.2.1), a local build that was never released, not `pet-v0.2.0`; the upgrade path is the same. `install --with-pet` from `#v0.4.0` replaced it, and every `doctor` check is OK, with the pet bundle at 0.4.0. The pet app was stopped for the update and starts again on the next leader or worker event.
 - The README badge (shields.io, `filter=v*`) shows `v0.4.0`.
+- After confirmation, `pet-v0.1.1` and `pet-v0.2.1` were deleted, both from the remote and locally. The remote keeps `pet-v0.1.0`, `pet-v0.1.2` and `pet-v0.2.0`, each with its Release.
