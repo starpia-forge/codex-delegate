@@ -16,7 +16,7 @@ While the pet app runs, it shows a **tray icon** in the Windows notification are
 
 - **Show pets**: a checked item; unchecking it means **pets hidden**.
 - **Licences**: opens a window with every licence notice the pet app owes.
-- **Language**: switches the pet app's display language between English and 한국어, one step per click.
+- **Language**: a submenu listing every language by its own name (`English`, `한국어`), with the current one checked; choosing one switches to it. (Superseded the one-step toggle; ticket 09.)
 
 Pets hidden is remembered in the pet's own state, so the pets stay off screen across idle exits, restarts and bundle updates until the user shows them again. Removing the pet still works the existing way: `install --without-pet` removes only the pet and keeps the skills. `list` and `doctor` say when pets are hidden, so an empty strip is never mistaken for a fault.
 
@@ -62,8 +62,8 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 ### Display language
 
 28. As a user, I want the pet app to start in Korean when my Windows display language is Korean and in English otherwise, so that the first thing I see is in my language.
-29. As a user, I want the Language menu entry to show the current language (`Language: English` or `언어: 한국어`), so that I can see what clicking it will change.
-30. As a user, I want each click on the Language entry to switch to the other language, English then 한국어 then English, so that switching needs no submenu.
+29. As a user who can't read the current language, I want the Language submenu to be labelled `Language` in English and `<word for language> (Language)` in any other language, and to list each language in its own name, so that I can always find my way back to a language I read.
+30. As a user, I want to pick a language from the submenu rather than cycle through them, so that one stray click never switches me to a language I can't read.
 31. As a user, I want a language change to apply at once to the tray menu, the tooltip, the overflow badges and an open licences window, so that the app never shows two languages at the same time.
 32. As a user, I want my chosen language remembered across idle exits, restarts and bundle updates, so that I choose it once.
 33. As a user who never chose a language, I want the app to keep following my Windows display language, so that changing Windows changes the pets too.
@@ -128,7 +128,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 
 - Accepted deviation: the watcher re-asserts topmost whenever the visible, unpaused strip lacks it, not only on foreground changes. A native topmost refusal is retried as NOTOPMOST then TOPMOST and never blocks showing.
 - The tray uses Tauri v2's built-in tray icon and menu, enabled through Tauri's `tray-icon` feature. No renderer capability is added: the Rust side owns the tray and its events.
-- Tray contents: the icon is the app icon. The tooltip is `codex-delegate pet <version>`; only the prefix is a name, so it is not translated. The menu is a check item for Show pets, an item for Licences and an item showing the current language. A left click toggles visibility and doesn't open the menu; a right click opens the menu.
+- Tray contents: the icon is the app icon. The tooltip is `codex-delegate pet <version>`; only the prefix is a name, so it is not translated. The menu is a check item for Show pets, an item for Licences and a Language submenu (see ticket 09). A left click toggles visibility and doesn't open the menu; a right click opens the menu.
 - The tray is created in setup, before the strip's first show. When preferences say hidden, the strip is never shown.
 - Hiding hides the strip window. Showing, both from the tray and at a cold start while shown, goes through one **show transition**. The transition does not reuse the current cold-start code, which shows before fullscreen placement is checked and can't tell whether capture exclusion succeeded. Its steps, in order:
   1. Evaluate fullscreen now, without waiting for the 300 ms watcher. If fullscreen, place the strip directly behind the fullscreen window without topmost.
