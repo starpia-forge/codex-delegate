@@ -33,7 +33,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 3. As a user, I want the tray icon to disappear when the pet app exits after its idle timeout, so that a stale icon never points at a process that is gone.
 4. As a user, I want the tray icon to return together with the app the next time a leader or worker reports, so that I can control the pet without starting anything by hand.
 5. As a user, I want hovering the tray icon to show `codex-delegate pet` and the running bundle version, so that I can tell which build I'm looking at.
-6. As a user, I want the tray icon to use the pet app's own icon, so that I can recognise it among other tray icons.
+6. As a user, I want the tray icon to use the pet app's own art and to show the pet ducked behind the taskbar while pets are hidden, so that I can recognise it among other tray icons and see at a glance whether pets are hidden.
 7. As a user, I want left-clicking the tray icon to toggle the pets between shown and hidden, so that the most common action is one click.
 8. As a user, I want right-clicking the tray icon to open its menu, so that the other actions are where Windows users expect them.
 9. As a user, I want the tray menu to contain only Show pets, Licences and Language, so that it stays simple and every other operation stays with the CLI.
@@ -128,7 +128,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 
 - Accepted deviation: the watcher re-asserts topmost whenever the visible, unpaused strip lacks it, not only on foreground changes. A native topmost refusal is retried as NOTOPMOST then TOPMOST and never blocks showing.
 - The tray uses Tauri v2's built-in tray icon and menu, enabled through Tauri's `tray-icon` feature. No renderer capability is added: the Rust side owns the tray and its events.
-- Tray contents: the icon is the app icon. The tooltip is `codex-delegate pet <version>`; only the prefix is a name, so it is not translated. The menu is a check item for Show pets, an item for Licences and a Language submenu (see ticket 09). A left click toggles visibility and doesn't open the menu; a right click opens the menu.
+- Tray contents: the icon is the pet peeking over a bar that stands for the taskbar; while pets are hidden it ducks behind the bar with its eyes closed (ticket 10). Both poses are pixel art drawn for 16, 20 and 24 px, loaded at the system's small-icon size, with larger sizes as whole multiples. The app icon is the shown pose. The tooltip is `codex-delegate pet <version>`; only the prefix is a name, so it is not translated. The menu is a check item for Show pets, an item for Licences and a Language submenu (see ticket 09). A left click toggles visibility and doesn't open the menu; a right click opens the menu.
 - The tray is created in setup, before the strip's first show. When preferences say hidden, the strip is never shown.
 - Hiding hides the strip window. Showing, both from the tray and at a cold start while shown, goes through one **show transition**. The transition does not reuse the current cold-start code, which shows before fullscreen placement is checked and can't tell whether capture exclusion succeeded. Its steps, in order:
   1. Evaluate fullscreen now, without waiting for the 300 ms watcher. If fullscreen, place the strip directly behind the fullscreen window without topmost.

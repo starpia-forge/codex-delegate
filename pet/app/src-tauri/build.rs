@@ -5,6 +5,8 @@ fn main() {
     // every build dirty. Watching ui also detects creation of notices/.
     println!("cargo:rerun-if-changed=../ui");
     println!("cargo:rerun-if-changed={}", stub.display());
+    // tauri-build embeds icons/icon.ico as the exe icon but doesn't watch it.
+    println!("cargo:rerun-if-changed=icons");
     let source = if generated.exists() { generated } else { stub };
     let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::copy(source, output.join("THIRD-PARTY-NOTICES.txt"))

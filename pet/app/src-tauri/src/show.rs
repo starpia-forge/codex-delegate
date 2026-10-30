@@ -1,4 +1,4 @@
-use crate::{capture, licences, messages::text, prefs::{self, Lang, PreferenceStore}, window, BUNDLE_VERSION};
+use crate::{capture, licences, messages::text, prefs::{self, Lang, PreferenceStore}, tray_art::{self, TrayArt}, window, BUNDLE_VERSION};
 use serde_json::{json, Value};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
@@ -290,9 +290,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     items.relabel(current)?;
     let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance, &items.licences, &items.language_menu])?;
     let click_show = items.show.clone();
-    let icon = app.default_window_icon().expect("pet app icon").clone();
+    // The icon's pose follows the Show pets check: peeking when shown, ducked when hidden.
+    let art = TrayArt::new(tray_art::small_icon_size());
+    let click_art = art.clone();
     TrayIconBuilder::with_id("pets")
-        .icon(icon)
+        .icon(art.image(hidden))
         .tooltip(format!("codex-delegate pet {BUNDLE_VERSION}"))
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -302,12 +304,14 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 let app = tray.app_handle();
                 let hidden = app.state::<Visibility>().toggle(app);
                 let _ = click_show.set_checked(!hidden);
+                let _ = tray.set_icon(Some(click_art.image(hidden)));
             }
         })
         .on_menu_event(move |app, event| {
             if event.id.as_ref() == "show-pets" {
                 let hidden = app.state::<Visibility>().toggle(app);
                 let _ = items.show.set_checked(!hidden);
+                if let Some(tray) = app.tray_by_id("pets") { let _ = tray.set_icon(Some(art.image(hidden))); }
             } else if event.id.as_ref() == "show-name-tags" {
                 let enabled = app.state::<Visibility>().toggle_name_tags(app);
                 let _ = items.name_tags.set_checked(enabled);

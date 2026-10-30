@@ -219,6 +219,27 @@ Keep overflow badges visible and the **Licences** window open while switching.
    no-stored-choice check by removing only `language` from the isolated
    preferences file while the app is stopped, preserving other preferences.
 
+## Tray icon
+
+The tray icon is pixel art in `app/src-tauri/icons/tray.json`: the pet peeking
+over a bar that stands for the taskbar, and ducked behind it with closed eyes
+while pets are hidden. Each pose is drawn at 16, 20 and 24 px, the sizes the
+notification area uses at 100%, 125% and 150% display scale. After editing the
+maps, run `node pet/generate-tray-icon.mjs` to rewrite `icon.ico`, `icon.png`
+and the SVG previews in `art/tray-icon/`, then rebuild the app.
+
+Manual tray icon check: use the rebuilt app at 100% display scale, then at 150%,
+each on a dark and on a light taskbar. If Windows puts the icon among the hidden
+icons (^), drag it onto the taskbar first.
+
+1. The tray icon shows the pet peeking over the bar. Left-click it: the pets
+   hide and the icon ducks behind the bar with its eyes closed. Left-click again
+   and both come back. **Show pets** in the menu switches the icon the same way.
+2. Hide pets and restart the app. The ducked icon appears from the start.
+3. Zoom into a screenshot of the tray. The icon's edges must be hard pixel steps
+   with no blur, matching `art/tray-icon/shown-16.svg` at 100% and
+   `shown-24.svg` at 150%.
+
 ## Releasing the pet bundle
 
 Cut a pet release only when the pet app, client, hook, or default pets change.

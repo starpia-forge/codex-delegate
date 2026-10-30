@@ -8,6 +8,7 @@ mod messages;
 mod notices;
 mod prefs;
 mod show;
+mod tray_art;
 mod window;
 
 use serde_json::{json, Value};
