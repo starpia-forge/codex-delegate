@@ -70,9 +70,11 @@ const pause = { hidden: true, fullscreen: false };
 const paused = () => drawingPaused(pause);
 const root = document.getElementById("stage");
 let lastPointer = null;
+let cursorClearance = true;
+let cursorClearanceEvents = 0;
 function updateCursor(pointer) {
   lastPointer = pointer;
-  const mask = clearanceMask(pointer, config.hideNearCursor && !paused());
+  const mask = clearanceMask(pointer, cursorClearance && !paused());
   root.style.maskImage = mask;
   root.style.webkitMaskImage = mask;
 }
@@ -217,6 +219,11 @@ function updatePause() {
 await window.__TAURI__.event.listen("pet-event", ({ payload }) => { stage.apply(payload); update(); });
 await window.__TAURI__.event.listen("pet-liveness", ({ payload }) => { stage.liveness(payload); update(); });
 await window.__TAURI__.event.listen("pet-cursor", ({ payload }) => updateCursor(payload));
+await window.__TAURI__.event.listen("pet-cursor-clearance", ({ payload }) => {
+  cursorClearanceEvents++;
+  cursorClearance = payload.cursorClearance;
+  updateCursor(lastPointer);
+});
 let fullscreenEvents = 0, visibilityEvents = 0, nameTagEvents = 0;
 // Subscribe before reading either preferences or the catalogue. An event received
 // during startup wins over a potentially older command response.
@@ -245,11 +252,12 @@ const fullscreen = await invoke("fullscreen_paused");
 if (fullscreenVersion === fullscreenEvents) pause.fullscreen = fullscreen;
 const visibilityVersion = visibilityEvents;
 const nameTagVersion = nameTagEvents;
+const cursorClearanceVersion = cursorClearanceEvents;
 const preferences = await languageSubscription.read(() => invoke("pet_preferences"));
+if (cursorClearanceVersion === cursorClearanceEvents) cursorClearance = preferences.cursorClearance !== false;
 if (nameTagVersion === nameTagEvents) setNameTags(preferences.nameTags !== false);
 if (visibilityVersion === visibilityEvents) pause.hidden = preferences.hidden === true;
 updatePause();
-await invoke("set_cursor_clearance", { enabled: config.hideNearCursor });
 await window.__TAURI__.core.invoke("renderer_ready");
 // Lifecycle runs on wall time even when animation frames are paused.
 setInterval(() => { stage.tick(); update(); }, 250);

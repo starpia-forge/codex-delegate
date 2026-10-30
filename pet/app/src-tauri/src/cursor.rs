@@ -1,16 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use serde_json::json;
 use tauri::{Emitter, Manager, WebviewWindow};
-
-// Disabled until the renderer has resolved its startup configuration and subscribed.
-#[derive(Default)]
-pub struct CursorClearance(AtomicBool);
-
-#[tauri::command]
-pub fn set_cursor_clearance(enabled: bool, state: tauri::State<CursorClearance>) {
-    state.0.store(enabled, Ordering::Release);
-}
 
 // Subtract physical positions before scaling, including on negative-origin displays.
 fn strip_point(cursor: (f64, f64), origin: (f64, f64), scale: f64) -> (f64, f64) {
@@ -35,12 +26,8 @@ fn emit_decision(last: Option<Point>, observation: Option<Point>) -> (Option<Opt
     (event, observation)
 }
 
-fn clearance_active(enabled: bool, hidden: bool, paused: bool) -> bool {
-    enabled && !hidden && !paused
-}
-
-fn poll_interval(enabled: bool, hidden: bool, paused: bool, distance: f64) -> Option<Duration> {
-    if !clearance_active(enabled, hidden, paused) { return None; }
+fn poll_interval(active: bool, distance: f64) -> Option<Duration> {
+    if !active { return None; }
     Some(Duration::from_millis(if distance <= CLEARANCE_RADIUS { 16 } else { 100 }))
 }
 
@@ -59,14 +46,15 @@ fn sample(win: &WebviewWindow) -> tauri::Result<((f64, f64), f64)> {
 pub fn watch(win: WebviewWindow) {
     let mut last_emitted = None;
     loop {
-        let enabled = win.state::<CursorClearance>().0.load(Ordering::Acquire);
-        let hidden = win.state::<crate::show::Visibility>().hidden();
         let paused = win.state::<crate::window::Fullscreen>().paused();
+        // Do not lose the first stationary-pointer event before the renderer subscribes.
+        let active = win.state::<crate::Ready>().load(Ordering::Acquire)
+            && win.state::<crate::show::Visibility>().cursor_clearance_active(paused);
         // Check the gate before reading either the cursor or window geometry.
-        let (observation, interval) = if !clearance_active(enabled, hidden, paused) {
+        let (observation, interval) = if !active {
             (None, None)
         } else if let Ok((point, distance)) = sample(&win) {
-            ((distance <= CLEARANCE_RADIUS).then_some(point), poll_interval(enabled, hidden, paused, distance))
+            ((distance <= CLEARANCE_RADIUS).then_some(point), poll_interval(active, distance))
         } else {
             (None, None)
         };
@@ -112,13 +100,11 @@ mod tests {
     }
 
     #[test]
-    fn closing_any_gate_emits_one_null() {
-        for (enabled, hidden, paused) in [(false, false, false), (true, true, false), (true, false, true)] {
-            let observation = clearance_active(enabled, hidden, paused).then_some((300.0, 80.0));
-            let (event, last) = emit_decision(Some((300.0, 80.0)), observation);
-            assert_eq!((event, last), (Some(None), None));
-            assert_eq!(emit_decision(last, observation), (None, None));
-        }
+    fn closing_the_polling_gate_emits_one_null() {
+        let observation = None;
+        let (event, last) = emit_decision(Some((300.0, 80.0)), observation);
+        assert_eq!((event, last), (Some(None), None));
+        assert_eq!(emit_decision(last, observation), (None, None));
     }
 
     #[test]
@@ -135,25 +121,18 @@ mod tests {
     }
 
     #[test]
-    fn disabled_hidden_or_fullscreen_strip_does_not_poll() {
-        for enabled in [false, true] {
-            for hidden in [false, true] {
-                for paused in [false, true] {
-                    if enabled && !hidden && !paused { continue; }
-                    for distance in [0.0, 500.0] {
-                        assert_eq!(poll_interval(enabled, hidden, paused, distance), None);
-                    }
-                }
-            }
+    fn inactive_strip_does_not_poll() {
+        for distance in [0.0, 500.0] {
+            assert_eq!(poll_interval(false, distance), None);
         }
     }
 
     #[test]
     fn polling_is_fast_within_250_logical_pixels_and_slow_beyond() {
-        assert_eq!(poll_interval(true, false, false, 0.0), Some(Duration::from_millis(16)));
-        assert_eq!(poll_interval(true, false, false, 250.0), Some(Duration::from_millis(16)));
-        assert_eq!(poll_interval(true, false, false, 250.01), Some(Duration::from_millis(100)));
-        assert_eq!(poll_interval(true, false, false, 1500.0), Some(Duration::from_millis(100)));
+        assert_eq!(poll_interval(true, 0.0), Some(Duration::from_millis(16)));
+        assert_eq!(poll_interval(true, 250.0), Some(Duration::from_millis(16)));
+        assert_eq!(poll_interval(true, 250.01), Some(Duration::from_millis(100)));
+        assert_eq!(poll_interval(true, 1500.0), Some(Duration::from_millis(100)));
     }
 
     #[test]

@@ -97,7 +97,6 @@ Optional configuration: `<home>/.codex-delegate/pet.json`:
 ```json
 {
   "scale": 0.6,
-  "hideNearCursor": true,
   "pets": { "leader": "my-pet", "researcher": "critic" }
 }
 ```
@@ -115,19 +114,23 @@ on the strip's 4 px bottom padding, level with the overflow badges just above
 the taskbar. Slot width, gaps, row fit, scene and exit offsets, and strip window
 size stay unchanged. Turning tags back on restores the previous vertical position.
 
-`hideNearCursor` accepts a boolean and defaults to `true`. The whole strip gives
-way within a circle 500 logical pixels in diameter around the pointer: transparent up
-to radius 190 px, fading linearly to opaque at 250 px. It follows directly;
-`false` disables both the mask and cursor polling. Cursor polling runs about
-60 Hz within 250 logical px of the strip and 10 Hz farther away, and stops
-while pets are hidden or the strip is paused for fullscreen. The strip stays
-click-through at every display scale. Non-boolean values are ignored, use the
-default, and are reported by `doctor`.
+The checked **Clear around cursor** tray item (**커서 주변 숨기기** in Korean),
+directly below **Show name tags**, turns cursor clearance on or off immediately.
+It defaults to on and remembers the choice as `cursorClearance` in
+`pet-state/pet-preferences.json` alongside pets hidden, name tags and language,
+surviving restarts and bundle updates. It works while pets are hidden and takes
+effect when they are shown. Turning it off removes the mask immediately and
+stops cursor polling; turning it on resumes polling. The whole strip gives way
+within a circle 500 logical pixels in diameter around the pointer: transparent
+up to radius 190 px, fading linearly to opaque at 250 px. It follows directly.
+Cursor polling runs about 60 Hz within 250 logical px of the strip and 10 Hz
+farther away, and stops while pets are hidden or the strip is paused for
+fullscreen. The strip stays click-through at every display scale.
 
 Unknown keys and invalid values are ignored. Missing or invalid JSON uses
 defaults. The shared `app/ui/pet-config.mjs` resolver returns diagnostic issues
 alongside the selected pets. The renderer reads configuration and packages once
-at startup; restart the app to load changes, including `hideNearCursor`.
+at startup; restart the app to load configuration or package changes.
 `doctor` resolves them on each run.
 
 Lookup is `<home>/.codex-delegate/pets/<name>/`, then
@@ -145,8 +148,8 @@ to `1.0`, then restart the rebuilt app and run a researcher. Confirm its artwork
 192×208 CSS-pixel canvas, name tag, and strip fit; repeat with `scale: 0.3`.
 Break its manifest and restart to confirm the researcher placeholder appears.
 
-Manual visibility check: use the rebuilt app and isolated home above. Restart
-after each configuration change, keeping the same workers and pet scale.
+Manual visibility check: use the rebuilt app and isolated home above, keeping
+the same workers and pet scale. Tray changes take effect without restarting.
 
 1. **Name tags:** uncheck and recheck **Show name tags** in the tray without
    restarting. Keep the pointer away and compare matching scene positions:
@@ -162,7 +165,7 @@ after each configuration change, keeping the same workers and pet scale.
    Restart with the item unchecked and confirm both the checkmark and
    tags stay off. Switch language and confirm **Show name tags** / **이름표 표시**
    is relabelled without changing its checkmark.
-2. **Cursor clearance:** with `hideNearCursor: true`, check at 100% display
+2. **Cursor clearance:** with **Clear around cursor** checked, check at 100% display
    scale, then another scale such as 150%. Around the pointer, expect a fully
    clear core about 380 logical (CSS) px wide, with a soft edge fading to opaque
    at about 500 px diameter. It should look the same size relative to the pets
@@ -171,10 +174,19 @@ after each configuration change, keeping the same workers and pet scale.
    still reach the window below.
 3. **Immediate return:** move the pointer away from the strip. Pets must
    reappear immediately, without fade-in lag.
-4. **Clearance off:** set `hideNearCursor: false` and restart. Move the pointer
-   across the strip: no cut-out should appear anywhere.
-5. **No cursor polling while pets hidden or fullscreen:** restore
-   `hideNearCursor: true` and restart. In Task Manager, watch the pet app's CPU
+4. **Clearance toggle:** keep the pointer over a pet and uncheck **Clear around
+   cursor**. The cut-out must disappear immediately. Move the pointer across the
+   strip: no cut-out should appear. Recheck the item and confirm clearance
+   resumes. Hide pets, toggle clearance off, show pets and confirm no cut-out;
+   repeat with clearance on and confirm it returns. Restart with the item
+   unchecked and confirm the checkmark and clearance stay off. Switch language
+   and confirm **Clear around cursor** / **커서 주변 숨기기** is relabelled
+   without changing its checkmark. Confirm tray order is **Show pets**, **Show
+   name tags**, **Clear around cursor**, **Licences**, **Language**.
+5. **No cursor polling while clearance off, pets hidden or fullscreen:** with
+   clearance off, watch the pet app's CPU in Task Manager while moving the
+   pointer near the strip. Expect near-idle CPU with no mouse-driven increase.
+   Check **Clear around cursor** again. In Task Manager, watch the pet app's CPU
    while pets are hidden (uncheck "Show pets" in the tray); compare a stationary
    pointer with continuous mouse movement near the strip. Expect near-idle CPU
    with no mouse-driven increase. Repeat while the strip is paused behind a

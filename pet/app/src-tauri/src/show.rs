@@ -12,6 +12,7 @@ fn retry_delay(attempt: u32) -> Duration {
 struct TrayItems {
     show: CheckMenuItem<tauri::Wry>,
     name_tags: CheckMenuItem<tauri::Wry>,
+    cursor_clearance: CheckMenuItem<tauri::Wry>,
     licences: MenuItem<tauri::Wry>,
     language: MenuItem<tauri::Wry>,
 }
@@ -19,6 +20,7 @@ impl TrayItems {
     fn relabel(&self, language: Lang) -> tauri::Result<()> {
         self.show.set_text(text("tray.showPets", language))?;
         self.name_tags.set_text(text("tray.showNameTags", language))?;
+        self.cursor_clearance.set_text(text("tray.clearAroundCursor", language))?;
         self.licences.set_text(text("tray.licences", language))?;
         self.language.set_text(text("tray.language", language))
     }
@@ -42,6 +44,7 @@ struct Transition {
 impl Transition {
     fn hidden(&self) -> bool { self.preferences.current().hidden.unwrap_or(false) }
     fn show_name_tags(&self) -> bool { self.preferences.current().show_name_tags() }
+    fn clear_around_cursor(&self) -> bool { self.preferences.current().clear_around_cursor() }
     fn language(&self) -> Lang { self.preferences.current().effective_language(self.windows_language) }
     fn active(&self, generation: u64) -> bool {
         self.generation == generation && self.running && self.pending && !self.hidden()
@@ -61,18 +64,30 @@ impl Visibility {
         // The renderer needs the effective language; this never writes it to disk.
         preferences["language"] = state.language().code().into();
         preferences["nameTags"] = state.show_name_tags().into();
+        preferences["cursorClearance"] = state.clear_around_cursor().into();
         preferences
     }
 
     pub fn language(&self) -> Lang { self.0.lock().unwrap().language() }
 
-    pub fn hidden(&self) -> bool { self.0.lock().unwrap().hidden() }
+    pub fn cursor_clearance_active(&self, paused: bool) -> bool {
+        let state = self.0.lock().unwrap();
+        state.clear_around_cursor() && !state.hidden() && !paused
+    }
 
     fn toggle_name_tags(&self, app: &AppHandle) -> bool {
         let mut state = self.0.lock().unwrap();
         let enabled = !state.show_name_tags();
         let _ = state.preferences.set_name_tags(enabled); // Store reports failures; memory wins.
         let _ = app.emit_to("main", "pet-name-tags", json!({ "nameTags": enabled }));
+        enabled
+    }
+
+    fn toggle_cursor_clearance(&self, app: &AppHandle) -> bool {
+        let mut state = self.0.lock().unwrap();
+        let enabled = !state.clear_around_cursor();
+        let _ = state.preferences.set_cursor_clearance(enabled); // Store reports failures; memory wins.
+        let _ = app.emit_to("main", "pet-cursor-clearance", json!({ "cursorClearance": enabled }));
         enabled
     }
 
@@ -210,19 +225,20 @@ pub fn frame_ready(id: u64, state: tauri::State<Visibility>) {
 }
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let (hidden, name_tags, current) = {
+    let (hidden, name_tags, cursor_clearance, current) = {
         let visibility = app.state::<Visibility>();
         let state = visibility.0.lock().unwrap();
-        (state.hidden(), state.show_name_tags(), state.language())
+        (state.hidden(), state.show_name_tags(), state.clear_around_cursor(), state.language())
     };
     let items = TrayItems {
         show: CheckMenuItem::with_id(app, "show-pets", "", true, !hidden, None::<&str>)?,
         name_tags: CheckMenuItem::with_id(app, "show-name-tags", "", true, name_tags, None::<&str>)?,
+        cursor_clearance: CheckMenuItem::with_id(app, "clear-around-cursor", "", true, cursor_clearance, None::<&str>)?,
         licences: MenuItem::with_id(app, "licences", "", true, None::<&str>)?,
         language: MenuItem::with_id(app, "language", "", true, None::<&str>)?,
     };
     items.relabel(current)?;
-    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.licences, &items.language])?;
+    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance, &items.licences, &items.language])?;
     let click_show = items.show.clone();
     let icon = app.default_window_icon().expect("pet app icon").clone();
     TrayIconBuilder::with_id("pets")
@@ -245,6 +261,9 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             } else if event.id.as_ref() == "show-name-tags" {
                 let enabled = app.state::<Visibility>().toggle_name_tags(app);
                 let _ = items.name_tags.set_checked(enabled);
+            } else if event.id.as_ref() == "clear-around-cursor" {
+                let enabled = app.state::<Visibility>().toggle_cursor_clearance(app);
+                let _ = items.cursor_clearance.set_checked(enabled);
             } else if event.id.as_ref() == "language" {
                 app.state::<Visibility>().toggle_language(app, &items);
             } else if event.id.as_ref() == "licences" {
@@ -259,6 +278,26 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 mod tests {
     use super::*;
     use crate::prefs::TestDir;
+
+    #[test]
+    fn cursor_clearance_gate_and_renderer_follow_the_stored_choice() {
+        let dir = TestDir::new();
+        let path = dir.0.join("pet-preferences.json");
+        let defaults = Visibility::new(PreferenceStore::load(path.clone()));
+        assert!(defaults.cursor_clearance_active(false));
+        assert_eq!(defaults.preferences()["cursorClearance"], true);
+        let mut store = PreferenceStore::load(path.clone());
+        for enabled in [false, true] {
+            store.set_cursor_clearance(enabled).unwrap();
+            for hidden in [true, false] {
+                store.set_hidden(hidden).unwrap();
+                let visibility = Visibility::new(PreferenceStore::load(path.clone()));
+                assert_eq!(visibility.preferences()["cursorClearance"], enabled);
+                assert_eq!(visibility.cursor_clearance_active(false), enabled && !hidden);
+                assert!(!visibility.cursor_clearance_active(true));
+            }
+        }
+    }
 
     #[test]
     fn renderer_preferences_restore_name_tags_even_while_pets_are_hidden() {

@@ -25,6 +25,8 @@ mod tests {
     #[test]
     fn embedded_catalogue_supplies_tray_labels_and_english_fallback() {
         let catalogue = super::messages();
+        assert_eq!(super::text("tray.clearAroundCursor", Lang::En), "Clear around cursor");
+        assert_eq!(super::text("tray.clearAroundCursor", Lang::Ko), "커서 주변 숨기기");
         assert_eq!(super::text("tray.showNameTags", Lang::En), "Show name tags");
         assert_eq!(super::text("tray.showNameTags", Lang::Ko), "이름표 표시");
         assert_eq!(super::text("tray.showPets", Lang::Ko), "펫 표시");

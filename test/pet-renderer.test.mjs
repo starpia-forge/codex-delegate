@@ -110,3 +110,47 @@ test("missing name-tag preferences default to visible", async t => {
   h.add("first");
   assert.equal(h.root.querySelector(".tag").style.display, "");
 });
+
+test("turning cursor clearance off clears both masks immediately and ignores late pointer events", async t => {
+  const h = await renderer(t);
+  h.emit("pet-cursor", { x: 300, y: 80 });
+  assert.match(h.root.style.maskImage, /radial-gradient/);
+  h.emit("pet-cursor-clearance", { cursorClearance: false });
+  assert.equal(h.root.style.maskImage, "none");
+  assert.equal(h.root.style.webkitMaskImage, "none");
+  h.emit("pet-cursor", { x: 301, y: 80 });
+  assert.equal(h.root.style.maskImage, "none");
+  assert.equal(h.root.style.webkitMaskImage, "none");
+  h.emit("pet-cursor-clearance", { cursorClearance: true });
+  h.emit("pet-cursor", { x: 302, y: 80 });
+  assert.match(h.root.style.maskImage, /circle at 302px 80px/);
+  assert.equal(h.root.style.webkitMaskImage, h.root.style.maskImage);
+});
+
+test("cursor clearance restores the stored off choice at startup", async t => {
+  const h = await renderer(t, { preferences: { hidden: false, cursorClearance: false, language: "en" } });
+  h.emit("pet-cursor", { x: 300, y: 80 });
+  assert.equal(h.root.style.maskImage, "none");
+  assert.equal(h.root.style.webkitMaskImage, "none");
+});
+
+test("a cursor-clearance toggle during startup wins over an older preference response", async t => {
+  const h = await renderer(t, { onRead: emit => emit("pet-cursor-clearance", { cursorClearance: false }) });
+  h.emit("pet-cursor", { x: 300, y: 80 });
+  assert.equal(h.root.style.maskImage, "none");
+});
+
+test("cursor clearance can toggle while hidden and takes effect when pets are shown", async t => {
+  const h = await renderer(t);
+  h.emit("pet-visibility", { hidden: true });
+  h.emit("pet-cursor-clearance", { cursorClearance: false });
+  h.emit("pet-visibility", { hidden: false });
+  h.emit("pet-cursor", { x: 300, y: 80 });
+  assert.equal(h.root.style.maskImage, "none");
+  h.emit("pet-visibility", { hidden: true });
+  h.emit("pet-cursor-clearance", { cursorClearance: true });
+  assert.equal(h.root.style.maskImage, "none");
+  h.emit("pet-visibility", { hidden: false });
+  h.emit("pet-cursor", { x: 310, y: 80 });
+  assert.match(h.root.style.maskImage, /circle at 310px 80px/);
+});

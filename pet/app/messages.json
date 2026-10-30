@@ -1,4 +1,5 @@
 {
+  "tray.clearAroundCursor": { "en": "Clear around cursor", "ko": "커서 주변 숨기기" },
   "tray.showNameTags": { "en": "Show name tags", "ko": "이름표 표시" },
   "tray.showPets": { "en": "Show pets", "ko": "펫 표시" },
   "tray.licences": { "en": "Licences", "ko": "라이선스" },

@@ -19,12 +19,14 @@ pub fn windows_ui_language() -> u16 {
 pub struct Preferences {
     pub hidden: Option<bool>,
     pub name_tags: Option<bool>,
+    pub cursor_clearance: Option<bool>,
     // Only an explicit choice belongs here, never the effective display language.
     pub language: Option<Lang>,
 }
 
 impl Preferences {
     pub fn show_name_tags(self) -> bool { self.name_tags.unwrap_or(true) }
+    pub fn clear_around_cursor(self) -> bool { self.cursor_clearance.unwrap_or(true) }
 
     pub fn effective_language(self, windows_language: u16) -> Lang {
         self.language.unwrap_or_else(|| {
@@ -36,6 +38,7 @@ impl Preferences {
         let mut fields = Map::new();
         if let Some(hidden) = self.hidden { fields.insert("hidden".into(), hidden.into()); }
         if let Some(name_tags) = self.name_tags { fields.insert("nameTags".into(), name_tags.into()); }
+        if let Some(cursor_clearance) = self.cursor_clearance { fields.insert("cursorClearance".into(), cursor_clearance.into()); }
         if let Some(language) = self.language {
             fields.insert("language".into(), language.code().into());
         }
@@ -43,7 +46,8 @@ impl Preferences {
     }
     pub fn parse(input: &str) -> Self {
         let value: Value = serde_json::from_str(input).unwrap_or(Value::Null);
-        Self { hidden: value["hidden"].as_bool(), name_tags: value["nameTags"].as_bool(), language: match value["language"].as_str() {
+        Self { hidden: value["hidden"].as_bool(), name_tags: value["nameTags"].as_bool(),
+            cursor_clearance: value["cursorClearance"].as_bool(), language: match value["language"].as_str() {
             Some("en") => Some(Lang::En), Some("ko") => Some(Lang::Ko), _ => None,
         } }
     }
@@ -58,6 +62,7 @@ impl PreferenceStore {
             .and_then(|value| value.as_object().cloned()).unwrap_or_default();
         unknown.remove("hidden");
         unknown.remove("nameTags");
+        unknown.remove("cursorClearance");
         unknown.remove("language");
         Self { path, value, unknown }
     }
@@ -68,6 +73,10 @@ impl PreferenceStore {
     }
     pub fn set_name_tags(&mut self, enabled: bool) -> std::io::Result<()> {
         self.value.name_tags = Some(enabled);
+        self.save()
+    }
+    pub fn set_cursor_clearance(&mut self, enabled: bool) -> std::io::Result<()> {
+        self.value.cursor_clearance = Some(enabled);
         self.save()
     }
     pub fn toggle_language(&mut self, windows_language: u16) -> std::io::Result<()> {
@@ -115,6 +124,39 @@ impl Drop for TestDir {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_clearance_defaults_on_when_absent_or_invalid() {
+        assert!(Preferences::default().clear_around_cursor());
+        let dir = TestDir::new();
+        assert!(PreferenceStore::load(dir.0.join("missing.json")).current().clear_around_cursor());
+        for input in ["{}", r#"{"hidden":true,"language":"ko"}"#, r#"{"cursorClearance":"false"}"#, "null", "{"] {
+            assert!(Preferences::parse(input).clear_around_cursor(), "{input}");
+        }
+        assert!(!Preferences::parse(r#"{"cursorClearance":false}"#).clear_around_cursor());
+    }
+
+    #[test]
+    fn cursor_clearance_round_trips_with_other_and_unknown_preferences() {
+        let dir = TestDir::new();
+        let path = dir.0.join("pet-preferences.json");
+        std::fs::write(&path, r#"{"hidden":true,"nameTags":false,"language":"ko","cursorClearance":true,"future":{"mode":"auto"}}"#).unwrap();
+        let mut store = PreferenceStore::load(path.clone());
+        for enabled in [false, true] {
+            store.set_cursor_clearance(enabled).unwrap();
+            store.set_hidden(false).unwrap();
+            store.set_name_tags(true).unwrap();
+            store.toggle_language(0x0409).unwrap();
+            store.toggle_language(0x0409).unwrap();
+            let restarted = PreferenceStore::load(path.clone());
+            assert_eq!(restarted.current().cursor_clearance, Some(enabled));
+            let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(saved, serde_json::json!({
+                "hidden": false, "nameTags": true, "language": "ko", "cursorClearance": enabled,
+                "future": {"mode": "auto"}
+            }));
+        }
+    }
 
     #[test]
     fn name_tags_default_on_when_absent_or_invalid() {

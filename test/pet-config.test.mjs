@@ -72,7 +72,7 @@ async function harness(t) {
 test("no configuration uses all five bundled slot pets at scale 0.6", async t => {
   const h = await harness(t);
   const result = await h.resolve();
-  assert.deepEqual(result, { scale: 0.6, hideNearCursor: true,
+  assert.deepEqual(result, { scale: 0.6,
     pets: Object.fromEntries(slots.map(slot => [slot, bundled(slot)])), issues: [] });
   const characters = { leader: "momo", researcher: "mikan", critic: "sion", implementer: "shamiko", "computer-user": "lico" };
   for (const [slot, character] of Object.entries(characters)) {
@@ -86,23 +86,15 @@ test("no configuration uses all five bundled slot pets at scale 0.6", async t =>
   }
 });
 
-test("configuration accepts boolean cursor clearance settings", async t => {
+test("configuration reports hideNearCursor as unknown regardless of its value", async t => {
   const h = await harness(t);
-  for (const hideNearCursor of [false, true]) {
+  for (const hideNearCursor of [true, false, "false", "true", "", 0, 1, null, [], {}]) {
     await h.config({ hideNearCursor });
     const result = await h.resolve();
-    assert.equal(result.hideNearCursor, hideNearCursor);
-    assert.deepEqual(result.issues, []);
-  }
-});
-
-test("configuration ignores non-boolean cursor clearance with an issue", async t => {
-  const h = await harness(t);
-  for (const hideNearCursor of ["false", 0, 1, null, [], {}]) {
-    await h.config({ hideNearCursor });
-    const result = await h.resolve();
-    assert.equal(result.hideNearCursor, true);
-    assert.deepEqual(result.issues, [{ code: "hide-near-cursor-invalid", key: "hideNearCursor" }]);
+    assert.equal(Object.hasOwn(result, "hideNearCursor"), false);
+    assert.equal(result.scale, 0.6);
+    assert.deepEqual(result.pets, Object.fromEntries(slots.map(slot => [slot, bundled(slot)])));
+    assert.deepEqual(result.issues, [{ code: "unknown-key", key: "hideNearCursor" }]);
   }
 });
 
