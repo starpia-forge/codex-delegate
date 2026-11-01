@@ -14,6 +14,10 @@ const script = join(root, "scripts", "pet-bundle.mjs");
 const notices = join(root, "test/fixtures/pet-notices.txt");
 const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
+function assertNothingWritten(directory) {
+  assert.deepEqual(readdirSync(directory, { recursive: true }), []);
+}
+
 async function publishedRelease(t, options = {}) {
   const work = mkdtempSync(join(tmpdir(), "published Release "));
   t.after(() => rmSync(work, { recursive: true, force: true }));
@@ -41,7 +45,7 @@ test("bundle CLI checks a good published Release without reading bundle inputs o
   assert.ok(result.stdout.includes(`Release v${version} passed`), result.stdout);
   assert.ok(result.stdout.includes(r.bundle.sha256), result.stdout);
   assert.deepEqual(r.requests, r.paths);
-  assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+  assertNothingWritten(r.work);
 });
 
 test("bundle CLI checks the requested published Release even when package.json has another version", async t => {
@@ -55,7 +59,7 @@ test("bundle CLI checks the requested published Release even when package.json h
     "/v9.9.9/codex-delegate-pet-windows-x64.zip.sha256",
     "/v9.9.9/codex-delegate-pet-windows-x64.zip",
   ]);
-  assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+  assertNothingWritten(r.work);
 });
 
 for (const target of ["zip", "checksum"]) {
@@ -68,7 +72,7 @@ for (const target of ["zip", "checksum"]) {
     assert.ok(result.stderr.includes(`(${r.baseUrl}${path})`), result.stderr);
     assert.deepEqual(r.requests, target === "zip" ? r.paths : [r.checksumPath]);
     assert.equal(result.stdout, "");
-    assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+    assertNothingWritten(r.work);
   });
 }
 
@@ -80,13 +84,13 @@ test("bundle CLI refuses invalid published Release versions before any request",
     assert.match(result.stderr, /^pet-bundle: .*--check-published.*bare X\.Y\.Z version/);
     assert.equal(result.stdout, "");
     assert.deepEqual(r.requests, [], JSON.stringify(invalid));
-    assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+    assertNothingWritten(r.work);
   }
   const missing = await r.run(["--check-published"]);
   assert.notEqual(missing.code, 0);
   assert.match(missing.stderr, /^pet-bundle: .*--check-published.*argument/);
   assert.deepEqual(r.requests, []);
-  assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+  assertNothingWritten(r.work);
 });
 
 test("bundle CLI refuses published Release checks combined with local check flags before any request", async t => {
@@ -97,7 +101,7 @@ test("bundle CLI refuses published Release checks combined with local check flag
     assert.match(result.stderr, /^pet-bundle: .*--check-published.*cannot be combined.*--check.*--expect-tag/);
     assert.equal(result.stdout, "");
     assert.deepEqual(r.requests, []);
-    assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+    assertNothingWritten(r.work);
   }
 });
 
@@ -110,7 +114,7 @@ test("bundle CLI fails when the requested published Release is not served", asyn
   assert.match(result.stderr, /^pet-bundle: Release v9\.9\.9/);
   assert.deepEqual(r.requests, [path]);
   assert.equal(result.stdout, "");
-  assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+  assertNothingWritten(r.work);
 });
 
 test("bundle CLI rejects malformed published Release checksum lines before requesting the zip", async t => {
@@ -132,7 +136,7 @@ test("bundle CLI rejects malformed published Release checksum lines before reque
     assert.ok(result.stderr.includes(`(${r.baseUrl}${r.checksumPath})`), result.stderr);
     assert.deepEqual(r.requests, [r.checksumPath]);
     assert.equal(result.stdout, "");
-    assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+    assertNothingWritten(r.work);
   }
 });
 
@@ -143,7 +147,7 @@ test("bundle CLI rejects a published Release whose zip does not match its checks
   assert.match(result.stderr, /^pet-bundle: Pet checksum mismatch \(SHA-256\)/);
   assert.deepEqual(r.requests, r.paths);
   assert.equal(result.stdout, "");
-  assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+  assertNothingWritten(r.work);
 });
 
 test("bundle CLI accepts the installer's published Release checksum line forms", async t => {
@@ -161,7 +165,7 @@ test("bundle CLI accepts the installer's published Release checksum line forms",
     assert.equal(result.stderr, "");
     assert.equal(result.stdout, `Release v${version} passed (SHA-256 ${sha256})\n`);
     assert.deepEqual(r.requests, r.paths);
-    assert.deepEqual(readdirSync(r.work, { recursive: true }), []);
+    assertNothingWritten(r.work);
   }
 });
 
@@ -205,7 +209,7 @@ test("bundle CLI refuses a missing input before writing release artifacts", t =>
   const result = spawnSync(process.execPath, [script, "--exe", missing, "--notices", notices, "--out", work], { encoding: "utf8" });
   assert.notEqual(result.status, 0);
   assert.ok(result.stderr.includes(`Missing bundle input: ${missing}`), result.stderr);
-  assert.deepEqual(readdirSync(work), []);
+  assertNothingWritten(work);
 });
 
 test("bundle CLI refuses omitted, missing or stub notices before writing anything", t => {
@@ -232,7 +236,7 @@ test("bundle CLI requires --expect-tag with --check and writes nothing when omit
   const result = spawnSync(process.execPath, [script, "--check", "--out", join(work, "dist")], { encoding: "utf8" });
   assert.notEqual(result.status, 0, result.stderr);
   assert.match(result.stderr, /--check requires --expect-tag/);
-  assert.deepEqual(readdirSync(work), []);
+  assertNothingWritten(work);
 });
 
 test("bundle CLI checks the package's Release tag before reading inputs or writing artifacts", t => {
@@ -241,13 +245,13 @@ test("bundle CLI checks the package's Release tag before reading inputs or writi
   const args = [script, "--out", join(work, "dist"), "--exe", join(work, "missing.exe")];
   const result = spawnSync(process.execPath, [...args, "--check", "--expect-tag", `v${version}`], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(readdirSync(work), []);
+  assertNothingWritten(work);
   for (const flags of [["--expect-tag", "v999.0.0"], ["--check", "--expect-tag", "v999.0.0"], ["--tag", `v${version}`]]) {
     const result = spawnSync(process.execPath, [...args, ...flags], { encoding: "utf8" });
     assert.notEqual(result.status, 0, result.stderr);
     assert.match(result.stderr, /tag/);
     assert.doesNotMatch(result.stderr, /Missing bundle input|notices.*required/);
-    assert.deepEqual(readdirSync(work), []);
+    assertNothingWritten(work);
     if (!flags.includes("--tag")) assert.ok(result.stderr.includes(`v${version}`), result.stderr);
   }
 });
