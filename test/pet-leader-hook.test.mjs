@@ -166,6 +166,25 @@ test("a session record survives quiet activity and in-window restarts until its 
   assert.equal(existsSync(record), false);
 });
 
+test("a real SessionEnd removes its session record and leaves an absent app closed", async t => {
+  const h = await harness(t, "absent");
+  const record = join(h.state, "sessions", "43210.json");
+  mkdirSync(join(h.state, "sessions"));
+  writeFileSync(record, JSON.stringify({ team: "43210", session: "closing", at: Date.now() - 1000 }));
+  const launched = join(h.state, "launched"), command = join(h.state, "launch.mjs");
+  writeFileSync(command, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(launched)}, 'started');`);
+  quiet(await h.run({ hook_event_name: "SessionEnd", reason: "prompt_input_exit", session_id: "closing" }, {
+    CODEX_DELEGATE_PET_TEST_COMMAND: JSON.stringify([process.execPath, command]),
+    CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS: "4000",
+  }));
+  assert.equal(existsSync(record), false);
+  // Outwait a mistakenly started helper and its configured launch command.
+  await delay(4500);
+  assert.equal(existsSync(launched), false);
+  assert.equal(existsSync(join(h.state, "spool")), false);
+  assert.deepEqual(h.events, []);
+});
+
 test("a new session start replaces only its team's saved record", async t => {
   const h = await harness(t);
   quiet(await h.run({ hook_event_name: "SessionStart", source: "startup", session_id: "first" }));
