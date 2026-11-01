@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/semantic-release/spec.md` (user story 33, semantic-release configuration, Package contents).
 
