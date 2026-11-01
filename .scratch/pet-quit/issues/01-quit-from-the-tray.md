@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/pet-quit/spec.md` (user stories 1–15, Pet shell, Translation catalogue).
 
