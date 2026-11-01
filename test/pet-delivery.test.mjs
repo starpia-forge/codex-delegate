@@ -16,7 +16,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, message) {
   const deadline = Date.now() + 7000;
   while (Date.now() < deadline) {
-    if (check()) return;
+    if (await check()) return;
     await sleep(25);
   }
   assert.fail(message);
@@ -53,7 +53,7 @@ const server = createServer((req, res) => {
   }
   if (req.url === '/health') {
     if (Date.now() < silentUntil) return;
-    res.statusCode = Date.now() < healthyAt ? 503 : 200;
+    res.statusCode = Date.now() < healthyAt || (process.env.STUB_READY_GATE && !existsSync(process.env.STUB_READY_GATE)) ? 503 : 200;
     res.end(JSON.stringify({ app: 'codex-delegate-pet', protocol: 1, version: '0.1.0', pid: process.pid }));
   } else if (req.url === '/quit') {
     res.end('{}', () => process.exit(0));
@@ -114,7 +114,7 @@ setTimeout(() => process.exit(), 15000).unref();
       try { readFileSync(join(state, "spool", name)); return true; } catch { return false; }
     }) : [],
     async produce(source = "await worker.send('start');") {
-      const code = `import { createWorker } from ${JSON.stringify(pathToFileURL(join(bundle, "client", "pet-client.mjs")).href)};
+      const code = `import { createWorker, sendLeader } from ${JSON.stringify(pathToFileURL(join(bundle, "client", "pet-client.mjs")).href)};
 const worker = createWorker({ role: 'implementer', label: 'quick-task' });
 ${source}`;
       const started = performance.now();
@@ -160,6 +160,122 @@ test("an absent app starts in the background and receives an authenticated event
   assert.deepEqual(await (await fetch(url, { headers: { "X-Codex-Delegate-Pet-Token": token } })).json(),
     { app: "codex-delegate-pet", protocol: 1, version: "0.1.0", pid: Number(h.lines("starts")[0]) });
 });
+
+test("session-end leaves an absent app closed with no spool or helper when nothing is pending", async t => {
+  const h = await harness(t);
+  await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
+  // Outwait the configured helper health bound (4s), so a detached launch or
+  // a helper still holding delivery cannot escape the negative assertions.
+  await sleep(4500);
+  assert.deepEqual(h.lines("starts"), []);
+  assert.deepEqual(h.events(), []);
+  assert.equal(existsSync(join(h.state, "spool")), false);
+});
+
+test("session-end behind a queued event starts an absent app and preserves delivery order", async t => {
+  const h = await harness(t, { STUB_DELAY: "100" });
+  mkdirSync(join(h.state, "spool"));
+  writeFileSync(join(h.state, "spool", "queued.json"), JSON.stringify({ v: 1, source: "leader",
+    team: "43210", session: "closing", at: Date.now() - 1000, type: "session-start" }));
+  await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
+  await until(() => h.events().length === 2, "queued session did not finish delivery");
+  assert.deepEqual(h.events().map(e => [e.source, e.type]), [["leader", "session-start"], ["leader", "session-end"]]);
+  assert.equal(h.lines("starts").length, 1);
+  await until(() => h.spooled().length === 0, "delivered events remained in the spool");
+});
+
+test("session-end with an empty spool and a held delivery lock is retained for delivery", async t => {
+  const h = await harness(t);
+  const spool = join(h.state, "spool"), lock = join(spool, "delivery.lock");
+  mkdirSync(spool);
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, id: "held" }));
+  await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
+  assert.equal(h.spooled().length, 1);
+  const event = JSON.parse(readFileSync(join(spool, h.spooled()[0]), "utf8"));
+  assert.deepEqual([event.source, event.type], ["leader", "session-end"]);
+  await sleep(350);
+  assert.deepEqual(h.lines("starts"), []);
+  assert.deepEqual(h.events(), []);
+  assert.equal(h.spooled().length, 1);
+  assert.equal(JSON.parse(readFileSync(lock, "utf8")).id, "held");
+});
+
+test("session-end during a fresh update is spooled and delivered when the installer finishes", async t => {
+  const h = await harness(t, { STUB_DELAY: "100" });
+  writeFileSync(join(h.state, "updating"), "updating");
+  await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
+  await sleep(350);
+  assert.equal(h.spooled().length, 1);
+  assert.deepEqual(h.events(), []);
+  assert.deepEqual(h.lines("starts"), []);
+  const files = { ...bundleFiles };
+  for (const name of readdirSync(clients)) files[`client/${name}`] = readFileSync(join(clients, name));
+  await release(t, h, { bytes: zip(files) });
+  const child = spawn(process.execPath, ["--input-type=module", "-e", `
+    import { preparePet, withInstallerLock } from ${JSON.stringify(new URL("../bin/pet.mjs", import.meta.url).href)};
+    await withInstallerLock(async () => {
+      const plan = await preparePet({ root: ${JSON.stringify(fileURLToPath(new URL("../", import.meta.url)))}, pkg: { name: 'codex-delegate', version: 'test' } });
+      try { for (const step of plan.steps) await step.apply(); } finally { plan.cleanup(); }
+    }, { recoverPet: true });
+  `], { env: h.env, windowsHide: true });
+  let stderr = "";
+  child.stderr.on("data", chunk => stderr += chunk);
+  child.stdout.resume();
+  assert.equal(await new Promise(resolve => child.on("close", resolve)), 0, stderr);
+  assert.equal(existsSync(join(h.state, "updating")), false);
+  await until(() => h.events().length === 1, "installer stranded session-end after the update");
+  assert.deepEqual(h.events().map(e => [e.source, e.type]), [["leader", "session-end"]]);
+  assert.equal(h.lines("starts").length, 1);
+  await until(() => h.spooled().length === 0, "delivered session-end remained in the spool");
+});
+
+test("session-end is spooled while an app returns 503 health and delivered once it is ready", async t => {
+  const h = await harness(t, { STUB_DELAY: "0" });
+  const gate = join(h.root, "ready");
+  const [command, ...args] = JSON.parse(h.env.CODEX_DELEGATE_PET_TEST_COMMAND);
+  spawn(command, args, { env: { ...h.env, STUB_READY_GATE: gate }, windowsHide: true, stdio: "ignore" }).unref();
+  await until(async () => {
+    try {
+      return (await fetch(`http://127.0.0.1:${h.port}/health`, { headers: { "X-Codex-Delegate-Pet-Token": token } })).status === 503;
+    } catch { return false; }
+  }, "stub did not begin starting");
+  await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
+  assert.equal(h.spooled().length, 1);
+  assert.deepEqual(h.events(), []);
+  writeFileSync(gate, "ready");
+  await until(() => h.events().length === 1, "starting app never received session-end");
+  assert.deepEqual(h.events().map(e => [e.source, e.type]), [["leader", "session-end"]]);
+  assert.equal(h.lines("starts").length, 1, "starting app was launched again");
+  await until(() => h.spooled().length === 0, "delivered session-end remained in the spool");
+});
+
+test("session-end posts directly to a healthy app without creating a spool", async t => {
+  const h = await harness(t, { STUB_DELAY: "0" });
+  const [command, ...args] = JSON.parse(h.env.CODEX_DELEGATE_PET_TEST_COMMAND);
+  spawn(command, args, { env: h.env, windowsHide: true, stdio: "ignore" }).unref();
+  await until(async () => {
+    try {
+      return (await fetch(`http://127.0.0.1:${h.port}/health`, { headers: { "X-Codex-Delegate-Pet-Token": token } })).status === 200;
+    } catch { return false; }
+  }, "stub did not become healthy");
+  await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
+  assert.deepEqual(h.events().map(e => [e.source, e.type]), [["leader", "session-end"]]);
+  assert.equal(existsSync(join(h.state, "spool")), false);
+  assert.equal(h.lines("starts").length, 1);
+});
+
+for (const type of ["session-start", "prompt", "waiting", "resumed", "stop", "failed", "end"]) {
+  const source = type === "end" ? "worker" : "leader";
+  test(`${source} ${type} still starts an absent app with nothing pending`, async t => {
+    const h = await harness(t, { STUB_DELAY: "0" });
+    await h.produce(source === "worker" ? "await worker.send('end', 'success');"
+      : `await sendLeader({ type: '${type}', team: '43210', session: 'active' });`);
+    await until(() => h.events().length === 1, `${source} ${type} did not reach the app`);
+    assert.deepEqual(h.events().map(e => [e.source, e.type]), [[source, type]]);
+    assert.equal(h.lines("starts").length, 1);
+    await until(() => h.spooled().length === 0, "delivered report remained in the spool");
+  });
+}
 
 test("a helper rechecks updating immediately before spawning the configured app", async t => {
   const h = await harness(t);

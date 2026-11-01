@@ -1,6 +1,7 @@
 # Leader and worker pets (developer tracer)
 
-Windows only. The first event starts the app automatically. The runner
+Windows only. The first event starts the app automatically, except a leader's
+session-end report when no delivery or update is pending. The runner
 reports only when `<home>/.codex-delegate/pet/client/pet-client.mjs` exists.
 No hooks, settings, real home directories, or normal installation paths are
 changed by the build. Use an isolated home for testing.
