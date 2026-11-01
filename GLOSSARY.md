@@ -48,6 +48,10 @@ _Avoid_: disabled, off, paused
 The user ending the pet app now. It changes neither pet enabled nor pets hidden, and later reports start the pet app again as usual.
 _Avoid_: disable, remove, hide
 
+**Tray icon**:
+The pet app's mark in the Windows notification area. It tells that the pet app is running and shows whether pets are hidden. What it draws stands for no leader or worker, so it is not a pet.
+_Avoid_: pet icon
+
 **Name tag**:
 The label under a pet that tells which leader or worker it stands for. It names the session or worker, not the pet's artwork.
 _Avoid_: pet name, label

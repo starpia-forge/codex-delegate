@@ -1,49 +1,41 @@
-// Tray and app icon from the pixel maps in app/src-tauri/icons/tray.json. Writes icon.ico
-// (16-64 px from the shown maps, 256 px from the vector master art/tray-icon/shown.svg) and
-// icon.png next to the maps, plus an SVG preview of every map to art/tray-icon/.
-import { readFileSync, writeFileSync } from "node:fs";
-import { deflateSync } from "node:zlib";
+// Tray and app icon from the line art in art/tray-icon/. Writes the tray's coverage maps to
+// app/src-tauri/icons/tray.json, and icon.ico (16-64 px, 256 px) and icon.png next to them.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import sharp from "sharp";
 
 const icons = new URL("./app/src-tauri/icons/", import.meta.url);
 const artwork = new URL("./art/tray-icon/", import.meta.url);
-const art = JSON.parse(readFileSync(new URL("tray.json", icons), "utf8"));
+const TRAY_SIZES = [16, 20, 24, 28, 32, 40, 48];
+const TILE = "#16181d";
 
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-function chunk(type, data) {
-  const bytes = Buffer.concat([Buffer.from(type), data]);
-  const size = Buffer.alloc(4), crc = Buffer.alloc(4);
-  size.writeUInt32BE(data.length); crc.writeUInt32BE(crc32(bytes));
-  return Buffer.concat([size, bytes, crc]);
-}
-function png(size, rgba) {
-  const rows = Buffer.alloc(size * (size * 4 + 1));
-  for (let y = 0; y < size; y++) rgba.copy(rows, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(size); header.writeUInt32BE(size, 4); header[8] = 8; header[9] = 6;
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header),
-    chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
+// A pose at one size: its drawing for that size when it has one, else the 32 px master.
+async function render(pose, size) {
+  const sized = new URL(`${pose}-${size}.svg`, artwork);
+  const source = readFileSync(existsSync(sized) ? sized : new URL(`${pose}.svg`, artwork), "utf8");
+  const svg = source.replace(/width="\d+" height="\d+"/, `width="${size}" height="${size}"`);
+  const { data, info } = await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (info.width !== size || info.height !== size) throw new Error(`unexpected ${pose} ${size} render`);
+  return data;
 }
 
-// A pose's map enlarged by a whole number, as top-down RGBA.
-function pixels(pose, map, scale) {
-  const size = map * scale, rgba = Buffer.alloc(size * size * 4);
-  art[pose][map].forEach((row, y) => [...row].forEach((key, x) => {
-    if (key === ".") return;
-    const colour = art.palette[pose][key];
-    const pixel = [1, 3, 5].map((i) => parseInt(colour.slice(i, i + 2), 16)).concat(255);
-    for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) {
-      rgba.set(pixel, ((y * scale + dy) * size + x * scale + dx) * 4);
-    }
-  }));
-  return rgba;
+// One character per pixel: '.' is empty, a hex digit is coverage in sixteenths of 255.
+async function map(pose, size) {
+  const rgba = await render(pose, size);
+  return Array.from({ length: size }, (_, y) => Array.from({ length: size }, (_, x) => {
+    const level = Math.round(rgba[(y * size + x) * 4 + 3] / 17);
+    return level ? level.toString(16) : ".";
+  }).join(""));
+}
+
+// The line art on a dark tile, so the app icon reads on any background.
+async function appIcon(size) {
+  const art = size < 32 ? size : Math.round(size * 0.74);
+  const tile = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><rect width="${size}" height="${size}" rx="${size * 0.22}" fill="${TILE}"/></svg>`;
+  const raw = { raw: { width: art, height: art, channels: 4 } };
+  const { data } = await sharp(Buffer.from(tile)).ensureAlpha()
+    .composite([{ input: await render("shown", art), ...raw, gravity: "centre" }])
+    .raw().toBuffer({ resolveWithObject: true });
+  return data;
 }
 
 // 32-bit DIB icon entry: bottom-up BGRA, then a 1-bit mask of the transparent pixels.
@@ -73,34 +65,19 @@ function ico(entries) {
   return Buffer.concat([directory, ...entries.map(({ data }) => data)]);
 }
 
-function preview(pose, map) {
-  const runs = new Map();
-  art[pose][map].forEach((row, y) => {
-    for (let x = 0; x < row.length;) {
-      let end = x + 1;
-      while (row[end] === row[x]) end++;
-      if (row[x] !== ".") {
-        const fill = art.palette[pose][row[x]];
-        runs.set(fill, (runs.get(fill) ?? "") + `M${x} ${y}h${end - x}v1h-${end - x}z`);
-      }
-      x = end;
-    }
-  });
-  const paths = [...runs].map(([fill, d]) => `<path fill="${fill}" d="${d}"/>`).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${map}" height="${map}" viewBox="0 0 ${map} ${map}" shape-rendering="crispEdges">${paths}</svg>\n`;
-}
-
-// Entries above 24 px are exact multiples of a hand-drawn map, so Windows can shrink
-// the large app icon (32 px at 100% scaling) back to the drawn pixels.
-const entries = [[16, 1], [20, 1], [24, 1], [16, 2], [20, 2], [24, 2], [16, 4]]
-  .map(([map, scale]) => ({ size: map * scale, data: dib(map * scale, pixels("shown", map, scale)) }));
-const { data: master, info } = await sharp(readFileSync(new URL("shown.svg", artwork)))
-  .resize(256, 256).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-if (info.width !== 256 || info.height !== 256 || info.channels !== 4) throw new Error("unexpected master render");
-entries.push({ size: 256, data: png(256, master) });
-writeFileSync(new URL("icon.ico", icons), ico(entries));
-writeFileSync(new URL("icon.png", icons), png(256, master));
+const art = {
+  about: "Generated by `node pet/generate-tray-icon.mjs` from pet/art/tray-icon/; edit the SVGs, not this file. Tray icon coverage maps: the pet awake while pets are shown, ducked behind a bar with closed eyes while they are hidden. '.' is empty; a hex digit is coverage in sixteenths of 255, drawn in the taskbar theme's ink.",
+};
 for (const pose of ["shown", "hidden"]) {
-  for (const map of Object.keys(art[pose])) writeFileSync(new URL(`${pose}-${map}.svg`, artwork), preview(pose, map));
+  art[pose] = {};
+  for (const size of TRAY_SIZES) art[pose][size] = await map(pose, size);
 }
-console.log(`wrote icon.ico (${entries.map(({ size }) => size).join(", ")} px), icon.png and ${Object.keys(art.shown).length * 2} previews`);
+writeFileSync(new URL("tray.json", icons), `${JSON.stringify(art, null, 2)}\n`);
+
+const entries = [];
+for (const size of [16, 20, 24, 32, 40, 48, 64]) entries.push({ size, data: dib(size, await appIcon(size)) });
+const master = await sharp(await appIcon(256), { raw: { width: 256, height: 256, channels: 4 } }).png().toBuffer();
+entries.push({ size: 256, data: master });
+writeFileSync(new URL("icon.ico", icons), ico(entries));
+writeFileSync(new URL("icon.png", icons), master);
+console.log(`wrote tray.json (${TRAY_SIZES.join(", ")} px), icon.ico (${entries.map(({ size }) => size).join(", ")} px) and icon.png`);
