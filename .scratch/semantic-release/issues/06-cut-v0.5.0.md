@@ -4,7 +4,7 @@
 
 **Blocked by:** 04, 05
 
-**Status:** ready-for-human
+**Status:** resolved
 
 Spec: `.scratch/semantic-release/spec.md` (Testing Decisions, "Not automated").
 
@@ -12,8 +12,8 @@ Spec: `.scratch/semantic-release/spec.md` (Testing Decisions, "Not automated").
 - [x] The Release's notes list the commits since `v0.4.0`.
 - [x] `npx github:starpia-forge/codex-delegate#v0.5.0 install --with-pet` passes `doctor` in an isolated home, and `/health` and the executable report `0.5.0`.
 - [x] With a clean npm cache, `npx github:starpia-forge/codex-delegate#v0.5.0 list` doesn't install `sharp` or semantic-release.
-- [ ] After that, a push of only `docs` commits releases nothing.
-- [ ] Every check above passes. A failure is repaired by following `docs/releasing.md`, and the procedure is corrected if it falls short.
+- [x] After that, a push of only `docs` commits releases nothing.
+- [x] Every check above passes. A failure is repaired by following `docs/releasing.md`, and the procedure is corrected if it falls short.
 
 ## Comments
 
@@ -23,3 +23,4 @@ Spec: `.scratch/semantic-release/spec.md` (Testing Decisions, "Not automated").
   - Notes list four features and two fixes since `v0.4.0`. The tray Quit appears twice, as `4e1341e` and `ef072c6`; that merge commit predates the `merge:` rule. The `merge:` subjects don't appear.
   - Clean cache: `npx github:…#v0.5.0 list` with an empty npm cache left `codex-delegate` as the only package in the `_npx` tree, and no `sharp` or `semantic-release` entry in the cache index.
   - Isolated home on port 47812: `install --with-pet` installed bundle `0.5.0` and hooks. Running that app, `/health` reported `0.5.0`, and the executable's FileVersion and ProductVersion are `0.5.0`. `doctor` reported the Pet bundle, hooks, WebView2, configuration, packages and port as OK. It exited 1 only for `Codex logged in`, because that home has no Codex login, and with `CODEX_HOME` pointed at the real login it exited 0. The isolated home was removed afterwards. The user's installed pet app wasn't touched and still runs the older bundle until the next `install`.
+  - Docs-only push: `967a67e` started run 41293059493, which took 52 seconds, found one commit since `v0.5.0`, reported that no new version is released, and built nothing.
