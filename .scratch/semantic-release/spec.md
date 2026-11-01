@@ -51,7 +51,7 @@ A maintainer no longer chooses versions or runs release steps. They choose what 
 ### Repository and rules
 
 26. As a maintainer, I want the release workflow to need only the repository's own token, so that there is no long-lived secret to manage.
-27. As a maintainer, I want the release commit not to start another release run, so that a Release can't loop.
+27. As a maintainer, I want the version commit not to start another release run, so that a Release can't loop.
 28. As a maintainer, I want force pushes to `main` and changes to `v*` tags blocked, so that version calculation can't be undermined. (Applied on GitHub: rulesets `main history` and `Release tags`.)
 29. As a contributor, I want the rule that shipped changes use `feat` or `fix` written down, so that a change doesn't silently miss a Release.
 30. As a contributor, I want the rule that merge commits use `merge:` written down, so that Release notes don't list a change twice.
@@ -67,11 +67,11 @@ A maintainer no longer chooses versions or runs release steps. They choose what 
 ### Workflow
 
 - The existing release workflow becomes the only one. It triggers on pushes to `main`, and the `v*` tag trigger is removed. It runs one `windows-latest` job with a 30-minute limit, serialised by a concurrency group that queues rather than cancels, because a cancelled run could stop between pushing the tag and publishing.
-- Permissions stay `contents: write`, using the repository token. Checkout fetches full history and tags.
-- Node is pinned to a major that semantic-release supports. Release tooling and the existing pet generator are installed from the lockfile.
+- Permissions stay `contents: write`, using the repository token. Checkout fetches full history and tags without persisting credentials.
+- Node is pinned to a major that semantic-release supports. Release tooling and the existing pet generator are installed from the lockfile without running install scripts.
 - The workflow runs semantic-release, and every release step happens inside it, so a run with nothing to release does no build work.
 - If the job doesn't succeed, including a timeout, the bundle output is uploaded as a workflow artifact. The step tolerates a missing bundle, since an earlier failure may not have built one. Runner loss can still prevent the upload, so repair doesn't depend on it (see Failure states).
-- A run's freshness is decided when its version commit is pushed. If `main` has moved on, that push is rejected and the run fails with no tag; nothing is rebased, because the moved commits weren't tested. The queued run for the newer push then releases. Pushes after the version commit lands don't affect the Release in progress.
+- A run's freshness is decided when its version commit is pushed. If `main` has moved on, that push is rejected and the run fails with no tag; nothing is rebased, because the moved commits weren't tested. The queued run for the newer push then releases. A push to `main` in the seconds after the version commit lands can leave "Tag pushed, no Release": semantic-release pushes the tag and branch together, not atomically, so the tag lands, the branch push is rejected and the run fails before publishing.
 
 ### semantic-release configuration
 
@@ -91,7 +91,7 @@ A maintainer no longer chooses versions or runs release steps. They choose what 
 
 ### Release build
 
-- The steps now in the workflow move into one release script that takes the version and stops at the first failure: Node tests, Rust tests, install `cargo-about`, generate notices, build the pet, check the executable's product and file versions against `package.json`, package the bundle with `--expect-tag v<version>`.
+- The steps now in the workflow move into one release script that takes the version and stops at the first failure: drop the GitHub tokens, check the checkout's version against the supplied version, run Node tests, Rust tests, install `cargo-about`, generate notices, build the pet, check the executable's product and file versions against `package.json`, package the bundle with `--expect-tag v<version>`.
 - It is a script, not workflow steps, because it has to run from within semantic-release. It uses the runner's PowerShell, as the workflow steps do today.
 - The tag check at the head of the old workflow goes away: the version now comes from the tool. `--expect-tag` stays as the packaging guard.
 
@@ -128,6 +128,7 @@ Each is documented in `docs/releasing.md`. Past the first state they are finishe
 - Good tests check external behaviour at the highest seam: which version a set of commits produces, and what a check does against a fake Release. They don't inspect the configuration's shape or the workflow's text.
 - **Release rules**: a Node test loads the repository's committed configuration and passes it to the commit analyzer with real commit messages, as a table:
   - `feat` gives minor, `fix` gives patch.
+  - `perf:` and a git-generated `Revert "..."` give patch.
   - `feat!:`, `fix(scope)!:` and a `BREAKING CHANGE:` footer give minor.
   - `docs`, `refactor`, `test`, `chore(release):` and `ci` give nothing.
   - `merge:` and a default `Merge branch` subject give nothing.

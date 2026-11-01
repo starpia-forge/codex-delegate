@@ -19,13 +19,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install dependencies
-        run: npm.cmd ci
+        run: npm.cmd ci --ignore-scripts
       - name: Publish the Release
+        shell: powershell
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node_modules/.bin/semantic-release.cmd

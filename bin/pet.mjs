@@ -124,7 +124,7 @@ export function petsHidden() {
   } catch { return false; }
 }
 
-export function readPetRelease(root, version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version) {
+export function releaseDescriptor(version) {
   const tag = `v${version}`;
   const asset = "codex-delegate-pet-windows-x64.zip";
   const base = process.env.CODEX_DELEGATE_PET_BASE_URL || "https://github.com/starpia-forge/codex-delegate/releases/download";
@@ -132,7 +132,11 @@ export function readPetRelease(root, version = JSON.parse(readFileSync(join(root
   return { tag, asset, version, url, checksumUrl: `${url}.sha256` };
 }
 
-export async function downloadPetRelease({ asset, version, url, checksumUrl }) {
+export function readPetRelease(root) {
+  return releaseDescriptor(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version);
+}
+
+export async function downloadPetBundle({ asset, version, url, checksumUrl }) {
   const download = async url => {
     let response;
     try {
@@ -397,7 +401,7 @@ export async function preparePet({ root, pkg, dryRun = false }) {
     console.log("  restart Claude Code so the pet hooks take effect");
     return { steps: [], cleanup() {} };
   }
-  const { bytes, sha256 } = await downloadPetRelease(release);
+  const { bytes, sha256 } = await downloadPetBundle(release);
 
   const original = readSettings(settingsPath);
   const backupPath = original === null ? null : backupName();

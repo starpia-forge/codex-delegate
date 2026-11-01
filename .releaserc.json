@@ -40,9 +40,6 @@
           "dist/codex-delegate-pet-windows-x64.zip",
           "dist/codex-delegate-pet-windows-x64.zip.sha256"
         ],
-        "successComment": false,
-        "failComment": false,
-        "failTitle": false,
         "labels": false,
         "releasedLabels": false,
         "successCommentCondition": false,

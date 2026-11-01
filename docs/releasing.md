@@ -15,7 +15,8 @@ since the last `v*` tag. If there is nothing releasable, the run stops with no
 build. Otherwise it does these steps in order:
 
 1. Set the next version in `package.json` and `package-lock.json`.
-2. Run `scripts/release-build.ps1 X.Y.Z`. It runs the Node and Rust tests,
+2. Run `scripts/release-build.ps1 X.Y.Z`. It first drops the GitHub tokens and
+   checks the checkout's version against `X.Y.Z`, then runs the Node and Rust tests,
    generates third-party notices, builds the pet, checks the executable's
    ProductVersion and FileVersion, and packages the bundle into `dist/` with
    `scripts/pet-bundle.mjs`.
@@ -30,7 +31,7 @@ build. Otherwise it does these steps in order:
    files and checks that the zip matches its SHA-256.
 
 The maintainer chooses what to push and when. Check anything manual on a branch
-first. A tag pushed by hand releases nothing. The release commit starts no new
+first. A tag pushed by hand releases nothing. The version commit starts no new
 run, because pushes made with the repository token do not start workflows.
 
 ## Commit rules
@@ -99,6 +100,14 @@ Past the first state, repair before the next push to `main`. Without the tag, th
 the previous tag and can arrive at this version again and tag a different
 commit. With the tag but no Release, the next Release moves on and leaves this
 one without a bundle.
+
+A push to `main` in the seconds after the version commit lands can also cause
+"Tag pushed, no Release". semantic-release pushes the tag and the branch together,
+not atomically: the tag lands, the branch push is rejected and the run fails
+before publishing. That push's queued run then works from the new tag. If it
+holds something releasable, it publishes the next version, leaving this one
+without a bundle. In that case `$version` from `origin/main` names the newer
+Release. Set `$version` to the earlier version by hand and repair as usual.
 
 ### Tag the version commit
 
