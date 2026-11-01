@@ -23,6 +23,7 @@ async function deliver(event) {
     const status = await health(token, deadline);
     if (status === "unavailable") return;
     if (updating()) { enqueueDuringUpdate(event); return; }
+    if (status === "absent" && event.source === "leader" && event.type === "session-end" && !pending()) return;
     if (status === "ready" && !pending()) {
       try {
         const response = await post(event, token, deadline);
