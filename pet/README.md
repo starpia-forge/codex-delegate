@@ -286,8 +286,8 @@ The bundle contains
 `default-pets/` from `app/ui/assets/`. The assets are committed, so the release
 build does not regenerate placeholders.
 
-Follow [the Release procedure](../docs/releasing.md) to publish a Release with
-the bundle and its `.sha256` file.
+A push to `main` with releasable commits publishes the bundle and its `.sha256`
+file. See [the Release procedure](../docs/releasing.md) for how.
 
 To preview the bundle locally after generating the third-party notices and
 building the Release executable:
