@@ -259,24 +259,32 @@ These checks are not automated.
 
 ## Tray icon
 
-The tray icon is pixel art in `app/src-tauri/icons/tray.json`: the pet peeking
-over a bar that stands for the taskbar, and ducked behind it with closed eyes
-while pets are hidden. Each pose is drawn at 16, 20 and 24 px, the sizes the
-notification area uses at 100%, 125% and 150% display scale. After editing the
-maps, run `node pet/generate-tray-icon.mjs` to rewrite `icon.ico`, `icon.png`
-and the SVG previews in `art/tray-icon/`, then rebuild the app.
+The tray icon is line art in `art/tray-icon/`, with no fills: a pet whose face
+is the Codex prompt `>_` and whose right ear is a Claude spark. While pets are
+hidden it ducks behind a bar with closed eyes. `shown.svg` and `hidden.svg` are
+the 32 px masters. A `<pose>-<size>.svg` replaces the master at that size, to
+keep lines on the pixel grid. After editing them, run
+`node pet/generate-tray-icon.mjs` to rewrite `app/src-tauri/icons/tray.json`,
+`icon.ico` and `icon.png`, then rebuild the app.
+
+`tray.json` holds coverage only, at each size the notification area uses from
+100% to 300% display scale. The app draws it in white on a dark taskbar and in
+dark ink on a light one, where white would disappear, and follows theme changes
+while it runs. The app icon is the same art on a dark tile.
 
 Manual tray icon check: use the rebuilt app at 100% display scale, then at 150%,
 each on a dark and on a light taskbar. If Windows puts the icon among the hidden
 icons (^), drag it onto the taskbar first.
 
-1. The tray icon shows the pet peeking over the bar. Left-click it: the pets
-   hide and the icon ducks behind the bar with its eyes closed. Left-click again
-   and both come back. **Show pets** in the menu switches the icon the same way.
+1. The tray icon shows the pet awake. Left-click it: the pets hide and the icon
+   ducks behind the bar with its eyes closed. Left-click again and both come
+   back. **Show pets** in the menu switches the icon the same way.
 2. Hide pets and restart the app. The ducked icon appears from the start.
-3. Zoom into a screenshot of the tray. The icon's edges must be hard pixel steps
-   with no blur, matching `art/tray-icon/shown-16.svg` at 100% and
-   `shown-24.svg` at 150%.
+3. Switch Windows between dark and light mode while the app runs, with pets
+   shown and hidden. The lines must stay visible without a restart: white on the
+   dark taskbar and dark on the light one, in the same pose.
+4. Zoom into a screenshot of the tray. The lines must be smooth, with no white
+   fringe on the light taskbar.
 
 ## Releasing the pet bundle
 
