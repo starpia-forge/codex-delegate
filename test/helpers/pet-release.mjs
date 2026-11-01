@@ -46,8 +46,10 @@ export async function unusedPetPort(t) {
 
 export async function release(t, f, options = {}) {
   const bytes = options.bytes ?? zip(bundleFiles);
-  const bundle = { tag, asset, sha256: createHash("sha256").update(bytes).digest("hex"), version };
-  const bundlePath = `/${tag}/${asset}`;
+  const releaseVersion = options.version ?? version;
+  const releaseTag = `v${releaseVersion}`;
+  const bundle = { tag: releaseTag, asset, sha256: createHash("sha256").update(bytes).digest("hex"), version: releaseVersion };
+  const bundlePath = `/${releaseTag}/${asset}`;
   const checksumPath = `${bundlePath}.sha256`;
   const paths = [checksumPath, bundlePath];
   const requests = [];
