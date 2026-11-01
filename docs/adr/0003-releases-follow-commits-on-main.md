@@ -1,12 +1,12 @@
 # Releases follow the commits on main
 
-ADR 0002 kept the Release version in `package.json`, and a maintainer bumped it, committed and pushed a matching tag by hand. Releases now come from semantic-release: each push to `main` is read for Conventional Commits, and if it holds a `feat`, `fix` or breaking change, the workflow runs the tests, builds the pet, commits the new version to `main`, pushes the tag and creates the GitHub Release. Pushing to `main` is what publishes, so anything that needs checking by hand is checked on a branch first. This reverses ADR 0002's view that CI committing back was too much machinery for one maintainer. That rejection was about a hash pin that protected little; this commit replaces a whole manual procedure.
+ADR 0002 kept the Release version in `package.json`, and a maintainer bumped it, committed and pushed a matching tag by hand. Releases now come from semantic-release: each push to `main` is read for Conventional Commits. If it holds a `feat`, `fix`, performance fix (`perf`), git-generated revert or breaking change, the workflow runs the tests, builds the pet, commits the new version to `main`, pushes the tag and creates the GitHub Release. Performance fixes and reverts follow the tool's defaults, so a reverted change reaches users too. Pushing to `main` is what publishes, so anything that needs checking by hand is checked on a branch first. This reverses ADR 0002's view that CI committing back was too much machinery for one maintainer. That rejection was about a hash pin that protected little; this commit replaces a whole manual procedure.
 
 ## Considered Options
 
 - **Keep bumping by hand.** Nothing new to run, but versions and notes stay manual, and a merged change waits until someone cuts a Release.
 - **release-please.** A release PR gives a review point, but merging it puts the version on `main` before the pet is built, so the version names a Release with no bundle for the length of the build. It also needs a merge for every Release.
-- **semantic-release (chosen).** It builds before the version commit lands, so that gap is normally seconds. A version file can't be left out, because the installer reads `package.json` from the tag, so the release commit stays.
+- **semantic-release (chosen).** It builds before the version commit lands, so that gap is normally seconds. A version file can't be left out, because the installer reads `package.json` from the tag, so the version commit stays.
 
 ## Consequences
 
