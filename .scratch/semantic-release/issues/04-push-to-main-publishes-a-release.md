@@ -4,7 +4,7 @@
 
 **Blocked by:** 01, 02, 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/semantic-release/spec.md` (user stories 1, 9–16, 20–27, Workflow, Release build).
 
