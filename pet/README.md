@@ -184,7 +184,8 @@ the same workers and pet scale. Tray changes take effect without restarting.
    unchecked and confirm the checkmark and clearance stay off. Switch language
    and confirm **Clear around cursor** / **커서 주변 숨기기** is relabelled
    without changing its checkmark. Confirm tray order is **Show pets**, **Show
-   name tags**, **Clear around cursor**, **Licences**, **Language**.
+   name tags**, **Clear around cursor**, **Licences**, **Language**, a separator,
+   then **Quit** (**종료** in Korean).
 5. **No cursor polling while clearance off, pets hidden or fullscreen:** with
    clearance off, watch the pet app's CPU in Task Manager while moving the
    pointer near the strip. Expect near-idle CPU with no mouse-driven increase.
@@ -199,7 +200,8 @@ Manual language submenu check: use the rebuilt app and isolated home above.
 Keep overflow badges visible and the **Licences** window open while switching.
 
 1. Right-click the tray icon. Confirm the order is **Show pets**, **Show name
-   tags**, **Clear around cursor**, **Licences**, then the **Language** submenu.
+   tags**, **Clear around cursor**, **Licences**, the **Language** submenu,
+   a separator, then **Quit** (**종료** in Korean).
    In English its label is **Language**; in Korean it is **언어 (Language)**.
    Opening the submenu must leave the current language unchanged.
 2. With no `language` key in the isolated home's
@@ -220,6 +222,39 @@ Keep overflow badges visible and the **Licences** window open while switching.
    survive, including when the stored choice differs from Windows. Repeat the
    no-stored-choice check by removing only `language` from the isolated
    preferences file while the app is stopped, preserving other preferences.
+
+## Manual Quit check
+
+Run this checklist on the real app on Windows 10. Rebuild and developer-install
+into the isolated home above, using the same home and port in every terminal.
+Use real leader hooks as described below for the session and worker checks.
+These checks are not automated.
+
+1. **Menu and language:** right-click the tray icon. Confirm the order is
+   **Show pets**, **Show name tags**, **Clear around cursor**, **Licences**,
+   **Language**, a separator, then **Quit**. Switch to Korean and confirm
+   **종료** appears immediately; switch back and confirm **Quit** returns
+   without restarting. Quit must always be enabled.
+2. **Immediate exit:** choose **Quit** while pets are shown, while hidden, and
+   with the **Licences** window open, starting the app again between checks.
+   Expect no confirmation: the tray icon, strip and licences window disappear,
+   and the process ends within two seconds. Compare
+   `.codex-delegate/pet-state/pet-preferences.json` before and after Quit:
+   pets hidden, name tags, cursor clearance and language must stay unchanged.
+3. **Installation unchanged:** after Quit, run `node bin/cli.mjs list` and
+   `node bin/cli.mjs doctor` in the isolated environment. `list` must still
+   report the pet enabled; `doctor` must report not running at OK level.
+4. **Open session:** quit with a real leader session open, then submit a prompt.
+   The app starts again with the leader pet restored. Repeat with pets hidden:
+   the app restarts with hidden preserved; show pets to confirm the leader is
+   restored.
+5. **Running worker:** quit while a real worker is running. Its result and exit
+   status must be unaffected, and its pet must return on its next report.
+6. **Computer use:** quit during a real computer-user run while taking captures
+   as in the capture boundary check below. When a report restarts the app, the
+   strip must stay out of capture from its first visible frame.
+7. **Last session:** quit with the last session still open, then `/exit` that
+   session. The pet app must stay closed.
 
 ## Tray icon
 
