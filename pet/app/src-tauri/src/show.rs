@@ -314,7 +314,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_menu_event(move |app, event| {
             if event.id.as_ref() == "quit" {
-                crate::exit_with_handle(app);
+                crate::bounded_exit(app);
             } else if event.id.as_ref() == "show-pets" {
                 let hidden = app.state::<Visibility>().toggle(app);
                 let _ = items.show.set_checked(!hidden);

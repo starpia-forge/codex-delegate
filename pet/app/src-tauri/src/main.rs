@@ -186,13 +186,13 @@ fn main() {
 fn exit_app(app: &EventApp) {
     let handle = app.lock().unwrap().clone();
     if let Some(app) = handle {
-        exit_with_handle(&app);
+        bounded_exit(&app);
     } else {
         std::process::exit(0);
     }
 }
 
-fn exit_with_handle(app: &AppHandle) {
+fn bounded_exit(app: &AppHandle) {
     // Arm the fallback before asking Tauri to remove its tray resources.
     // The tray calls here directly, without taking the EventApp mutex.
     std::thread::spawn(|| {
