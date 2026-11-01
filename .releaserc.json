@@ -21,6 +21,12 @@
       }
     ],
     [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/release-build.ps1 ${nextRelease.version}"
+      }
+    ],
+    [
       "@semantic-release/git",
       {
         "assets": ["package.json", "package-lock.json"],
@@ -41,6 +47,12 @@
         "releasedLabels": false,
         "successCommentCondition": false,
         "failCommentCondition": false
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "successCmd": "node scripts/pet-bundle.mjs --check-published ${nextRelease.version}"
       }
     ]
   ]

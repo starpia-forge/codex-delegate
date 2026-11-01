@@ -90,6 +90,7 @@ else {
   assert.ok(!files.some(file => file.startsWith("node_modules/") || file.startsWith("pet/art/")
     || /^pet\/generate-.*\.mjs$/.test(file)), "npm package must not ship the artwork sources or development generators and encoder");
   assert.ok(!files.includes(".releaserc.json"), "npm package must not ship release configuration");
+  assert.ok(!files.includes("scripts/release-build.ps1"), "npm package must not ship the release script");
   const extracted = join(work, "extracted");
   mkdirSync(extracted);
   await run("tar", ["-xzf", packed.filename, "-C", "extracted"], { cwd: work, env });
