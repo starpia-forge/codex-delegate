@@ -4,7 +4,7 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 Spec: `.scratch/semantic-release/spec.md` (user stories 22, 29–32, 34, Failure states, Documentation).
 
