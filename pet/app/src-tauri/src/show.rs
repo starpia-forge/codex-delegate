@@ -295,9 +295,10 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance,
         &items.licences, &items.language_menu, &separator, &items.quit])?;
     let click_show = items.show.clone();
-    // The icon's pose follows the Show pets check: peeking when shown, ducked when hidden.
+    // The icon's pose follows the Show pets check: awake when shown, ducked when hidden.
     let art = TrayArt::new(tray_art::small_icon_size());
     let click_art = art.clone();
+    let theme_art = art.clone();
     TrayIconBuilder::with_id("pets")
         .icon(art.image(hidden))
         .tooltip(format!("codex-delegate pet {BUNDLE_VERSION}"))
@@ -332,6 +333,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    let theme_app = app.clone();
+    tray_art::on_theme_change(move || {
+        let hidden = theme_app.state::<Visibility>().0.lock().unwrap().hidden();
+        if let Some(tray) = theme_app.tray_by_id("pets") { let _ = tray.set_icon(Some(theme_art.image(hidden))); }
+    });
     Ok(())
 }
 
