@@ -12,11 +12,11 @@ From PowerShell at the repository root (Rust MSVC toolchain and WebView2 needed)
 ```powershell
 node pet/generate-placeholders.mjs
 cargo build --release --offline --manifest-path pet/app/src-tauri/Cargo.toml
-npm.cmd run build
+npm.cmd run build:skills
 node scripts/pet-dev-install.mjs C:\temp\pet-test-home
 ```
 
-`npm.cmd run build` does the full upstream rebuild and needs network access.
+`npm.cmd run build:skills` does the full upstream rebuild and needs network access.
 Assets are embedded into the executable; the developer
 installer also copies their Codex v1 packages into `pet/default-pets` for inspection.
 Rebuild the app after changing assets or frontend code. `Cargo.lock` is retained;

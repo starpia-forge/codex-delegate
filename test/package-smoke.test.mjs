@@ -48,6 +48,11 @@ async function listen(t, handler) {
 }
 
 test("the packed package installs a current generated runner that reports a successful worker to the pet", { timeout: 60000 }, async t => {
+  const manifest = JSON.parse(readFileSync(join(repo, "package.json"), "utf8"));
+  for (const script of ["build", "prepare", "prepack", "preinstall", "install", "postinstall"]) {
+    assert.ok(!Object.hasOwn(manifest.scripts ?? {}, script),
+      `${script} must not trigger development dependency installation for Git installs`);
+  }
   const work = mkdtempSync(join(tmpdir(), "package smoke "));
   t.after(() => rmSync(work, { recursive: true, force: true }));
   const { home, codexHome, env } = fakeCodex(work, `
