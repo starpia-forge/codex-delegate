@@ -32,6 +32,8 @@ mod tests {
         assert_eq!(super::text("tray.showPets", Lang::Ko), "펫 표시");
         assert_eq!(super::text("tray.language", Lang::En), "Language");
         assert_eq!(super::text("tray.language", Lang::Ko), "언어");
+        assert_eq!(super::text("tray.quit", Lang::En), "Quit");
+        assert_eq!(super::text("tray.quit", Lang::Ko), "종료");
         assert_eq!(super::lookup(&catalogue, "tray.licences", "fr"), "Licences");
     }
 }
