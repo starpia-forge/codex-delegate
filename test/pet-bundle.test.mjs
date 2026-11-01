@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,11 +7,167 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { unpackZip } from "../bin/zip.mjs";
+import { release } from "./helpers/pet-release.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const script = join(root, "scripts", "pet-bundle.mjs");
 const notices = join(root, "test/fixtures/pet-notices.txt");
 const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+function assertNothingWritten(directory) {
+  assert.deepEqual(readdirSync(directory, { recursive: true }), []);
+}
+
+async function publishedRelease(t, options = {}) {
+  const work = mkdtempSync(join(tmpdir(), "published Release "));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const env = { ...process.env, HOME: work, USERPROFILE: work };
+  const remote = await release(t, { env }, options);
+  const run = (args = ["--check-published", version]) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...args,
+      "--exe", join(work, "missing.exe"), "--out", join(work, "dist"),
+    ], { cwd: work, env, windowsHide: true });
+    let stdout = "", stderr = "";
+    child.stdout.on("data", chunk => stdout += chunk);
+    child.stderr.on("data", chunk => stderr += chunk);
+    child.on("error", reject);
+    child.on("close", code => resolve({ code, stdout, stderr }));
+  });
+  return { ...remote, work, run, baseUrl: env.CODEX_DELEGATE_PET_BASE_URL };
+}
+
+test("bundle CLI checks a good published Release without reading bundle inputs or writing files", async t => {
+  const r = await publishedRelease(t);
+  const result = await r.run();
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.equal(result.stdout.trim().split(/\r?\n/).length, 1, result.stdout);
+  assert.ok(result.stdout.includes(`Release v${version} passed`), result.stdout);
+  assert.ok(result.stdout.includes(r.bundle.sha256), result.stdout);
+  assert.deepEqual(r.requests, r.paths);
+  assertNothingWritten(r.work);
+});
+
+test("bundle CLI checks the requested published Release even when package.json has another version", async t => {
+  assert.notEqual(version, "9.9.9");
+  const r = await publishedRelease(t, { version: "9.9.9" });
+  const result = await r.run(["--check-published", "9.9.9"]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(result.stdout.includes("Release v9.9.9 passed"), result.stdout);
+  assert.ok(result.stdout.includes(r.bundle.sha256), result.stdout);
+  assert.deepEqual(r.requests, [
+    "/v9.9.9/codex-delegate-pet-windows-x64.zip.sha256",
+    "/v9.9.9/codex-delegate-pet-windows-x64.zip",
+  ]);
+  assertNothingWritten(r.work);
+});
+
+for (const target of ["zip", "checksum"]) {
+  test(`bundle CLI names the missing ${target} file when checking a published Release`, async t => {
+    const r = await publishedRelease(t, { [`${target}Status`]: 404 });
+    const result = await r.run();
+    assert.notEqual(result.code, 0, result.stderr);
+    assert.match(result.stderr, /^pet-bundle: /);
+    const path = target === "zip" ? r.bundlePath : r.checksumPath;
+    assert.ok(result.stderr.includes(`(${r.baseUrl}${path})`), result.stderr);
+    assert.deepEqual(r.requests, target === "zip" ? r.paths : [r.checksumPath]);
+    assert.equal(result.stdout, "");
+    assertNothingWritten(r.work);
+  });
+}
+
+test("bundle CLI refuses invalid published Release versions before any request", async t => {
+  const r = await publishedRelease(t);
+  for (const invalid of ["", `v${version}`, "0.4", "0.4.0.1", "0.4.0-beta.1", "0.4.0+build", "01.2.3", "1.02.3", "1.2.03", " 0.4.0", "0.4.0\n", "../0.4.0"]) {
+    const result = await r.run([`--check-published=${invalid}`]);
+    assert.notEqual(result.code, 0, JSON.stringify(invalid));
+    assert.match(result.stderr, /^pet-bundle: .*--check-published.*bare X\.Y\.Z version/);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(r.requests, [], JSON.stringify(invalid));
+    assertNothingWritten(r.work);
+  }
+  const missing = await r.run(["--check-published"]);
+  assert.notEqual(missing.code, 0);
+  assert.match(missing.stderr, /^pet-bundle: .*--check-published.*argument/);
+  assert.deepEqual(r.requests, []);
+  assertNothingWritten(r.work);
+});
+
+test("bundle CLI refuses published Release checks combined with local check flags before any request", async t => {
+  const r = await publishedRelease(t);
+  for (const flags of [["--check"], ["--expect-tag", `v${version}`], ["--check", "--expect-tag", `v${version}`]]) {
+    const result = await r.run(["--check-published", version, ...flags]);
+    assert.notEqual(result.code, 0, flags.join(" "));
+    assert.match(result.stderr, /^pet-bundle: .*--check-published.*cannot be combined.*--check.*--expect-tag/);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(r.requests, []);
+    assertNothingWritten(r.work);
+  }
+});
+
+test("bundle CLI fails when the requested published Release is not served", async t => {
+  const r = await publishedRelease(t);
+  const result = await r.run(["--check-published", "9.9.9"]);
+  assert.notEqual(result.code, 0, result.stderr);
+  const path = "/v9.9.9/codex-delegate-pet-windows-x64.zip.sha256";
+  assert.ok(result.stderr.includes(`(${r.baseUrl}${path})`), result.stderr);
+  assert.match(result.stderr, /^pet-bundle: Release v9\.9\.9/);
+  assert.deepEqual(r.requests, [path]);
+  assert.equal(result.stdout, "");
+  assertNothingWritten(r.work);
+});
+
+test("bundle CLI rejects malformed published Release checksum lines before requesting the zip", async t => {
+  const r = await publishedRelease(t);
+  const { sha256, asset } = r.bundle;
+  for (const checksum of [
+    `${sha256} ${asset}\n`,
+    `${sha256}  other.zip\n`,
+    `${sha256.slice(1)}  ${asset}\n`,
+    `${sha256}  ${asset}\n${sha256}  ${asset}\n`,
+    `${sha256}  ${asset}\n\n`,
+    `${"g".repeat(64)}  ${asset}\n`,
+  ]) {
+    r.options.checksum = checksum;
+    r.requests.length = 0;
+    const result = await r.run();
+    assert.notEqual(result.code, 0, JSON.stringify(checksum));
+    assert.match(result.stderr, /^pet-bundle: Invalid pet checksum file/);
+    assert.ok(result.stderr.includes(`(${r.baseUrl}${r.checksumPath})`), result.stderr);
+    assert.deepEqual(r.requests, [r.checksumPath]);
+    assert.equal(result.stdout, "");
+    assertNothingWritten(r.work);
+  }
+});
+
+test("bundle CLI rejects a published Release whose zip does not match its checksum", async t => {
+  const r = await publishedRelease(t, { sha256: "0".repeat(64) });
+  const result = await r.run();
+  assert.notEqual(result.code, 0, result.stderr);
+  assert.match(result.stderr, /^pet-bundle: Pet checksum mismatch \(SHA-256\)/);
+  assert.deepEqual(r.requests, r.paths);
+  assert.equal(result.stdout, "");
+  assertNothingWritten(r.work);
+});
+
+test("bundle CLI accepts the installer's published Release checksum line forms", async t => {
+  const r = await publishedRelease(t);
+  const { sha256, asset } = r.bundle;
+  for (const checksum of [
+    `${sha256.toUpperCase()}  ${asset}\n`,
+    `${sha256}  ${asset}\r\n`,
+    `${sha256}  ${asset}`,
+  ]) {
+    r.options.checksum = checksum;
+    r.requests.length = 0;
+    const result = await r.run();
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, `Release v${version} passed (SHA-256 ${sha256})\n`);
+    assert.deepEqual(r.requests, r.paths);
+    assertNothingWritten(r.work);
+  }
+});
 
 test("bundle CLI packages the app, client, hook and default pets with a Release checksum", t => {
   const work = mkdtempSync(join(tmpdir(), "pet bundle "));
@@ -53,7 +209,7 @@ test("bundle CLI refuses a missing input before writing release artifacts", t =>
   const result = spawnSync(process.execPath, [script, "--exe", missing, "--notices", notices, "--out", work], { encoding: "utf8" });
   assert.notEqual(result.status, 0);
   assert.ok(result.stderr.includes(`Missing bundle input: ${missing}`), result.stderr);
-  assert.deepEqual(readdirSync(work), []);
+  assertNothingWritten(work);
 });
 
 test("bundle CLI refuses omitted, missing or stub notices before writing anything", t => {
@@ -80,7 +236,7 @@ test("bundle CLI requires --expect-tag with --check and writes nothing when omit
   const result = spawnSync(process.execPath, [script, "--check", "--out", join(work, "dist")], { encoding: "utf8" });
   assert.notEqual(result.status, 0, result.stderr);
   assert.match(result.stderr, /--check requires --expect-tag/);
-  assert.deepEqual(readdirSync(work), []);
+  assertNothingWritten(work);
 });
 
 test("bundle CLI checks the package's Release tag before reading inputs or writing artifacts", t => {
@@ -89,13 +245,13 @@ test("bundle CLI checks the package's Release tag before reading inputs or writi
   const args = [script, "--out", join(work, "dist"), "--exe", join(work, "missing.exe")];
   const result = spawnSync(process.execPath, [...args, "--check", "--expect-tag", `v${version}`], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(readdirSync(work), []);
+  assertNothingWritten(work);
   for (const flags of [["--expect-tag", "v999.0.0"], ["--check", "--expect-tag", "v999.0.0"], ["--tag", `v${version}`]]) {
     const result = spawnSync(process.execPath, [...args, ...flags], { encoding: "utf8" });
     assert.notEqual(result.status, 0, result.stderr);
     assert.match(result.stderr, /tag/);
     assert.doesNotMatch(result.stderr, /Missing bundle input|notices.*required/);
-    assert.deepEqual(readdirSync(work), []);
+    assertNothingWritten(work);
     if (!flags.includes("--tag")) assert.ok(result.stderr.includes(`v${version}`), result.stderr);
   }
 });

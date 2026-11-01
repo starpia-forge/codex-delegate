@@ -124,13 +124,37 @@ export function petsHidden() {
   } catch { return false; }
 }
 
-export function readPetRelease(root) {
-  const { version } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+export function releaseDescriptor(version) {
   const tag = `v${version}`;
   const asset = "codex-delegate-pet-windows-x64.zip";
   const base = process.env.CODEX_DELEGATE_PET_BASE_URL || "https://github.com/starpia-forge/codex-delegate/releases/download";
   const url = `${base.replace(/\/$/, "")}/${tag}/${asset}`;
   return { tag, asset, version, url, checksumUrl: `${url}.sha256` };
+}
+
+export function readPetRelease(root) {
+  return releaseDescriptor(JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version);
+}
+
+export async function downloadPetBundle({ asset, version, url, checksumUrl }) {
+  const download = async url => {
+    let response;
+    try {
+      response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error) {
+      if (response?.status === 404) throw Object.assign(new Error(`Release v${version} has no pet bundle yet. The release workflow may still be running; retry later or install from a tagged Release.`), { url });
+      throw new Error(`Pet download failed (${url}): ${error.message}`);
+    }
+  };
+  const checksum = (await download(checksumUrl)).toString("utf8");
+  const match = checksum.match(/^(?<hash>[a-f0-9]{64})  (?<file>[^\r\n]+)(?:\r?\n)?$/i);
+  if (!match || match.groups.file !== asset) throw new Error(`Invalid pet checksum file (${checksumUrl})`);
+  const sha256 = match.groups.hash.toLowerCase();
+  const bytes = await download(url);
+  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error("Pet checksum mismatch (SHA-256); nothing was changed");
+  return { bytes, sha256 };
 }
 
 export function listPet() {
@@ -377,23 +401,7 @@ export async function preparePet({ root, pkg, dryRun = false }) {
     console.log("  restart Claude Code so the pet hooks take effect");
     return { steps: [], cleanup() {} };
   }
-  const download = async url => {
-    let response;
-    try {
-      response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return Buffer.from(await response.arrayBuffer());
-    } catch (error) {
-      if (response?.status === 404) throw new Error(`Release v${version} has no pet bundle yet. The release workflow may still be running; retry later or install from a tagged Release.`);
-      throw new Error(`Pet download failed (${url}): ${error.message}`);
-    }
-  };
-  const checksum = (await download(checksumUrl)).toString("utf8");
-  const match = checksum.match(/^(?<hash>[a-f0-9]{64})  (?<file>[^\r\n]+)(?:\r?\n)?$/i);
-  if (!match || match.groups.file !== asset) throw new Error(`Invalid pet checksum file (${checksumUrl})`);
-  const sha256 = match.groups.hash.toLowerCase();
-  const bytes = await download(url);
-  if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new Error("Pet checksum mismatch (SHA-256); nothing was changed");
+  const { bytes, sha256 } = await downloadPetBundle(release);
 
   const original = readSettings(settingsPath);
   const backupPath = original === null ? null : backupName();

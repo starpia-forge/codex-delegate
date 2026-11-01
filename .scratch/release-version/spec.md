@@ -111,7 +111,7 @@ The first Release under this model is `v0.4.0`. It ships the pet for the first t
 - Signing the bundle or the executable, or any integrity check stronger than the Release's `.sha256` (see ADR 0002).
 - Changing how the pet app, hooks, tray or pets behave.
 - Deleting or editing the existing `pet-v0.1.0`, `pet-v0.1.2` and `pet-v0.2.0` Releases.
-- Automating the version bump (for example a release script or changesets).
+- Automating the version bump (for example a release script or changesets). (Superseded: `.scratch/semantic-release/spec.md`.)
 - Rewriting `.scratch` history that mentions `pet-v*` tags or the pin.
 
 ## Further Notes

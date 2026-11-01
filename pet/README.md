@@ -12,11 +12,11 @@ From PowerShell at the repository root (Rust MSVC toolchain and WebView2 needed)
 ```powershell
 node pet/generate-placeholders.mjs
 cargo build --release --offline --manifest-path pet/app/src-tauri/Cargo.toml
-npm.cmd run build
+npm.cmd run build:skills
 node scripts/pet-dev-install.mjs C:\temp\pet-test-home
 ```
 
-`npm.cmd run build` does the full upstream rebuild and needs network access.
+`npm.cmd run build:skills` does the full upstream rebuild and needs network access.
 Assets are embedded into the executable; the developer
 installer also copies their Codex v1 packages into `pet/default-pets` for inspection.
 Rebuild the app after changing assets or frontend code. `Cargo.lock` is retained;
@@ -294,8 +294,8 @@ The bundle contains
 `default-pets/` from `app/ui/assets/`. The assets are committed, so the release
 build does not regenerate placeholders.
 
-Follow [the Release procedure](../docs/releasing.md) to publish a Release with
-the bundle and its `.sha256` file.
+A push to `main` with releasable commits publishes the bundle and its `.sha256`
+file. See [the Release procedure](../docs/releasing.md) for how.
 
 To preview the bundle locally after generating the third-party notices and
 building the Release executable:

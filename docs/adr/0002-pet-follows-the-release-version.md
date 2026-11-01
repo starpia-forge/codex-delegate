@@ -1,5 +1,7 @@
 # The pet follows the release version
 
+The pet still follows the Release version. How a Release is cut, including who commits the version and pushes the tag, is superseded by ADR 0003.
+
 The pet app used to be released on its own `pet-v*` tags, and a committed `pet-pin.json` named the bundle and its SHA-256 for the installer. That meant two version lines and a pin commit after every pet release, and the pin pointed at a bundle that no `v*` release had ever shipped. The pet now has no version of its own: a `vX.Y.Z` tag builds the pet and attaches the bundle to the `vX.Y.Z` GitHub Release, and the installer downloads the bundle for its own `package.json` version.
 
 ## Considered Options

@@ -4,25 +4,39 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { readPetRelease } from "../bin/pet.mjs";
+import { downloadPetBundle, readPetRelease, releaseDescriptor } from "../bin/pet.mjs";
 import { zip } from "./zip.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-try {
+async function main() {
   const { values } = parseArgs({ options: {
     exe: { type: "string", default: join(root, "pet/app/src-tauri/target/release/codex-delegate-pet.exe") },
     out: { type: "string", default: "dist" },
     "expect-tag": { type: "string" },
     check: { type: "boolean" },
+    "check-published": { type: "string" },
     notices: { type: "string" },
   } });
+  if (values["check-published"] !== undefined) {
+    if (values.check || values["expect-tag"] !== undefined) {
+      throw new Error("--check-published cannot be combined with --check or --expect-tag");
+    }
+    const version = values["check-published"];
+    if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+      throw new Error("--check-published requires a bare X.Y.Z version (for example, 0.4.0)");
+    }
+    const release = releaseDescriptor(version);
+    const { sha256 } = await downloadPetBundle(release);
+    console.log(`Release ${release.tag} passed (SHA-256 ${sha256})`);
+    return;
+  }
   if (values.check && values["expect-tag"] === undefined) throw new Error("--check requires --expect-tag <tag>");
   const { asset, tag } = readPetRelease(root);
   if (values["expect-tag"] !== undefined && values["expect-tag"] !== tag) {
     throw new Error(`Expected tag ${values["expect-tag"]} does not match Release ${tag}`);
   }
-  if (values.check) process.exit(0);
+  if (values.check) return;
   if (!values.notices) throw new Error("--notices <path> is required");
   const entries = {};
   function add(source, destination, directory = false) {
@@ -62,7 +76,11 @@ try {
   writeFileSync(join(out, `${asset}.sha256`), `${sha256}  ${asset}\n`);
   console.log(`${sha256}  ${join(out, asset)}`);
   console.log(join(out, `${asset}.sha256`));
+}
+
+try {
+  await main();
 } catch (error) {
-  console.error(`pet-bundle: ${error.message}`);
+  console.error(`pet-bundle: ${error.message}${error.url ? ` (${error.url})` : ""}`);
   process.exitCode = 1;
 }
