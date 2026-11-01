@@ -6,6 +6,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Keep GitHub tokens out of tests and third-party build scripts.
+[Environment]::SetEnvironmentVariable('GITHUB_TOKEN', $null, 'Process')
+[Environment]::SetEnvironmentVariable('GH_TOKEN', $null, 'Process')
+
 function Invoke-Native {
     param([string]$Command, [string[]]$Arguments)
 
@@ -28,6 +32,7 @@ function Invoke-Native {
 
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
+    Invoke-Native node -Arguments @('scripts/pet-bundle.mjs', '--check', '--expect-tag', "v$Version")
     Invoke-Native npm.cmd -Arguments @('test')
     Invoke-Native cargo -Arguments @('test', '--locked', '--manifest-path', 'pet/app/src-tauri/Cargo.toml')
     Invoke-Native cargo -Arguments @('install', 'cargo-about', '--version', '0.9.3', '--locked', '--features', 'cli')
