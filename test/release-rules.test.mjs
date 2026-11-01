@@ -11,6 +11,12 @@ const [, pluginConfig] = config.plugins.find(([name]) => name === "@semantic-rel
 const cases = [
   { name: "feat gives a minor Release", messages: ["feat: add tray controls"], expected: "minor" },
   { name: "fix gives a patch Release", messages: ["fix: restore tray controls"], expected: "patch" },
+  { name: "perf gives a patch Release", messages: ["perf: speed up tray controls"], expected: "patch" },
+  {
+    name: "a git-generated revert gives a patch Release",
+    messages: ['Revert "feat: add tray controls"\n\nThis reverts commit 0123456789abcdef0123456789abcdef01234567.'],
+    expected: "patch",
+  },
   { name: "feat! gives a minor Release below 1.0", messages: ["feat!: replace tray controls"], expected: "minor" },
   { name: "fix(scope)! gives a minor Release below 1.0", messages: ["fix(pet)!: replace the event protocol"], expected: "minor" },
   {
