@@ -19,7 +19,7 @@
     "pet/app/ui/pet-config.mjs"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build:skills": "node scripts/build.mjs",
     "test": "node --test"
   },
   "engines": {
