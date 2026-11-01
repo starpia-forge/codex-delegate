@@ -36,8 +36,8 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 6. As a user, I want the tray icon to use the pet app's own art and to show the pet ducked behind the taskbar while pets are hidden, so that I can recognise it among other tray icons and see at a glance whether pets are hidden.
 7. As a user, I want left-clicking the tray icon to toggle the pets between shown and hidden, so that the most common action is one click.
 8. As a user, I want right-clicking the tray icon to open its menu, so that the other actions are where Windows users expect them.
-9. As a user, I want the tray menu to contain only Show pets, Licences and Language, so that it stays simple and every other operation stays with the CLI.
-10. As a user, I want the tray to offer no quit or uninstall entry, so that I'm never left without a way back and my Claude Code settings are only changed by the installer.
+9. As a user, I want the tray menu to contain only Show pets, Licences and Language, so that it stays simple and every other operation stays with the CLI. (Superseded: the tray also offers Quit; `.scratch/pet-quit/spec.md`.)
+10. As a user, I want the tray to offer no quit or uninstall entry, so that I'm never left without a way back and my Claude Code settings are only changed by the installer. (Superseded for quit: `.scratch/pet-quit/spec.md`. The tray still offers no uninstall entry.)
 
 ### Pets hidden
 
@@ -253,7 +253,7 @@ The five default pets become the maintainer's fan-art characters: leader momo, r
 
 ## Out of Scope
 
-- Quitting the pet app from the tray, and any way to suppress relaunching it.
+- Any way to suppress relaunching the pet app. (Quitting it from the tray was out of scope here; superseded by `.scratch/pet-quit/spec.md`.)
 - Removing or disabling the pet from the tray. Removal stays `install --without-pet` and `uninstall`.
 - Hiding per team, per role or per pet.
 - Languages other than English and Korean, and translating CLI output, role names, worker labels or licence texts.
