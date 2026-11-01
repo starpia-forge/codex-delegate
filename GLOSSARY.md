@@ -28,6 +28,10 @@ _Avoid_: pet release, pet version
 An optional desktop character that stands for one leader session or one worker, and shows what it is doing. Every running leader and worker has its own pet, so concurrent workers of the same role appear as separate pets.
 _Avoid_: buddy, mascot, avatar, overlay
 
+**Pet app**:
+The running program that draws the pets and receives what leaders and workers report. Reports start it when it isn't running, though the report that a session has ended doesn't do so on its own, and it exits by itself once they stop coming.
+_Avoid_: pet process, shell, overlay
+
 **Pet state**:
 What a pet is currently showing, using the Codex Pet states: `idle`, `running`, `running-left`, `running-right`, `waving`, `jumping`, `waiting`, `review`, `failed`.
 _Avoid_: animation, mood
@@ -39,6 +43,10 @@ _Avoid_: pet on, pet active
 **Pets hidden**:
 The user's choice to keep every pet off the screen while the pet stays enabled. It lasts until the user shows the pets again.
 _Avoid_: disabled, off, paused
+
+**Quit**:
+The user ending the pet app now. It changes neither pet enabled nor pets hidden, and later reports start the pet app again as usual.
+_Avoid_: disable, remove, hide
 
 **Name tag**:
 The label under a pet that tells which leader or worker it stands for. It names the session or worker, not the pet's artwork.

@@ -186,16 +186,20 @@ fn main() {
 fn exit_app(app: &EventApp) {
     let handle = app.lock().unwrap().clone();
     if let Some(app) = handle {
-        // Give Tauri time to remove its tray resources. A stuck event loop
-        // must still terminate for idle exit and /quit.
-        std::thread::spawn(|| {
-            std::thread::sleep(Duration::from_secs(2));
-            std::process::exit(0);
-        });
-        app.exit(0);
+        bounded_exit(&app);
     } else {
         std::process::exit(0);
     }
+}
+
+fn bounded_exit(app: &AppHandle) {
+    // Arm the fallback before asking Tauri to remove its tray resources.
+    // The tray calls here directly, without taking the EventApp mutex.
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(2));
+        std::process::exit(0);
+    });
+    app.exit(0);
 }
 
 fn place_strip(win: &WebviewWindow) {

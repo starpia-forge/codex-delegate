@@ -2,7 +2,7 @@ use crate::{capture, licences, messages::text, prefs::{self, Lang, PreferenceSto
 use serde_json::{json, Value};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
-use tauri::{menu::{CheckMenuItem, Menu, MenuItem, Submenu}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+use tauri::{menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewWindow};
 
 fn retry_delay(attempt: u32) -> Duration {
@@ -40,6 +40,7 @@ struct TrayItems {
     licences: MenuItem<tauri::Wry>,
     language_menu: Submenu<tauri::Wry>,
     language_items: Vec<(Lang, CheckMenuItem<tauri::Wry>)>,
+    quit: MenuItem<tauri::Wry>,
 }
 impl TrayItems {
     fn relabel(&self, language: Lang) -> tauri::Result<()> {
@@ -57,6 +58,7 @@ impl TrayItems {
         attempt(self.cursor_clearance.set_text(text("tray.clearAroundCursor", language)));
         attempt(self.licences.set_text(text("tray.licences", language)));
         attempt(self.language_menu.set_text(language_submenu_label(language)));
+        attempt(self.quit.set_text(text("tray.quit", language)));
         first_error.map_or(Ok(()), Err)
     }
 }
@@ -286,9 +288,12 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         licences: MenuItem::with_id(app, "licences", "", true, None::<&str>)?,
         language_menu,
         language_items,
+        quit: MenuItem::with_id(app, "quit", "", true, None::<&str>)?,
     };
     items.relabel(current)?;
-    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance, &items.licences, &items.language_menu])?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&items.show, &items.name_tags, &items.cursor_clearance,
+        &items.licences, &items.language_menu, &separator, &items.quit])?;
     let click_show = items.show.clone();
     // The icon's pose follows the Show pets check: peeking when shown, ducked when hidden.
     let art = TrayArt::new(tray_art::small_icon_size());
@@ -308,7 +313,9 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .on_menu_event(move |app, event| {
-            if event.id.as_ref() == "show-pets" {
+            if event.id.as_ref() == "quit" {
+                crate::bounded_exit(app);
+            } else if event.id.as_ref() == "show-pets" {
                 let hidden = app.state::<Visibility>().toggle(app);
                 let _ = items.show.set_checked(!hidden);
                 if let Some(tray) = app.tray_by_id("pets") { let _ = tray.set_icon(Some(art.image(hidden))); }
