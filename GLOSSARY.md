@@ -29,7 +29,7 @@ An optional desktop character that stands for one leader session or one worker, 
 _Avoid_: buddy, mascot, avatar, overlay
 
 **Pet app**:
-The running program that draws the pets and receives what leaders and workers report. Reports start it when it isn't running, except the report that a session has ended, and it exits by itself once they stop coming.
+The running program that draws the pets and receives what leaders and workers report. Reports start it when it isn't running, though the report that a session has ended doesn't do so on its own, and it exits by itself once they stop coming.
 _Avoid_: pet process, shell, overlay
 
 **Pet state**:

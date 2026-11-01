@@ -12,6 +12,10 @@ import { zip } from "./helpers/zip.mjs";
 
 const clients = fileURLToPath(new URL("../pet/client", import.meta.url));
 const token = "delivery-test-token";
+const HELPER_HEALTH_WAIT_MS = 4000;
+// Outwait the helper health bound so a detached launch or a helper still
+// holding delivery cannot escape the negative assertions.
+const HELPER_SETTLED_MS = HELPER_HEALTH_WAIT_MS + 500;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, message) {
   const deadline = Date.now() + 7000;
@@ -88,7 +92,7 @@ setTimeout(() => process.exit(), 15000).unref();
     CLAUDE_CONFIG_DIR: join(root, "claude"), CODEX_HOME: join(root, "codex"),
     CODEX_DELEGATE_PET_PORT: String(port), STUB_DELAY: "1200",
     CODEX_DELEGATE_PET_TEST_COMMAND: JSON.stringify([process.execPath, stub]),
-    CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS: "4000", ...overrides };
+    CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS: String(HELPER_HEALTH_WAIT_MS), ...overrides };
   const lines = name => existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8").trim().split("\n").filter(Boolean) : [];
   t.after(async () => {
     for (const pid of lines("starts")) { try { process.kill(Number(pid)); } catch {} }
@@ -106,6 +110,15 @@ setTimeout(() => process.exit(), 15000).unref();
     rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   });
   return { root, bundle, state, server, port, env, lines,
+    async startStub(overrides, expectedStatus) {
+      const [command, ...args] = JSON.parse(env.CODEX_DELEGATE_PET_TEST_COMMAND);
+      spawn(command, args, { env: { ...env, ...overrides }, windowsHide: true, stdio: "ignore" }).unref();
+      await until(async () => {
+        try {
+          return (await fetch(`http://127.0.0.1:${port}/health`, { headers: { "X-Codex-Delegate-Pet-Token": token } })).status === expectedStatus;
+        } catch { return false; }
+      }, `stub did not return health status ${expectedStatus}`);
+    },
     events: () => lines("events").map(line => JSON.parse(line)),
     // On Windows a deleted file that another process (such as an antivirus
     // scan) holds open stays listed but can no longer be opened.
@@ -164,9 +177,7 @@ test("an absent app starts in the background and receives an authenticated event
 test("session-end leaves an absent app closed with no spool or helper when nothing is pending", async t => {
   const h = await harness(t);
   await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
-  // Outwait the configured helper health bound (4s), so a detached launch or
-  // a helper still holding delivery cannot escape the negative assertions.
-  await sleep(4500);
+  await sleep(HELPER_SETTLED_MS);
   assert.deepEqual(h.lines("starts"), []);
   assert.deepEqual(h.events(), []);
   assert.equal(existsSync(join(h.state, "spool")), false);
@@ -193,7 +204,7 @@ test("session-end with an empty spool and a held delivery lock is retained for d
   assert.equal(h.spooled().length, 1);
   const event = JSON.parse(readFileSync(join(spool, h.spooled()[0]), "utf8"));
   assert.deepEqual([event.source, event.type], ["leader", "session-end"]);
-  await sleep(350);
+  await sleep(HELPER_SETTLED_MS);
   assert.deepEqual(h.lines("starts"), []);
   assert.deepEqual(h.events(), []);
   assert.equal(h.spooled().length, 1);
@@ -204,7 +215,7 @@ test("session-end during a fresh update is spooled and delivered when the instal
   const h = await harness(t, { STUB_DELAY: "100" });
   writeFileSync(join(h.state, "updating"), "updating");
   await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
-  await sleep(350);
+  await sleep(HELPER_SETTLED_MS);
   assert.equal(h.spooled().length, 1);
   assert.deepEqual(h.events(), []);
   assert.deepEqual(h.lines("starts"), []);
@@ -232,13 +243,7 @@ test("session-end during a fresh update is spooled and delivered when the instal
 test("session-end is spooled while an app returns 503 health and delivered once it is ready", async t => {
   const h = await harness(t, { STUB_DELAY: "0" });
   const gate = join(h.root, "ready");
-  const [command, ...args] = JSON.parse(h.env.CODEX_DELEGATE_PET_TEST_COMMAND);
-  spawn(command, args, { env: { ...h.env, STUB_READY_GATE: gate }, windowsHide: true, stdio: "ignore" }).unref();
-  await until(async () => {
-    try {
-      return (await fetch(`http://127.0.0.1:${h.port}/health`, { headers: { "X-Codex-Delegate-Pet-Token": token } })).status === 503;
-    } catch { return false; }
-  }, "stub did not begin starting");
+  await h.startStub({ STUB_READY_GATE: gate }, 503);
   await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
   assert.equal(h.spooled().length, 1);
   assert.deepEqual(h.events(), []);
@@ -251,13 +256,7 @@ test("session-end is spooled while an app returns 503 health and delivered once 
 
 test("session-end posts directly to a healthy app without creating a spool", async t => {
   const h = await harness(t, { STUB_DELAY: "0" });
-  const [command, ...args] = JSON.parse(h.env.CODEX_DELEGATE_PET_TEST_COMMAND);
-  spawn(command, args, { env: h.env, windowsHide: true, stdio: "ignore" }).unref();
-  await until(async () => {
-    try {
-      return (await fetch(`http://127.0.0.1:${h.port}/health`, { headers: { "X-Codex-Delegate-Pet-Token": token } })).status === 200;
-    } catch { return false; }
-  }, "stub did not become healthy");
+  await h.startStub({}, 200);
   await h.produce("await sendLeader({ type: 'session-end', team: '43210', session: 'closing' });");
   assert.deepEqual(h.events().map(e => [e.source, e.type]), [["leader", "session-end"]]);
   assert.equal(existsSync(join(h.state, "spool")), false);

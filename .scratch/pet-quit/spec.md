@@ -61,12 +61,12 @@ Quit is not a setting. It changes neither **pet enabled** nor **pets hidden**, a
 - **Supersedes** part of the `pet-tray` spec: user stories 9 and 10, and "Quitting the pet app from the tray" in its Out of Scope. "Any way to suppress relaunching it" stays out of scope. The old spec gets a `(Superseded…)` note pointing here, as it already has for the Language submenu.
 - No ADR: the decision is cheap to reverse.
 
-### Pet shell
+### Pet app
 
 - The tray menu becomes: Show pets, Show name tags, Clear around cursor, Licences, Language, a separator, Quit.
 - Quit is a plain menu item with its own menu id, labelled from the catalogue and relabelled with the rest of the tray on a language change.
 - Quit is always enabled. It does not consult the stage, the renderer or computer-use state.
-- Quit uses the same bounded exit as `POST /quit` and the idle exit: ask Tauri to exit so that it removes its tray resources, and force the process to end after two seconds. The shell has one exit routine, reachable from the tray. The bound starts once the tray callback runs: a UI thread that is already stuck can't dispatch Quit at all.
+- Quit uses the same bounded exit as `POST /quit` and the idle exit: ask Tauri to exit so that it removes its tray resources, and force the process to end after two seconds. The pet app has one exit routine, reachable from the tray. The bound starts once the tray callback runs: a UI thread that is already stuck can't dispatch Quit at all.
 - The tray keeps no quit state and writes no preference. The HTTP protocol is unchanged.
 
 ### Translation catalogue
@@ -79,7 +79,7 @@ Quit is not a setting. It changes neither **pet enabled** nor **pets hidden**, a
 - When the event is a leader `session-end`, health reports the app **absent**, and nothing is pending (no spool file, no delivery lock), the event is dropped: no spool file, no helper, no launch.
 - In every other case the event follows the existing path. That includes a `session-end` while the app is `starting`, while delivery is pending, while the `updating` flag is set, and on a healthy app.
 - Nothing is normally lost by dropping it. The leader hook tries to remove the session's record before delivering, so an app that starts afterwards doesn't restore that session, and a restarted stage has no such team to close.
-- The drop is deliberately not coordinated with other producers. Two cases can still show a closed session's leader pet for a moment: a report another producer hasn't published yet (the leader's asynchronous tool report, for example) starts the app after the drop, or removing the record failed. Both end by themselves, because the shell's liveness check removes the team within seconds of the leader process ending.
+- The drop is deliberately not coordinated with other producers. Two cases can still show a closed session's leader pet for a moment: a report another producer hasn't published yet (the leader's asynchronous tool report, for example) starts the app after the drop, or removing the record failed. Both end by themselves, because the pet app's liveness check removes the team within seconds of the leader process ending.
 - Worker `end`, leader `stop` and every other report keep starting an absent app.
 
 ### Documentation
@@ -103,7 +103,7 @@ Quit is not a setting. It changes neither **pet enabled** nor **pets hidden**, a
   - Any other leader type and worker `end`, with no app listening: still launch. Prior art: "an absent app starts in the background…" and "concurrent producers launch once…".
 - **Leader hook**: one case through the real hook with no app listening: a `SessionEnd` input removes the session's record and starts nothing. Prior art: the leader hook tests.
 - **Translation catalogue**: the existing test already requires both languages for every message id. The tray's id list, if it enumerates ids, gains `tray.quit`.
-- **Shell (Rust)**: a `cargo test` case covers the Quit label in each language if the tray's label lookup is testable like the Language submenu label. The tray menu itself isn't automated.
+- **Pet app (Rust)**: a `cargo test` case covers the Quit label in each language if the tray's label lookup is testable like the Language submenu label. The tray menu itself isn't automated.
 - **Not automated**: a manual checklist in the pet README, run on the real app on Windows 10:
   - Menu order, the separator, and the label in both languages, including after switching language.
   - Quit removes the tray icon and strip and ends the process, while shown, while hidden, and with the licences window open.

@@ -1,7 +1,8 @@
 # Leader and worker pets (developer tracer)
 
 Windows only. The first event starts the app automatically, except a leader's
-session-end report when no delivery or update is pending. The runner
+session-end report when no delivery or update is pending. Choose **Quit** from
+the tray to end the app. The runner
 reports only when `<home>/.codex-delegate/pet/client/pet-client.mjs` exists.
 No hooks, settings, real home directories, or normal installation paths are
 changed by the build. Use an isolated home for testing.
@@ -33,7 +34,8 @@ Process creation times also guard against restoring a reused PID.
 The developer installer preserves an existing
 token. Every HTTP request requires it. The helper serializes startup and replay;
 events and update flags expire after five minutes. The app exits after ten
-minutes without accepted events (health checks do not keep it alive).
+minutes without accepted events (health checks do not keep it alive), or when
+the user chooses **Quit** from the tray.
 
 In a **new** PowerShell terminal, set the isolated home before starting the
 runner. The task's working directory can be any real repository. `CODEX_HOME`
@@ -230,11 +232,10 @@ into the isolated home above, using the same home and port in every terminal.
 Use real leader hooks as described below for the session and worker checks.
 These checks are not automated.
 
-1. **Menu and language:** right-click the tray icon. Confirm the order is
-   **Show pets**, **Show name tags**, **Clear around cursor**, **Licences**,
-   **Language**, a separator, then **Quit**. Switch to Korean and confirm
-   **종료** appears immediately; switch back and confirm **Quit** returns
-   without restarting. Quit must always be enabled.
+1. **Menu and language:** right-click the tray icon. Confirm the order matches
+   item 1 of the earlier "Manual language submenu check". Switch to Korean and
+   confirm **종료** appears immediately; switch back and confirm **Quit**
+   returns without restarting. Quit must always be enabled.
 2. **Immediate exit:** choose **Quit** while pets are shown, while hidden, and
    with the **Licences** window open, starting the app again between checks.
    Expect no confirmation: the tray icon, strip and licences window disappear,

@@ -6,7 +6,7 @@
 
 **Status:** resolved
 
-Spec: `.scratch/pet-quit/spec.md` (user stories 1–15, Pet shell, Translation catalogue).
+Spec: `.scratch/pet-quit/spec.md` (user stories 1–15, Pet app, Translation catalogue).
 
 - [x] Tray menu order: Show pets, Show name tags, Clear around cursor, Licences, Language, a separator, Quit.
 - [x] `tray.quit` is in the catalogue: `Quit` in English, `종료` in Korean. The label follows a language change without a restart.
