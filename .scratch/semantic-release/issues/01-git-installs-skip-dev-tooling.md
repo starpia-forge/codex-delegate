@@ -8,7 +8,11 @@
 
 Spec: `.scratch/semantic-release/spec.md` (user story 33, semantic-release configuration, Package contents).
 
-- [ ] No script named `build`, `prepare`, `prepack`, `preinstall`, `install` or `postinstall` remains in `package.json`.
-- [ ] The skill rebuild works under its new name, and the pet README's instructions follow.
-- [ ] The packaged-install smoke test asserts that no such lifecycle script exists.
-- [ ] `npm test` passes.
+- [x] No script named `build`, `prepare`, `prepack`, `preinstall`, `install` or `postinstall` remains in `package.json`.
+- [x] The skill rebuild works under its new name, and the pet README's instructions follow.
+- [x] The packaged-install smoke test asserts that no such lifecycle script exists.
+- [x] `npm test` passes.
+
+## Comments
+
+- 2026-11-01: Implemented on `ticket/semantic-release-01`. The `build` script is now `build:skills`, still running `node scripts/build.mjs`, and `pet/README.md` follows. `test/package-smoke.test.mjs` reads the repository's `package.json` and fails on any of the six script names; it failed on `build` before the rename. `npm.cmd run build:skills` was run with network access and rebuilt `skills/` with no diff. `npm.cmd test` passes 456/456. No real `npx github:` install was run; that is checked by the `v0.5.0` acceptance.
