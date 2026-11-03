@@ -10,6 +10,8 @@ The computer-use spec gave only `computer-user` the approvals and sandbox bypass
 
 ## Consequences
 
-Nothing enforces what the sandbox used to enforce. A worker can write outside its working directory, reach the network and use the user's credentials, and `/implement-spec`'s worktree isolation is now a convention. The brief states these limits, and the leader checks that `HEAD` and the branch did not move during a run. Writes outside the working directory are not detected, because concurrent workers change other worktrees legitimately.
+Nothing enforces what the sandbox used to enforce. A worker can write outside its working directory, reach the network and use the user's credentials, and `/implement-spec`'s worktree isolation is now a convention. The brief states these limits, and the leader checks that `HEAD` and the branch did not move during a run. Writes outside the working directory are not detected, because concurrent workers change other worktrees legitimately. Neither are git changes that leave `HEAD` and the branch where they were, such as a stash, or a move of another branch.
 
-The role keeps `exclusive: false` so that `/implement-spec` can still run workers in parallel, and keeps its `sandbox` value so that the opt-out restores `-s workspace-write`.
+The role keeps `exclusive: false` so that `/implement-spec` can still run workers in parallel, and keeps its `sandbox` value so that the opt-out restores `-s workspace-write`. A user override that sets `sandbox` turns the bypass off unless it also sets the bypass field, so an existing stricter setting survives the update.
+
+Because the role is not exclusive, the runner has no signal handling or process tree stop for it. If the runner is stopped, the worker can keep running, now without a sandbox. The handling was kept to exclusive roles on purpose, and on Windows a hard kill of the runner couldn't be caught anyway.

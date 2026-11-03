@@ -29,7 +29,7 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
 
 6. With the ticket verified, remove every task directory created for this ticket (first run, follow-ups and retries) following Cleanup below, then return to the calling skill, which handles code review and committing.
 
-If the run fails (non-zero exit, empty result), keep all of the ticket's task directories, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or implement it yourself. On a retry, run it in a new task directory and keep the earlier ones until the ticket is verified (step 6) or abandoned. If the user chooses to implement it yourself, or abandons the ticket, remove them following Cleanup below once you no longer need them.
+If the run fails (non-zero exit, empty result, or changed `HEAD` or branch in step 4), keep all of the ticket's task directories, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or implement it yourself. For a changed `HEAD` or branch, also show the recorded and current `HEAD` and branch; don't change git state before the user chooses. In that case, before retrying or implementing it yourself, restore the recorded branch and `HEAD` with the user's agreement. Keep the values from step 2 as the baseline; don't record new values from the moved state. On a retry, run it in a new task directory and keep the earlier ones until the ticket is verified (step 6) or abandoned. If the user chooses to implement it yourself, or abandons the ticket, remove them following Cleanup below once you no longer need them.
 
 ## Cleanup
 

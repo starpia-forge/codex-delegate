@@ -69,7 +69,7 @@ message. Retry later or install from a tagged Release.
 | Implementer | GPT 6.1 Sol | Implementation quality for the cost | Misreads intent; calls work done too early | Builds one ticket at a time, test-first, from a self-contained brief. Runs **without a sandbox or approvals**; the leader reruns tests and checks every criterion |
 | Computer use | GPT 6 Astra | Strong at driving desktop apps | High cost | Operates native apps for the leader. Runs **without a sandbox or approvals**; the Codex desktop app must be running |
 
-The implementer runs without a sandbox or approvals by default on every platform. The worker can write outside its working directory, reach the network and use your credentials. The brief sets limits and the leader checks that `HEAD` and the branch did not change, but these checks do not enforce the sandbox's boundaries. To turn off the bypass and restore `workspace-write`, add this override to `~/.codex-delegate/roles.json`:
+The implementer runs without a sandbox or approvals by default on every platform. The worker can write outside its working directory, reach the network and use your credentials. The brief sets limits and the leader checks that `HEAD` and the branch did not change, but these checks do not enforce the sandbox's boundaries. An override that sets `sandbox` also turns off the bypass, unless it also sets `dangerouslyBypassApprovalsAndSandbox`. To turn off the bypass and restore `workspace-write`, add this override to `~/.codex-delegate/roles.json`:
 
 ```json
 {
