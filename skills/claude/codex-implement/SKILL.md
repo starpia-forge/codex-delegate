@@ -1,6 +1,6 @@
 ---
 name: codex-implement
-description: Delegate building one ticket or a bounded slice of work to Codex running GPT 6.1 Sol (workspace-write), test-first. Use whenever code needs writing during /implement or /implement-spec, instead of editing the code yourself.
+description: Delegate building one ticket or a bounded slice of work to Codex running GPT 6.1 Sol (no sandbox), test-first. Use whenever code needs writing during /implement or /implement-spec, instead of editing the code yourself.
 ---
 
 Have the Codex implementation worker write the code. Your job is to brief it, then verify what it did. You don't write the implementation yourself.
@@ -8,10 +8,10 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
 ## Process
 
 1. Create a fresh task directory `.scratch/codex/<YYYYMMDD-HHMMSS>-implement-<slug>/` following Cleanup rule 1 below, then write `prompt.md` there using the template below.
-   - The worker's sandbox has no network, so it can't fetch issues: paste the ticket and the relevant parts of the spec, or point to local files.
+   - Keep the brief self-contained: paste the ticket and the relevant parts of the spec, or point to local files.
    - Point to `GLOSSARY.md`, ADRs and `AGENTS.md` rather than pasting them.
 
-2. Decide the working directory: the repo root, or the worktree you were given. Don't edit files in that directory while the worker runs.
+2. Decide the working directory: the repo root, or the worktree you were given. Record `HEAD` (`git rev-parse HEAD`) and the current branch (`git branch --show-current`) in that directory before the run. Don't edit files in that directory while the worker runs.
 
 3. Run the worker in the background (Bash with `run_in_background: true`) and wait for the notification:
 
@@ -20,6 +20,7 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
    ```
 
 4. Verify the work yourself. Don't trust the report alone:
+   - confirm `HEAD` and the current branch in the working directory are unchanged from step 2; treat any change as a failed run for this ticket and follow the failure handling below;
    - read the diff (`git diff`, plus `git status` for new files);
    - run typechecking and the relevant test files;
    - check each acceptance criterion against the diff.
@@ -28,7 +29,7 @@ Have the Codex implementation worker write the code. Your job is to brief it, th
 
 6. With the ticket verified, remove every task directory created for this ticket (first run, follow-ups and retries) following Cleanup below, then return to the calling skill, which handles code review and committing.
 
-If the run fails (non-zero exit, empty result), keep all of the ticket's task directories, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or implement it yourself. On a retry, run it in a new task directory and keep the earlier ones until the ticket is verified (step 6) or abandoned. If the user chooses to implement it yourself, or abandons the ticket, remove them following Cleanup below once you no longer need them.
+If the run fails (non-zero exit, empty result, or changed `HEAD` or branch in step 4), keep all of the ticket's task directories, show the user the tail of `<task-dir>/result.md.log` and ask whether to retry or implement it yourself. For a changed `HEAD` or branch, also show the recorded and current `HEAD` and branch; don't change git state before the user chooses. In that case, before retrying or implementing it yourself, restore the recorded branch and `HEAD` with the user's agreement. Keep the values from step 2 as the baseline; don't record new values from the moved state. On a retry, run it in a new task directory and keep the earlier ones until the ticket is verified (step 6) or abandoned. If the user chooses to implement it yourself, or abandons the ticket, remove them following Cleanup below once you no longer need them.
 
 ## Cleanup
 
@@ -62,6 +63,9 @@ If the run fails (non-zero exit, empty result), keep all of the ticket's task di
 - Run typechecking and the relevant tests as you go, and make them pass.
 - Stay within this ticket. Note anything out of scope instead of doing it.
 - Do not commit, create branches, or otherwise change git state.
+- Do not write outside the working directory.
+- Do not push or change remote state (PRs, issues, deployments).
+- Do not use the user's credentials unless the task needs them.
 
 ## Final message
 

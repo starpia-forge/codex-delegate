@@ -66,8 +66,18 @@ message. Retry later or install from a tagged Release.
 | Leader | Claude Opus 5.5 | Reads user intent, analyses code, designs | Web search | Only the leader talks to you, so intent is never lost. It writes specs and tickets, briefs workers and verifies their output |
 | Researcher | GPT 6 Luna | Cheap; Codex's strong web search | Lower intelligence | Covers the leader's weak spot with cited answers to outside questions |
 | Critic | GPT 6 Astra | Sharp critic and code reviewer | High cost | Attacks specs and tickets before they are published, and reviews code alongside Claude |
-| Implementer | GPT 6.1 Sol | Implementation quality for the cost | Misreads intent; calls work done too early | Builds one ticket at a time, test-first, from a self-contained brief; the leader reruns tests and checks every criterion |
+| Implementer | GPT 6.1 Sol | Implementation quality for the cost | Misreads intent; calls work done too early | Builds one ticket at a time, test-first, from a self-contained brief. Runs **without a sandbox or approvals**; the leader reruns tests and checks every criterion |
 | Computer use | GPT 6 Astra | Strong at driving desktop apps | High cost | Operates native apps for the leader. Runs **without a sandbox or approvals**; the Codex desktop app must be running |
+
+The implementer runs without a sandbox or approvals by default on every platform. The worker can write outside its working directory, reach the network and use your credentials. The brief sets limits and the leader checks that `HEAD` and the branch did not change, but these checks do not enforce the sandbox's boundaries. An override that sets `sandbox` also turns off the bypass, unless it also sets `dangerouslyBypassApprovalsAndSandbox`. To turn off the bypass and restore `workspace-write`, add this override to `~/.codex-delegate/roles.json`:
+
+```json
+{
+  "implementer": {
+    "dangerouslyBypassApprovalsAndSandbox": false
+  }
+}
+```
 
 A worker's "done" is a claim, not a fact: the leader verifies diffs and tests before committing. `code-review` runs every axis twice, by Claude and by Codex, so one model catches what the other misses. Override models per role in `~/.codex-delegate/roles.json`.
 

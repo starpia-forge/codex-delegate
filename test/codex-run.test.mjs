@@ -368,19 +368,71 @@ test("interrupt terminates the worker tree before releasing the lock", async t =
   assert.equal((await h.start().done).code, 0);
 });
 
-test("computer-user bypasses approvals and sandbox for computer use", t => {
-  const { args, stdout, cwd, out } = runRole(t, "computer-user");
-  assert.deepEqual(args, [
-    "exec", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium",
-    "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
-  ]);
-  assert.match(stdout, /role=computer-user model=gpt-6-astra effort=medium .*--dangerously-bypass-approvals-and-sandbox/);
-  assert.doesNotMatch(stdout, /sandbox=workspace-write/);
-});
+for (const { role, model, effort } of [
+  { role: "computer-user", model: "gpt-6-astra", effort: "medium" },
+  { role: "implementer", model: "gpt-6.1-sol", effort: "high" },
+]) {
+  test(`${role} bypasses approvals and sandbox by default`, t => {
+    const { args, stdout, cwd, out } = runRole(t, role);
+    assert.deepEqual(args, [
+      "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
+      "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+    ]);
+    assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
+    assert.doesNotMatch(stdout, /sandbox=workspace-write/);
+  });
+
+  test(`a user override disables the ${role} bypass and restores its sandbox`, t => {
+    const { args, stdout, cwd, out } = runRole(t, role, {
+      [role]: { dangerouslyBypassApprovalsAndSandbox: false },
+    });
+    assert.deepEqual(args, [
+      "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
+      "-s", "workspace-write", "-C", cwd, "-o", out, "-",
+    ]);
+    assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=workspace-write`));
+    assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
+  });
+
+  test(`a sandbox-only override disables the ${role} bypass`, t => {
+    const { args, stdout, cwd, out } = runRole(t, role, {
+      [role]: { sandbox: "read-only" },
+    });
+    assert.deepEqual(args, [
+      "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
+      "-s", "read-only", "-C", cwd, "-o", out, "-",
+    ]);
+    assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=read-only`));
+    assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
+  });
+
+  test(`an explicit ${role} bypass override wins over its sandbox override`, t => {
+    const { args, stdout, cwd, out } = runRole(t, role, {
+      [role]: { sandbox: "read-only", dangerouslyBypassApprovalsAndSandbox: true },
+    });
+    assert.deepEqual(args, [
+      "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
+      "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+    ]);
+    assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
+    assert.doesNotMatch(stdout, /sandbox=read-only/);
+  });
+
+  test(`a model-only override preserves the ${role} bypass`, t => {
+    const { args, stdout, cwd, out } = runRole(t, role, {
+      [role]: { model: "custom-model" },
+    });
+    assert.deepEqual(args, [
+      "exec", "-m", "custom-model", "-c", `model_reasoning_effort=${effort}`,
+      "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+    ]);
+    assert.ok(stdout.includes(`role=${role} model=custom-model effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
+    assert.doesNotMatch(stdout, /sandbox=workspace-write/);
+  });
+}
 
 for (const { role, model, effort, sandbox, extra } of [
   { role: "critic", model: "gpt-6-astra", effort: "medium", sandbox: "read-only", extra: [] },
-  { role: "implementer", model: "gpt-6.1-sol", effort: "high", sandbox: "workspace-write", extra: [] },
   { role: "researcher", model: "gpt-6-luna", effort: "max", sandbox: "read-only", extra: ["-c", "web_search=live"] },
 ]) {
   test(`${role} keeps its existing sandbox and Codex arguments`, t => {
@@ -392,18 +444,6 @@ for (const { role, model, effort, sandbox, extra } of [
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=${sandbox}`));
   });
 }
-
-test("a user override disables the computer-user bypass and restores its sandbox", t => {
-  const { args, stdout, cwd, out } = runRole(t, "computer-user", {
-    "computer-user": { dangerouslyBypassApprovalsAndSandbox: false },
-  });
-  assert.deepEqual(args, [
-    "exec", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium",
-    "-s", "workspace-write", "-C", cwd, "-o", out, "-",
-  ]);
-  assert.match(stdout, /role=computer-user model=gpt-6-astra effort=medium sandbox=workspace-write/);
-  assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
-});
 
 test("an override naming an unknown role refuses to start Codex for any role", t => {
   const { root, env, prompt } = harness(t, { "astra-cu": { dangerouslyBypassApprovalsAndSandbox: false } });

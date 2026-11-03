@@ -191,6 +191,11 @@ const unknown = Object.keys(overrides).filter((name) => !Object.hasOwn(roles, na
 if (unknown.length) fail(`unknown role ${unknown.map((name) => `"${name}"`).join(", ")} in ${USER_ROLES} (expected one of: ${Object.keys(roles).join(", ")})`);
 const config = roles[role] && { exclusive: false, dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
 if (!config) fail(`unknown role "${role}" (expected one of: ${Object.keys(roles).join(", ")})`);
+// An explicit sandbox opts out of the shipped bypass unless the override decides both.
+const override = overrides[role];
+if (override && Object.hasOwn(override, "sandbox") && !Object.hasOwn(override, "dangerouslyBypassApprovalsAndSandbox")) {
+  config.dangerouslyBypassApprovalsAndSandbox = false;
+}
 if (!opts["prompt-file"]) fail("--prompt-file is required");
 
 const promptFile = resolve(opts["prompt-file"]);
