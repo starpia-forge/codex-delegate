@@ -20,7 +20,8 @@
     "model": "gpt-6.1-sol",
     "effort": "high",
     "sandbox": "workspace-write",
-    "webSearch": false
+    "webSearch": false,
+    "dangerouslyBypassApprovalsAndSandbox": true
   },
   "researcher": {
     "purpose": "Web research",

@@ -378,9 +378,18 @@ test("computer-user bypasses approvals and sandbox for computer use", t => {
   assert.doesNotMatch(stdout, /sandbox=workspace-write/);
 });
 
+test("implementer bypasses approvals and sandbox by default", t => {
+  const { args, stdout, cwd, out } = runRole(t, "implementer");
+  assert.deepEqual(args, [
+    "exec", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=high",
+    "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+  ]);
+  assert.match(stdout, /role=implementer model=gpt-6\.1-sol effort=high .*--dangerously-bypass-approvals-and-sandbox/);
+  assert.doesNotMatch(stdout, /sandbox=workspace-write/);
+});
+
 for (const { role, model, effort, sandbox, extra } of [
   { role: "critic", model: "gpt-6-astra", effort: "medium", sandbox: "read-only", extra: [] },
-  { role: "implementer", model: "gpt-6.1-sol", effort: "high", sandbox: "workspace-write", extra: [] },
   { role: "researcher", model: "gpt-6-luna", effort: "max", sandbox: "read-only", extra: ["-c", "web_search=live"] },
 ]) {
   test(`${role} keeps its existing sandbox and Codex arguments`, t => {
@@ -402,6 +411,18 @@ test("a user override disables the computer-user bypass and restores its sandbox
     "-s", "workspace-write", "-C", cwd, "-o", out, "-",
   ]);
   assert.match(stdout, /role=computer-user model=gpt-6-astra effort=medium sandbox=workspace-write/);
+  assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
+});
+
+test("a user override disables the implementer bypass and restores its sandbox", t => {
+  const { args, stdout, cwd, out } = runRole(t, "implementer", {
+    implementer: { dangerouslyBypassApprovalsAndSandbox: false },
+  });
+  assert.deepEqual(args, [
+    "exec", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=high",
+    "-s", "workspace-write", "-C", cwd, "-o", out, "-",
+  ]);
+  assert.match(stdout, /role=implementer model=gpt-6\.1-sol effort=high sandbox=workspace-write/);
   assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
 });
 
