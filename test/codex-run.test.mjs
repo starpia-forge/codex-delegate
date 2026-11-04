@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
@@ -29,6 +29,15 @@ function harness(t, overrides, { probe = false, failCleanup = false, suppressClo
   const { home, env } = fakeCodex(root, `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
+// Like codex exec, refuse a working directory outside a git repo unless told to
+// skip the check. Unlike recent Codex, the bypass flag does not exempt it here.
+const path = require("node:path");
+let dir = path.resolve(args[args.indexOf("-C") + 1]);
+while (!fs.existsSync(path.join(dir, ".git")) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+if (!fs.existsSync(path.join(dir, ".git")) && !args.includes("--skip-git-repo-check")) {
+  console.error("Not inside a trusted directory and --skip-git-repo-check was not specified.");
+  process.exit(1);
+}
 let stdin = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => { stdin += chunk; });
@@ -376,7 +385,7 @@ for (const { role, model, effort } of [
     const { args, stdout, cwd, out } = runRole(t, role);
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
     assert.doesNotMatch(stdout, /sandbox=workspace-write/);
@@ -388,7 +397,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "-s", "workspace-write", "-C", cwd, "-o", out, "-",
+      "-s", "workspace-write", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=workspace-write`));
     assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
@@ -400,7 +409,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "-s", "read-only", "-C", cwd, "-o", out, "-",
+      "-s", "read-only", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=read-only`));
     assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
@@ -412,7 +421,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
     assert.doesNotMatch(stdout, /sandbox=read-only/);
@@ -424,7 +433,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", "custom-model", "-c", `model_reasoning_effort=${effort}`,
-      "--dangerously-bypass-approvals-and-sandbox", "-C", cwd, "-o", out, "-",
+      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=custom-model effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
     assert.doesNotMatch(stdout, /sandbox=workspace-write/);
@@ -439,9 +448,19 @@ for (const { role, model, effort, sandbox, extra } of [
     const { args, stdout, cwd, out } = runRole(t, role);
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "-s", sandbox, "-C", cwd, "-o", out, ...extra, "-",
+      "-s", sandbox, "--skip-git-repo-check", "-C", cwd, "-o", out, ...extra, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=${sandbox}`));
+  });
+}
+
+for (const role of ["critic", "computer-user", "implementer", "researcher"]) {
+  test(`${role} runs in a working directory outside any git repo`, t => {
+    const { args, cwd } = runRole(t, role);
+    let dir = cwd;
+    while (!existsSync(join(dir, ".git")) && dirname(dir) !== dir) dir = dirname(dir);
+    assert.equal(existsSync(join(dir, ".git")), false, "the test directory must not be inside a git repo");
+    assert.ok(args.includes("--skip-git-repo-check"));
   });
 }
 

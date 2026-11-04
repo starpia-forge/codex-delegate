@@ -81,6 +81,8 @@ Release 태그를 지정해 설치하세요.
 
 워커의 "완료"는 사실이 아니라 주장입니다. 리더는 커밋 전에 diff와 테스트를 직접 확인합니다. `code-review`는 모든 축을 Claude와 Codex가 각각 한 번씩 리뷰하므로, 한 모델이 놓친 것을 다른 모델이 잡아냅니다. 역할별 모델은 `~/.codex-delegate/roles.json`에서 바꿀 수 있습니다.
 
+워커는 git 저장소 안뿐 아니라 어느 디렉터리에서나 실행됩니다. 러너가 Codex에 `--skip-git-repo-check`를 넘기므로 다른 버전 관리 시스템이나 일반 폴더에서도 동작합니다. 다만 `/implement`, `/implement-spec`, `/code-review`는 리더가 git으로 워커의 변경을 확인하므로 여전히 git 저장소가 필요합니다.
+
 ## 라이선스
 
 [MIT](../LICENSE). 함께 포함된 업스트림 스킬(mattpocock/skills)도 MIT 라이선스이며, [`skills/THIRD_PARTY_LICENSE-mattpocock-skills`](../skills/THIRD_PARTY_LICENSE-mattpocock-skills)를 참고하세요.
