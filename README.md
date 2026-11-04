@@ -81,6 +81,8 @@ The implementer runs without a sandbox or approvals by default on every platform
 
 A worker's "done" is a claim, not a fact: the leader verifies diffs and tests before committing. `code-review` runs every axis twice, by Claude and by Codex, so one model catches what the other misses. Override models per role in `~/.codex-delegate/roles.json`.
 
+Workers run in any directory, not only inside a git repo: the runner passes `--skip-git-repo-check` to Codex, so another version control system or a plain folder works too. `/implement`, `/implement-spec` and `/code-review` still need a git repo, because the leader checks the worker's changes with git.
+
 ## License
 
 [MIT](LICENSE). The bundled upstream skills (mattpocock/skills) are also MIT-licensed; see [`skills/THIRD_PARTY_LICENSE-mattpocock-skills`](skills/THIRD_PARTY_LICENSE-mattpocock-skills).

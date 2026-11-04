@@ -262,6 +262,9 @@ const args = [
   "-m", config.model,
   "-c", `model_reasoning_effort=${config.effort}`,
   ...sandboxArgs,
+  // Codex refuses a cwd with no .git above it, which rules out other VCSs and task
+  // directories. Inside a git repo the flag changes nothing.
+  "--skip-git-repo-check",
   "-C", cwd,
   "-o", out,
 ];
