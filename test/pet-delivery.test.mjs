@@ -373,7 +373,10 @@ for (const listening of [false, true]) test(`a fresh updating flag spools withou
 });
 
 test("concurrent producers launch once and new healthy events cannot overtake the startup backlog", async t => {
-  const h = await harness(t, { STUB_POST_DELAY: "180" });
+  // Slow replay enough for the late producer to land during it, but stay well
+  // under the helper's 250 ms POST deadline: a timed-out POST ends delivery and
+  // strands the backlog, which slow CI runners hit at 180 ms.
+  const h = await harness(t, { STUB_POST_DELAY: "100" });
   await Promise.all(Array.from({ length: 4 }, () => h.produce("await worker.send('start'); await worker.send('end', 'success');")));
   assert.equal(h.events().length, 0, "workers should finish before health is ready");
   await until(() => h.events().length >= 1, "startup backlog never began delivery");
