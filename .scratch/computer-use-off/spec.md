@@ -1,6 +1,6 @@
 # Spec: Only the computer-user role can drive the desktop
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 

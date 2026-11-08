@@ -6,13 +6,13 @@ Spec: `.scratch/computer-use-off/spec.md`
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Both READMEs describe `computerUse` as above; the package smoke test passes.
 - [x] With the overrides the runner builds for `implementer`, `codex … plugin list --json` shows `computer-use@openai-bundled` and `unified-computer-use@openai-bundled` with `enabled: false`, and `codex … mcp list` shows no `cua_repl` and `node_repl` disabled.
 - [x] A short `implementer` run, asked to list its skills and tools without calling any, reports no computer-use skill and no `node_repl` or `cua_repl` tool (supporting evidence only).
 - [x] `codex-computer-use` on "open Notepad, type hello, don't save" still produces a matching `final.png`.
-- [ ] Results recorded under Comments; the branch is merged to `main`.
+- [x] Results recorded under Comments; the branch is merged to `main`.
 
 ## Comments
 
