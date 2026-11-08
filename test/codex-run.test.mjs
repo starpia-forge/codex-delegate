@@ -20,6 +20,15 @@ function harness(t, overrides, { probe = false, failCleanup = false, suppressClo
   t.after(async () => {
     for (const run of runs) {
       run.finish();
+      if (existsSync(run.probeRecord)) {
+        const probe = JSON.parse(readFileSync(run.probeRecord, "utf8"));
+        // Cleanup a failed hang assertion without leaving its descendants alive.
+        if (probe.descendantPid) {
+          for (const pid of [probe.pid, probe.descendantPid]) {
+            try { process.kill(pid, "SIGKILL"); } catch (err) { if (err.code !== "ESRCH") throw err; }
+          }
+        }
+      }
       await run.done;
       for (const path of [run.record, run.descendant]) {
         if (!existsSync(path)) continue;
@@ -33,6 +42,7 @@ function harness(t, overrides, { probe = false, failCleanup = false, suppressClo
   const { home, env } = fakeCodex(root, `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
+if (args[0] !== "exec") process.exit(1);
 // Like codex exec, refuse a working directory outside a git repo unless told to
 // skip the check. Unlike recent Codex, the bypass flag does not exempt it here.
 const path = require("node:path");
@@ -50,7 +60,7 @@ process.stdin.on("end", () => {
     require("node:child_process").spawn(process.execPath, ["-e",
       'require("node:fs").writeFileSync(process.env.FAKE_CODEX_DESCENDANT, JSON.stringify({pid:process.pid}));setInterval(()=>{},1000)'], { stdio: "ignore" });
   }
-  fs.writeFileSync(process.env.FAKE_CODEX_RECORD, JSON.stringify({ args, stdin, pid: process.pid, launch: JSON.parse(process.env.FAKE_CODEX_LAUNCH || "null") }));
+  fs.writeFileSync(process.env.FAKE_CODEX_RECORD, JSON.stringify({ args, stdin, cwd: process.cwd(), codexHome: process.env.CODEX_HOME, pid: process.pid, launch: JSON.parse(process.env.FAKE_CODEX_LAUNCH || "null") }));
   const finish = () => {
     fs.writeFileSync(args[args.indexOf("-o") + 1], "Fake worker result");
     process.exit(Number(process.env.FAKE_CODEX_EXIT || 0));
@@ -74,7 +84,7 @@ const cp = require("node:child_process");
 const originalSpawn = cp.spawn;
 cp.spawn = function(command, args, options) {
   const opts = Array.isArray(args) ? options : args;
-  if (opts?.env) opts.env.FAKE_CODEX_LAUNCH = JSON.stringify({command, args, detached: !!opts.detached});
+  if (opts?.env) opts.env.FAKE_CODEX_LAUNCH = JSON.stringify({command, args: Array.isArray(args) ? args : undefined, detached: !!opts.detached});
   const child = originalSpawn.apply(this, arguments);
   if (${suppressClose}) {
     const emit = child.emit;
@@ -101,6 +111,7 @@ require("node:module").syncBuiltinESMExports();
     const dir = join(root, `run-${runs.length}`);
     mkdirSync(dir);
     const record = join(dir, "record.json");
+    const probeRecord = join(dir, "probe.json");
     const descendant = join(dir, "descendant.json");
     const output = join(dir, "result.md");
     const release = join(dir, "finish");
@@ -117,7 +128,7 @@ require("node:module").syncBuiltinESMExports();
     }
     const child = spawn(executable, childArgs, {
       cwd: dir, windowsHide: true,
-      env: { ...env, FAKE_CODEX_RECORD: record, FAKE_CODEX_WAIT: wait ? release : "", FAKE_CODEX_EXIT: String(exit), FAKE_CODEX_DESCENDANT: tree ? descendant : "" },
+      env: { ...env, FAKE_CODEX_RECORD: record, FAKE_CODEX_PROBE_RECORD: probeRecord, FAKE_CODEX_WAIT: wait ? release : "", FAKE_CODEX_EXIT: String(exit), FAKE_CODEX_DESCENDANT: tree ? descendant : "" },
     });
     let stdout = "", stderr = "";
     child.stdout.on("data", data => { stdout += data; });
@@ -129,7 +140,7 @@ require("node:module").syncBuiltinESMExports();
         stderr: stderr + (existsSync(stderrFile) ? readFileSync(stderrFile, "utf8") : ""),
       }));
     });
-    const run = { child, record, descendant, out: output, done, pidFile, finish: () => writeFileSync(release, "") };
+    const run = { child, record, probeRecord, descendant, out: output, done, pidFile, finish: () => writeFileSync(release, "") };
     runs.push(run);
     return run;
   }
@@ -154,6 +165,94 @@ function runRole(t, role, overrides) {
   assert.match(result.stdout, /Fake worker result/);
   return { args: JSON.parse(readFileSync(env.FAKE_CODEX_RECORD, "utf8")).args, stdout: result.stdout, cwd: root, out };
 }
+
+test("a defined node_repl is disabled for a worker without computer use", async t => {
+  const h = harness(t);
+  h.env.FAKE_CODEX_NODE_REPL = "defined";
+  const run = h.start("implementer");
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+  const index = args.indexOf("mcp_servers.node_repl.enabled=false");
+  assert.ok(index > 0, JSON.stringify(args));
+  assert.equal(args[index - 1], "-c");
+  assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=off$/);
+  assert.deepEqual(JSON.parse(readFileSync(run.probeRecord, "utf8")).args,
+    ["mcp", "get", "node_repl", "--json"]);
+});
+
+for (const response of ["failure", "unparseable", "wrong-name", "null", "failed-defined", "absent-other"]) {
+  test(`an unknown node_repl probe (${response}) lets the worker run with an unknown marker`, async t => {
+    const h = harness(t);
+    h.env.FAKE_CODEX_NODE_REPL = response;
+    const run = h.start("implementer");
+    const result = await run.done;
+    assert.equal(result.code, 0, result.stderr);
+    const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+    assert.ok(!args.some(arg => arg.startsWith("mcp_servers.")), JSON.stringify(args));
+    assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=off\(node_repl unknown\)$/);
+  });
+}
+
+test("a hanging node_repl probe and its pipe-holding descendant stop before the worker starts", async t => {
+  const h = harness(t);
+  h.env.FAKE_CODEX_NODE_REPL = "hang";
+  const started = Date.now();
+  const run = h.start("implementer");
+  await until(() => existsSync(run.record));
+  assert.ok(Date.now() - started < 10000, "worker must start within a bounded time");
+  const probe = JSON.parse(readFileSync(run.probeRecord, "utf8"));
+  assert.ok(Number.isSafeInteger(probe.descendantPid), "probe spawned a descendant");
+  for (const pid of [probe.pid, probe.descendantPid]) {
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  }
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+  assert.ok(!args.some(arg => arg.startsWith("mcp_servers.")), JSON.stringify(args));
+  assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=off\(node_repl unknown\)$/);
+});
+
+for (const role of ["implementer", "critic", "researcher"]) {
+  test(`${role} runs without a node_repl override when the probe reports absent`, async t => {
+    const h = harness(t);
+    const run = h.start(role);
+    const result = await run.done;
+    assert.equal(result.code, 0, result.stderr);
+    assert.ok(existsSync(run.probeRecord), "Codex was asked about node_repl");
+    const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+    assert.equal(args[0], "exec");
+    assert.ok(!args.some(arg => arg.startsWith("mcp_servers.")), JSON.stringify(args));
+    assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=off$/);
+  });
+}
+
+test("the node_repl probe uses the worker cwd and CODEX_HOME rather than the runner launch directory", async t => {
+  const h = harness(t);
+  const run = h.start("implementer", { cwd: h.root });
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.notEqual(dirname(run.record), h.root, "runner launched from another directory");
+  const probe = JSON.parse(readFileSync(run.probeRecord, "utf8"));
+  const worker = JSON.parse(readFileSync(run.record, "utf8"));
+  assert.equal(probe.cwd, h.root);
+  assert.equal(probe.cwd, worker.cwd);
+  assert.equal(probe.codexHome, h.env.CODEX_HOME);
+  assert.equal(probe.codexHome, worker.codexHome);
+  assert.equal(worker.args[worker.args.indexOf("-C") + 1], h.root);
+});
+
+test("computer-user makes no node_repl probe", async t => {
+  const h = harness(t);
+  h.env.FAKE_CODEX_NODE_REPL = "hang";
+  const run = h.start("computer-user");
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(existsSync(run.probeRecord), false);
+  const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+  assert.ok(!args.some(arg => /^(plugins|mcp_servers)\./.test(arg)), JSON.stringify(args));
+  assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=on$/);
+});
 
 for (const value of ["false", null, 1]) {
   test(`computer-user refuses computerUse=${JSON.stringify(value)} before starting a worker`, async t => {

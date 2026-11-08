@@ -24,6 +24,7 @@ const PRINT_LIMIT = 6000;
 const COMPUTER_USE_PLUGINS = ["computer-use@openai-bundled", "unified-computer-use@openai-bundled"];
 const BUSY_EXIT_CODE = 75;
 const CHILD_EXIT_TIMEOUT_MS = 1000;
+const NODE_REPL_PROBE_TIMEOUT_MS = 5000;
 const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143, SIGBREAK: 149, SIGHUP: 129 };
 const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
 const HOLDER = join(LOCK, "holder.json");
@@ -184,6 +185,66 @@ function quote(arg) {
   return /[\s"&|<>^]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg;
 }
 
+function spawnCodex(args, { cwd, env, detached = false }) {
+  if (process.platform !== "win32") return spawn("codex", args, { cwd, env, detached });
+  const command = ["codex", ...args.map(quote)].join(" ");
+  return detached
+    ? spawn(process.execPath, [fileURLToPath(new URL("./windows-codex.mjs", import.meta.url)), command], { cwd, env, detached, windowsHide: true })
+    : spawn(command, { cwd, env, shell: true });
+}
+
+function stopProcessTree(pid) {
+  if (process.platform === "win32") {
+    const killed = spawnSync("taskkill", ["/T", "/F", "/PID", String(pid)], { stdio: "ignore", windowsHide: true, timeout: 10000 });
+    if (killed.status !== 0) {
+      const fallback = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+        fileURLToPath(new URL("./windows-stop-tree.ps1", import.meta.url)), "-RootProcessId", String(pid)],
+      { encoding: "utf8", windowsHide: true, timeout: 20000 });
+      if (fallback.status !== 0) throw new Error(fallback.stderr || "could not terminate Codex process tree");
+    }
+  } else {
+    try { process.kill(-pid, "SIGKILL"); } catch (err) { if (err.code !== "ESRCH") throw err; }
+  }
+}
+
+function probeNodeRepl(cwd, env) {
+  return new Promise(resolve => {
+    const probe = spawnCodex(["mcp", "get", "node_repl", "--json"], { cwd, env, detached: true });
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try { if (probe.pid) stopProcessTree(probe.pid); } catch (err) {
+        console.error(`codex-run: could not stop node_repl probe: ${err.message}`);
+      }
+      // Descendants may hold pipes open. The deadline must not depend on close.
+      probe.stdin.destroy();
+      probe.stdout.destroy();
+      probe.stderr.destroy();
+      probe.unref();
+      finish("unknown");
+    }, NODE_REPL_PROBE_TIMEOUT_MS);
+    let stdout = "", stderr = "";
+    probe.stdout.setEncoding("utf8");
+    probe.stderr.setEncoding("utf8");
+    probe.stdout.on("data", data => { stdout += data; });
+    probe.stderr.on("data", data => { stderr += data; });
+    probe.stdin.end();
+    probe.stdin.on("error", () => {});
+    probe.on("error", () => finish("unknown"));
+    probe.on("close", code => {
+      try {
+        if (code === 0 && JSON.parse(stdout)?.name === "node_repl") return finish("defined");
+      } catch { /* No usable definition. */ }
+      finish(code !== null && code !== 0 && /No MCP server named 'node_repl' found\./.test(stderr) ? "absent" : "unknown");
+    });
+  });
+}
+
 const { role, opts } = parseArgs(process.argv.slice(2));
 const roles = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "roles.json"), "utf8"));
 const overrides = existsSync(USER_ROLES) ? JSON.parse(readFileSync(USER_ROLES, "utf8")) : {};
@@ -223,17 +284,7 @@ async function shutdown(code, message) {
   if (message) console.error(`codex-run: ${message}`);
   try {
     if (child?.pid && !closed) {
-      if (process.platform === "win32") {
-        const killed = spawnSync("taskkill", ["/T", "/F", "/PID", String(child.pid)], { stdio: "ignore", windowsHide: true, timeout: 10000 });
-        if (killed.status !== 0) {
-          const fallback = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-            fileURLToPath(new URL("./windows-stop-tree.ps1", import.meta.url)), "-RootProcessId", String(child.pid)],
-          { encoding: "utf8", windowsHide: true, timeout: 20000 });
-          if (fallback.status !== 0) throw new Error(fallback.stderr || "could not terminate Codex process tree");
-        }
-      } else {
-        try { process.kill(-child.pid, "SIGKILL"); } catch (err) { if (err.code !== "ESRCH") throw err; }
-      }
+      stopProcessTree(child.pid);
       // Pipe closure can depend on a process outside the worker tree. Wait for
       // the process itself, with a bound even if its exit event never arrives.
       if (child.exitCode === null && child.signalCode === null) {
@@ -279,7 +330,6 @@ if (config.webSearch) args.push("-c", "web_search=live");
 if (!config.computerUse) {
   for (const plugin of COMPUTER_USE_PLUGINS) args.push("-c", `plugins.${plugin}.enabled=false`);
 }
-args.push("-");
 
 // The sandbox runs as a different OS user on Windows, so git refuses the repo
 // as "dubious ownership" unless every directory is marked safe.
@@ -290,18 +340,17 @@ const env = {
   GIT_CONFIG_VALUE_0: "*",
 };
 
-console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} ${sandbox} computer-use=${config.computerUse ? "on" : "off"}`);
+const nodeRepl = config.computerUse ? null : await probeNodeRepl(cwd, env);
+if (nodeRepl === "defined") args.push("-c", "mcp_servers.node_repl.enabled=false");
+args.push("-");
+
+const computerUse = config.computerUse ? "on" : nodeRepl === "unknown" ? "off(node_repl unknown)" : "off";
+console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} ${sandbox} computer-use=${computerUse}`);
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);
 if (config.exclusive) await excludePetCapture();
-child = !config.exclusive
-  ? (process.platform === "win32"
-    ? spawn(["codex", ...args.map(quote)].join(" "), { cwd, env, shell: true })
-    : spawn("codex", args, { cwd, env }))
-  : process.platform === "win32"
-    ? spawn(process.execPath, [fileURLToPath(new URL("./windows-codex.mjs", import.meta.url)), ["codex", ...args.map(quote)].join(" ")], { cwd, env, detached: true, windowsHide: true })
-    : spawn("codex", args, { cwd, env, detached: true });
+child = spawnCodex(args, { cwd, env, detached: !!config.exclusive });
 const taskDirectoryName = basename(dirname(promptFile));
 finishPet = reportPet(child, role, taskDirectoryName);
 if (config.exclusive && child.pid) {
