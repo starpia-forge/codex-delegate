@@ -79,6 +79,17 @@ The implementer runs without a sandbox or approvals by default on every platform
 }
 ```
 
+Only the computer use role (`computer-user`) has computer use (`"computerUse": true`). Every other role starts Codex with computer use off for that run only: both Computer Use plugins are disabled, and when Codex reports the desktop app's `node_repl` MCP server as defined, it is disabled too. That also removes the browser and Chrome plugins' `node_repl` route for those roles; the plugins stay listed. Your `config.toml` is not edited. The runner's start-up line shows `computer-use=on` or `computer-use=off`. To turn computer use on for another role, set `exclusive` as well, so that two workers never drive one desktop. The runner refuses `computerUse` without `exclusive`, and refuses any value other than `true` or `false`:
+
+```json
+{
+  "researcher": {
+    "computerUse": true,
+    "exclusive": true
+  }
+}
+```
+
 A worker's "done" is a claim, not a fact: the leader verifies diffs and tests before committing. `code-review` runs every axis twice, by Claude and by Codex, so one model catches what the other misses. Override models per role in `~/.codex-delegate/roles.json`.
 
 Workers run in any directory, not only inside a git repo: the runner passes `--skip-git-repo-check` to Codex, so another version control system or a plain folder works too. `/implement`, `/implement-spec` and `/code-review` still need a git repo, because the leader checks the worker's changes with git.
