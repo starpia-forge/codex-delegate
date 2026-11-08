@@ -25,6 +25,7 @@ const COMPUTER_USE_PLUGINS = ["computer-use@openai-bundled", "unified-computer-u
 const BUSY_EXIT_CODE = 75;
 const CHILD_EXIT_TIMEOUT_MS = 1000;
 const NODE_REPL_PROBE_TIMEOUT_MS = 5000;
+const NODE_REPL_EXIT_GRACE_MS = 150;
 const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143, SIGBREAK: 149, SIGHUP: 129 };
 const LOCK = join(homedir(), ".codex-delegate", "computer-use.lock");
 const HOLDER = join(LOCK, "holder.json");
@@ -207,26 +208,66 @@ function stopProcessTree(pid) {
   }
 }
 
-function probeNodeRepl(cwd, env) {
+// Probe cleanup has a startup budget; worker shutdown above still requires
+// proven termination. Each stop utility is killed at its own deadline, and
+// neither utility's pipes nor the probe's descendants can extend that budget.
+function runProbeStop(command, args, timeout) {
   return new Promise(resolve => {
-    const probe = spawnCodex(["mcp", "get", "node_repl", "--json"], { cwd, env, detached: true });
+    const stop = spawn(command, args, { stdio: "ignore", windowsHide: true });
+    const finish = success => { clearTimeout(timer); resolve(success); };
+    const timer = setTimeout(() => {
+      try { stop.kill("SIGKILL"); } catch { /* Best effort at the cleanup bound. */ }
+      stop.unref();
+      finish(false);
+    }, timeout);
+    stop.once("error", () => finish(false));
+    stop.once("exit", code => finish(code === 0));
+  });
+}
+
+async function stopProbeTree(pid) {
+  if (!pid) return;
+  try {
+    if (process.platform !== "win32") return stopProcessTree(pid);
+    if (await runProbeStop("taskkill", ["/T", "/F", "/PID", String(pid)], 500)) return;
+    if (await runProbeStop("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+      fileURLToPath(new URL("./windows-stop-tree.ps1", import.meta.url)), "-RootProcessId", String(pid)], 1500)) return;
+    throw new Error("tree cleanup failed or exceeded its 2-second budget");
+  } catch (err) {
+    console.error(`codex-run: could not stop node_repl probe: ${err.message}`);
+  }
+}
+
+function probeNodeRepl(cwd, env, exclusive) {
+  return new Promise(resolve => {
+    // Windows taskkill /T also handles an attached cmd.exe tree. On POSIX keep
+    // a process group so the deadline can kill descendants with kill(-pid).
+    const detached = process.platform !== "win32" || !!exclusive;
+    const probe = spawnCodex(["mcp", "get", "node_repl", "--json"], { cwd, env, detached });
+    let stopPromise;
+    const stop = () => stopPromise ??= stopProbeTree(probe.pid);
+    activeProbe = { stop };
     let settled = false;
-    const finish = result => {
+    let exitGrace;
+    const finish = async (result, stopTree = false) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(result);
-    };
-    const timer = setTimeout(() => {
-      try { if (probe.pid) stopProcessTree(probe.pid); } catch (err) {
-        console.error(`codex-run: could not stop node_repl probe: ${err.message}`);
+      clearTimeout(exitGrace);
+      if (stopTree) {
+        // Decide unknown before cleanup: exit/close cannot change the verdict.
+        await stop();
       }
-      // Descendants may hold pipes open. The deadline must not depend on close.
       probe.stdin.destroy();
       probe.stdout.destroy();
       probe.stderr.destroy();
       probe.unref();
-      finish("unknown");
+      activeProbe = null;
+      if (!stopping) resolve(result);
+    };
+    const timer = setTimeout(() => {
+      // Descendants may hold pipes open. The deadline must not depend on close.
+      finish("unknown", true);
     }, NODE_REPL_PROBE_TIMEOUT_MS);
     let stdout = "", stderr = "";
     probe.stdout.setEncoding("utf8");
@@ -236,12 +277,19 @@ function probeNodeRepl(cwd, env) {
     probe.stdin.end();
     probe.stdin.on("error", () => {});
     probe.on("error", () => finish("unknown"));
-    probe.on("close", code => {
+    const verdict = code => {
       try {
-        if (code === 0 && JSON.parse(stdout)?.name === "node_repl") return finish("defined");
+        if (code === 0 && JSON.parse(stdout)?.name === "node_repl") return "defined";
       } catch { /* No usable definition. */ }
-      finish(code !== null && code !== 0 && /No MCP server named 'node_repl' found\./.test(stderr) ? "absent" : "unknown");
+      return code !== null && code !== 0 && /No MCP server named 'node_repl' found\./.test(stderr) ? "absent" : "unknown";
+    };
+    probe.once("exit", code => {
+      if (settled) return;
+      // Allow buffered output to arrive, but never wait for a descendant to
+      // close inherited stdout/stderr. The original deadline stays in force.
+      exitGrace = setTimeout(() => finish(verdict(code)), NODE_REPL_EXIT_GRACE_MS);
     });
+    probe.once("close", code => finish(verdict(code)));
   });
 }
 
@@ -272,6 +320,7 @@ const out = resolve(opts.out ?? join(dirname(promptFile), "result.md"));
 const cwd = resolve(opts.cwd ?? process.cwd());
 const lock = config.exclusive ? acquireLock(role, cwd) : null;
 let child;
+let activeProbe;
 let stopping = false;
 let closed = false;
 let canRelease = true;
@@ -283,6 +332,7 @@ async function shutdown(code, message) {
   stopping = true;
   if (message) console.error(`codex-run: ${message}`);
   try {
+    await activeProbe?.stop();
     if (child?.pid && !closed) {
       stopProcessTree(child.pid);
       // Pipe closure can depend on a process outside the worker tree. Wait for
@@ -340,7 +390,7 @@ const env = {
   GIT_CONFIG_VALUE_0: "*",
 };
 
-const nodeRepl = config.computerUse ? null : await probeNodeRepl(cwd, env);
+const nodeRepl = config.computerUse ? null : await probeNodeRepl(cwd, env, config.exclusive);
 if (nodeRepl === "defined") args.push("-c", "mcp_servers.node_repl.enabled=false");
 args.push("-");
 
