@@ -8,7 +8,7 @@ Work on a feature branch; it merges to `main` only after ticket 03's acceptance,
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] `implementer`, `critic` and `researcher` pass both plugin overrides, each as one unquoted argument, and print `computer-use=off`.
 - [x] `computer-user` passes no `plugins.` override and prints `computer-use=on`.

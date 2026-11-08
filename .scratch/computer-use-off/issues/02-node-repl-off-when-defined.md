@@ -14,7 +14,7 @@ Same feature branch as ticket 01.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Probe answers defined → the `node_repl` override is passed; `computer-use=off`.
 - [x] Probe answers absent → no `node_repl` override; the run succeeds; `computer-use=off`.
