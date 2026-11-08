@@ -14,6 +14,7 @@ const args = process.argv.slice(2);
 if (args.join(" ") === "mcp get node_repl --json") {
   fs.writeFileSync(process.env.FAKE_CODEX_PROBE_RECORD, JSON.stringify({
     args, cwd: process.cwd(), codexHome: process.env.CODEX_HOME, pid: process.pid,
+    launch: JSON.parse(process.env.FAKE_CODEX_LAUNCH || "null"),
   }));
   if (process.env.FAKE_CODEX_NODE_REPL === "defined") {
     console.log(JSON.stringify({ name: "node_repl", enabled: true }));
@@ -32,12 +33,20 @@ if (args.join(" ") === "mcp get node_repl --json") {
   } else if (process.env.FAKE_CODEX_NODE_REPL === "absent-other") {
     console.error("Error: No MCP server named 'another_server' found.");
     process.exitCode = 1;
-  } else if (process.env.FAKE_CODEX_NODE_REPL === "hang") {
+  } else if (["hang", "defined-open-pipes"].includes(process.env.FAKE_CODEX_NODE_REPL)) {
     const descendant = require("node:child_process").spawn(process.execPath,
-      ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "inherit", "inherit"] });
+      ["-e", "setInterval(() => {}, 1000)"], {
+        stdio: ["ignore", "inherit", "inherit"],
+        // Survive the probe's temporary Windows console closing on exit.
+        detached: process.env.FAKE_CODEX_NODE_REPL === "defined-open-pipes", windowsHide: true,
+      });
     fs.writeFileSync(process.env.FAKE_CODEX_PROBE_RECORD, JSON.stringify({
       args, cwd: process.cwd(), codexHome: process.env.CODEX_HOME, pid: process.pid, descendantPid: descendant.pid,
     }));
+    if (process.env.FAKE_CODEX_NODE_REPL === "defined-open-pipes") {
+      console.log(JSON.stringify({ name: "node_repl", enabled: true }));
+      process.exit(0);
+    }
     setInterval(() => {}, 1000);
   } else {
     console.error("Error: No MCP server named 'node_repl' found.");

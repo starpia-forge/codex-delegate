@@ -14,7 +14,7 @@ const pluginsOffArgs = [
   "-c", "plugins.unified-computer-use@openai-bundled.enabled=false",
 ];
 
-function harness(t, overrides, { probe = false, failCleanup = false, suppressClose = false } = {}) {
+function harness(t, overrides, { probe = false, failCleanup = false, suppressClose = false, slowStop = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "codex runner test "));
   const runs = [];
   t.after(async () => {
@@ -26,6 +26,7 @@ function harness(t, overrides, { probe = false, failCleanup = false, suppressClo
         if (probe.descendantPid) {
           for (const pid of [probe.pid, probe.descendantPid]) {
             try { process.kill(pid, "SIGKILL"); } catch (err) { if (err.code !== "ESRCH") throw err; }
+            await until(() => { try { process.kill(pid, 0); return false; } catch (err) { return err.code === "ESRCH"; } });
           }
         }
       }
@@ -37,7 +38,14 @@ function harness(t, overrides, { probe = false, failCleanup = false, suppressClo
         await until(() => { try { process.kill(pid, 0); return false; } catch (err) { return err.code === "ESRCH"; } });
       }
     }
-    rmSync(root, { recursive: true, force: true });
+    // Yield between retries so Windows can release a stopped shell's cwd and
+    // the test process can finish closing its process/pipe handles.
+    await until(() => {
+      try { rmSync(root, { recursive: true, force: true }); return true; } catch (err) {
+        if (!["EPERM", "EACCES", "EBUSY", "ENOTEMPTY"].includes(err.code)) throw err;
+        return false;
+      }
+    });
   });
   const { home, env } = fakeCodex(root, `
 const fs = require("node:fs");
@@ -76,13 +84,25 @@ process.stdin.on("end", () => {
     mkdirSync(join(home, ".codex-delegate"));
     writeFileSync(join(home, ".codex-delegate", "roles.json"), JSON.stringify(overrides));
   }
-  if (probe || failCleanup || suppressClose) {
+  if (probe || failCleanup || suppressClose || slowStop) {
     const hook = join(root, "probe.cjs");
     writeFileSync(hook, `
 const fs = require("node:fs");
 const cp = require("node:child_process");
 const originalSpawn = cp.spawn;
+const isTreeStop = command => command === "taskkill" || command === "powershell.exe";
+const originalSpawnSync = cp.spawnSync;
+cp.spawnSync = function(command) {
+  if (${slowStop} && isTreeStop(command)) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 4000);
+    return {status:1, stderr:"simulated slow tree-stop failure"};
+  }
+  return originalSpawnSync.apply(this, arguments);
+};
 cp.spawn = function(command, args, options) {
+  if (${slowStop} && isTreeStop(command)) {
+    return originalSpawn(process.execPath, ["-e", "setTimeout(() => process.exit(1), 4000)"], options);
+  }
   const opts = Array.isArray(args) ? options : args;
   if (opts?.env) opts.env.FAKE_CODEX_LAUNCH = JSON.stringify({command, args: Array.isArray(args) ? args : undefined, detached: !!opts.detached});
   const child = originalSpawn.apply(this, arguments);
@@ -181,6 +201,25 @@ test("a defined node_repl is disabled for a worker without computer use", async 
     ["mcp", "get", "node_repl", "--json"]);
 });
 
+test("a successful node_repl probe is defined even while a descendant holds its pipes open", async t => {
+  const h = harness(t);
+  h.env.FAKE_CODEX_NODE_REPL = "defined-open-pipes";
+  const started = Date.now();
+  const run = h.start("implementer", { wait: true });
+  await until(() => existsSync(run.record));
+  const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+  const index = args.indexOf("mcp_servers.node_repl.enabled=false");
+  assert.ok(index > 0, JSON.stringify(args));
+  assert.equal(args[index - 1], "-c");
+  assert.ok(Date.now() - started < 4000, "startup must not wait for pipe closure or the probe deadline");
+  const { descendantPid } = JSON.parse(readFileSync(run.probeRecord, "utf8"));
+  assert.doesNotThrow(() => process.kill(descendantPid, 0), "descendant still holds the pipes open");
+  run.finish();
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=off$/);
+});
+
 for (const response of ["failure", "unparseable", "wrong-name", "null", "failed-defined", "absent-other"]) {
   test(`an unknown node_repl probe (${response}) lets the worker run with an unknown marker`, async t => {
     const h = harness(t);
@@ -211,6 +250,20 @@ test("a hanging node_repl probe and its pipe-holding descendant stop before the 
   const { args } = JSON.parse(readFileSync(run.record, "utf8"));
   assert.ok(!args.some(arg => arg.startsWith("mcp_servers.")), JSON.stringify(args));
   assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=off\(node_repl unknown\)$/);
+});
+
+test("the node_repl deadline bounds startup even when both Windows tree-stop commands stall", { skip: process.platform !== "win32" }, async t => {
+  const h = harness(t, undefined, { slowStop: true });
+  h.env.FAKE_CODEX_NODE_REPL = "hang";
+  const started = Date.now();
+  const run = h.start("implementer");
+  await until(() => existsSync(run.record));
+  assert.ok(Date.now() - started < 8500, "slow cleanup must not extend startup beyond the deadline and short cleanup bound");
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /computer-use=off\(node_repl unknown\)/);
+  const { args } = JSON.parse(readFileSync(run.record, "utf8"));
+  assert.ok(!args.some(arg => arg.startsWith("mcp_servers.")), JSON.stringify(args));
 });
 
 for (const role of ["implementer", "critic", "researcher"]) {
@@ -571,6 +624,26 @@ test("interrupt terminates the worker tree before releasing the lock", async t =
   assert.equal((await h.start().done).code, 0);
 });
 
+test("interrupt during an exclusive computer-use-off probe stops its tree and releases the lock", async t => {
+  const h = harness(t, { "computer-user": { computerUse: false } });
+  h.env.FAKE_CODEX_NODE_REPL = "hang";
+  const first = h.start("computer-user", { console: true });
+  await until(() => existsSync(first.probeRecord)
+    && JSON.parse(readFileSync(first.probeRecord, "utf8")).descendantPid);
+  const probe = JSON.parse(readFileSync(first.probeRecord, "utf8"));
+  interrupt(first);
+  await until(() => first.child.exitCode !== null || first.child.signalCode !== null);
+  for (const pid of [probe.pid, probe.descendantPid]) {
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  }
+  const result = await first.done;
+  assert.equal(result.code, process.platform === "win32" ? 149 : 130, result.stderr);
+  assert.equal(existsSync(first.record), false, "interrupt must not start a worker");
+  assert.equal(existsSync(join(h.home, ".codex-delegate", "computer-use.lock")), false);
+  delete h.env.FAKE_CODEX_NODE_REPL;
+  assert.equal((await h.start().done).code, 0);
+});
+
 for (const { role, model, effort } of [
   { role: "computer-user", model: "gpt-6-astra", effort: "medium" },
   { role: "implementer", model: "gpt-6.1-sol", effort: "high" },
@@ -680,6 +753,17 @@ test("non-exclusive roles use the original attached spawn without a Windows host
   const result = await run.done;
   assert.equal(result.code, 0, result.stderr);
   const { launch } = JSON.parse(readFileSync(run.record, "utf8"));
+  assert.equal(launch.detached, false);
+  assert.doesNotMatch(JSON.stringify(launch), /windows-codex/);
+  assert.match(launch.command, /^codex(?: |$)/);
+});
+
+test("a non-exclusive node_repl probe stays attached on Windows", { skip: process.platform !== "win32" }, async t => {
+  const h = harness(t, undefined, { probe: true });
+  const run = h.start("critic");
+  const result = await run.done;
+  assert.equal(result.code, 0, result.stderr);
+  const { launch } = JSON.parse(readFileSync(run.probeRecord, "utf8"));
   assert.equal(launch.detached, false);
   assert.doesNotMatch(JSON.stringify(launch), /windows-codex/);
   assert.match(launch.command, /^codex(?: |$)/);
