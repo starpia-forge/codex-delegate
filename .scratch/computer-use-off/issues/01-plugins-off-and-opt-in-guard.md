@@ -10,11 +10,15 @@ Work on a feature branch; it merges to `main` only after ticket 03's acceptance,
 
 **Status:** ready-for-agent
 
-- [ ] `implementer`, `critic` and `researcher` pass both plugin overrides, each as one unquoted argument, and print `computer-use=off`.
-- [ ] `computer-user` passes no `plugins.` override and prints `computer-use=on`.
-- [ ] A user override `"computerUse": false` for `computer-user` brings both overrides back.
-- [ ] A user override `"computerUse": true` with `"exclusive": true` for `implementer` passes no overrides and takes the desktop lock.
-- [ ] `"computerUse": true` for `implementer` without `"exclusive": true` fails before Codex is invoked, with a message saying both must be set.
-- [ ] `"computerUse"` set to `"false"`, `null` or `1` fails before Codex is invoked, with no log file, naming the role and the value.
-- [ ] Existing argument tests for every role still pass (sandbox or bypass, web search only for `researcher`).
-- [ ] Skills regenerated; `npm test` passes on Windows.
+- [x] `implementer`, `critic` and `researcher` pass both plugin overrides, each as one unquoted argument, and print `computer-use=off`.
+- [x] `computer-user` passes no `plugins.` override and prints `computer-use=on`.
+- [x] A user override `"computerUse": false` for `computer-user` brings both overrides back.
+- [x] A user override `"computerUse": true` with `"exclusive": true` for `implementer` passes no overrides and takes the desktop lock.
+- [x] `"computerUse": true` for `implementer` without `"exclusive": true` fails before Codex is invoked, with a message saying both must be set.
+- [x] `"computerUse"` set to `"false"`, `null` or `1` fails before Codex is invoked, with no log file, naming the role and the value.
+- [x] Existing argument tests for every role still pass (sandbox or bypass, web search only for `researcher`).
+- [x] Skills regenerated; `npm test` passes on Windows.
+
+## Comments
+
+Implemented by Codex (codex-implement), verified by Claude. `src/runner/codex-run.mjs` adds a `COMPUTER_USE_PLUGINS` constant, defaults `computerUse: false`, validates it (JSON boolean; `true` requires `exclusive: true`) right after merging overrides, before the lock, log or Codex call, and appends `computer-use=on|off` to the start-up line. `roles.json` sets `computerUse: true` for `computer-user` only. 11 new runner tests, including invalid `exclusive` values (`"true"`, `1`) and an invalid value refused while another run holds the lock. Skills regenerated; `npm test` 505/505 on Windows. The `node_repl` probe and README remain for later tickets.
