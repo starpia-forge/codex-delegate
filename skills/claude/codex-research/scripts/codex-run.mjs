@@ -21,6 +21,7 @@ const USER_ROLES = join(homedir(), ".codex-delegate", "roles.json");
 const PET_CLIENT = join(homedir(), ".codex-delegate", "pet", "client", "pet-client.mjs");
 
 const PRINT_LIMIT = 6000;
+const COMPUTER_USE_PLUGINS = ["computer-use@openai-bundled", "unified-computer-use@openai-bundled"];
 const BUSY_EXIT_CODE = 75;
 const CHILD_EXIT_TIMEOUT_MS = 1000;
 const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143, SIGBREAK: 149, SIGHUP: 129 };
@@ -189,8 +190,14 @@ const overrides = existsSync(USER_ROLES) ? JSON.parse(readFileSync(USER_ROLES, "
 // An ignored override could silently drop a setting such as the bypass opt-out.
 const unknown = Object.keys(overrides).filter((name) => !Object.hasOwn(roles, name));
 if (unknown.length) fail(`unknown role ${unknown.map((name) => `"${name}"`).join(", ")} in ${USER_ROLES} (expected one of: ${Object.keys(roles).join(", ")})`);
-const config = roles[role] && { exclusive: false, dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
+const config = roles[role] && { computerUse: false, exclusive: false, dangerouslyBypassApprovalsAndSandbox: false, ...roles[role], ...overrides[role] };
 if (!config) fail(`unknown role "${role}" (expected one of: ${Object.keys(roles).join(", ")})`);
+if (typeof config.computerUse !== "boolean") {
+  fail(`role "${role}" computerUse must be a JSON boolean (received ${JSON.stringify(config.computerUse)})`);
+}
+if (config.computerUse && config.exclusive !== true) {
+  fail(`role "${role}" must set both computerUse: true and exclusive: true to enable computer use`);
+}
 // An explicit sandbox opts out of the shipped bypass unless the override decides both.
 const override = overrides[role];
 if (override && Object.hasOwn(override, "sandbox") && !Object.hasOwn(override, "dangerouslyBypassApprovalsAndSandbox")) {
@@ -269,6 +276,9 @@ const args = [
   "-o", out,
 ];
 if (config.webSearch) args.push("-c", "web_search=live");
+if (!config.computerUse) {
+  for (const plugin of COMPUTER_USE_PLUGINS) args.push("-c", `plugins.${plugin}.enabled=false`);
+}
 args.push("-");
 
 // The sandbox runs as a different OS user on Windows, so git refuses the repo
@@ -280,7 +290,7 @@ const env = {
   GIT_CONFIG_VALUE_0: "*",
 };
 
-console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} ${sandbox}`);
+console.log(`codex-run: role=${role} model=${config.model} effort=${config.effort} ${sandbox} computer-use=${config.computerUse ? "on" : "off"}`);
 console.log(`codex-run: cwd=${cwd}`);
 
 const log = createWriteStream(`${out}.log`);

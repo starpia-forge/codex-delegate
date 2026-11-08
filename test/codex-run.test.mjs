@@ -9,6 +9,10 @@ import { fakeCodex } from "./helpers/fake-codex.mjs";
 
 const runner = fileURLToPath(new URL("../src/runner/codex-run.mjs", import.meta.url));
 const consoleHelper = fileURLToPath(new URL("./windows-console.ps1", import.meta.url));
+const pluginsOffArgs = [
+  "-c", "plugins.computer-use@openai-bundled.enabled=false",
+  "-c", "plugins.unified-computer-use@openai-bundled.enabled=false",
+];
 
 function harness(t, overrides, { probe = false, failCleanup = false, suppressClose = false } = {}) {
   const root = mkdtempSync(join(tmpdir(), "codex runner test "));
@@ -150,6 +154,97 @@ function runRole(t, role, overrides) {
   assert.match(result.stdout, /Fake worker result/);
   return { args: JSON.parse(readFileSync(env.FAKE_CODEX_RECORD, "utf8")).args, stdout: result.stdout, cwd: root, out };
 }
+
+for (const value of ["false", null, 1]) {
+  test(`computer-user refuses computerUse=${JSON.stringify(value)} before starting a worker`, async t => {
+    const h = harness(t, { "computer-user": { computerUse: value } });
+    const run = h.start();
+    const result = await run.done;
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.stderr, /computer-user.*computerUse.*boolean/);
+    assert.ok(result.stderr.includes(JSON.stringify(value)), result.stderr);
+    assert.doesNotMatch(result.stdout, /codex-run: role=/);
+    for (const path of [run.record, run.out, `${run.out}.log`, join(h.home, ".codex-delegate", "computer-use.lock")]) {
+      assert.equal(existsSync(path), false, path);
+    }
+  });
+}
+
+for (const exclusive of [undefined, false, "true", 1]) {
+  test(`implementer refuses computer use unless exclusive is true (${JSON.stringify(exclusive)})`, async t => {
+    const override = { computerUse: true };
+    if (exclusive !== undefined) override.exclusive = exclusive;
+    const h = harness(t, { implementer: override });
+    const run = h.start("implementer");
+    const result = await run.done;
+    assert.equal(result.code, 2, result.stderr);
+    assert.match(result.stderr, /implementer.*computerUse.*true.*exclusive.*true/);
+    assert.doesNotMatch(result.stdout, /codex-run: role=/);
+    for (const path of [run.record, run.out, `${run.out}.log`, join(h.home, ".codex-delegate", "computer-use.lock")]) {
+      assert.equal(existsSync(path), false, path);
+    }
+  });
+}
+
+test("a user override turns computer use off for computer-user", t => {
+  const { args, stdout, cwd, out } = runRole(t, "computer-user", {
+    "computer-user": { computerUse: false },
+  });
+  assert.deepEqual(args, [
+    "exec", "-m", "gpt-6-astra", "-c", "model_reasoning_effort=medium",
+    "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out,
+    ...pluginsOffArgs, "-",
+  ]);
+  assert.match(stdout.split(/\r?\n/)[0], / computer-use=off$/);
+});
+
+test("implementer can opt into computer use with an exclusive desktop lock", async t => {
+  const h = harness(t, { implementer: { computerUse: true, exclusive: true } });
+  const first = h.start("implementer", { wait: true });
+  await until(() => existsSync(first.record));
+  const { args } = JSON.parse(readFileSync(first.record, "utf8"));
+  assert.deepEqual(args, [
+    "exec", "-m", "gpt-6.1-sol", "-c", "model_reasoning_effort=high",
+    "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", dirname(first.out), "-o", first.out, "-",
+  ]);
+  const second = h.start("computer-user");
+  const busy = await second.done;
+  assert.equal(busy.code, 75, busy.stderr);
+  assert.match(busy.stderr, /busy.*implementer/);
+  assert.equal(existsSync(second.record), false);
+  first.finish();
+  const result = await first.done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout.split(/\r?\n/)[0], / computer-use=on$/);
+  assert.equal((await h.start().done).code, 0);
+});
+
+test("implementer stays parallel by default while the desktop is locked", async t => {
+  const h = harness(t);
+  const first = h.start("computer-user", { wait: true });
+  await until(() => existsSync(first.record));
+  const parallel = await h.start("implementer").done;
+  assert.equal(parallel.code, 0, parallel.stderr);
+  assert.match(parallel.stdout.split(/\r?\n/)[0], / computer-use=off$/);
+  first.finish();
+  assert.equal((await first.done).code, 0);
+});
+
+test("invalid computerUse is refused before checking a busy desktop lock", async t => {
+  const h = harness(t, {
+    implementer: { exclusive: true },
+    "computer-user": { computerUse: "false" },
+  });
+  const first = h.start("implementer", { wait: true });
+  await until(() => existsSync(first.record));
+  const invalid = h.start("computer-user");
+  const result = await invalid.done;
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /computer-user.*computerUse.*boolean/);
+  for (const path of [invalid.record, invalid.out, `${invalid.out}.log`]) assert.equal(existsSync(path), false);
+  first.finish();
+  assert.equal((await first.done).code, 0);
+});
 
 test("exclusive worker refuses a second run before invoking Codex or creating output", async t => {
   const h = harness(t);
@@ -381,14 +476,17 @@ for (const { role, model, effort } of [
   { role: "computer-user", model: "gpt-6-astra", effort: "medium" },
   { role: "implementer", model: "gpt-6.1-sol", effort: "high" },
 ]) {
+  const computerUseArgs = role === "computer-user" ? [] : pluginsOffArgs;
+
   test(`${role} bypasses approvals and sandbox by default`, t => {
     const { args, stdout, cwd, out } = runRole(t, role);
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
+      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, ...computerUseArgs, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
     assert.doesNotMatch(stdout, /sandbox=workspace-write/);
+    assert.match(stdout.split(/\r?\n/)[0], new RegExp(` computer-use=${role === "computer-user" ? "on" : "off"}$`));
   });
 
   test(`a user override disables the ${role} bypass and restores its sandbox`, t => {
@@ -397,7 +495,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "-s", "workspace-write", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
+      "-s", "workspace-write", "--skip-git-repo-check", "-C", cwd, "-o", out, ...computerUseArgs, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=workspace-write`));
     assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
@@ -409,7 +507,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "-s", "read-only", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
+      "-s", "read-only", "--skip-git-repo-check", "-C", cwd, "-o", out, ...computerUseArgs, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=read-only`));
     assert.doesNotMatch(stdout, /--dangerously-bypass-approvals-and-sandbox/);
@@ -421,7 +519,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
+      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, ...computerUseArgs, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
     assert.doesNotMatch(stdout, /sandbox=read-only/);
@@ -433,7 +531,7 @@ for (const { role, model, effort } of [
     });
     assert.deepEqual(args, [
       "exec", "-m", "custom-model", "-c", `model_reasoning_effort=${effort}`,
-      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, "-",
+      "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", cwd, "-o", out, ...computerUseArgs, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=custom-model effort=${effort} --dangerously-bypass-approvals-and-sandbox`));
     assert.doesNotMatch(stdout, /sandbox=workspace-write/);
@@ -448,9 +546,10 @@ for (const { role, model, effort, sandbox, extra } of [
     const { args, stdout, cwd, out } = runRole(t, role);
     assert.deepEqual(args, [
       "exec", "-m", model, "-c", `model_reasoning_effort=${effort}`,
-      "-s", sandbox, "--skip-git-repo-check", "-C", cwd, "-o", out, ...extra, "-",
+      "-s", sandbox, "--skip-git-repo-check", "-C", cwd, "-o", out, ...extra, ...pluginsOffArgs, "-",
     ]);
     assert.ok(stdout.includes(`role=${role} model=${model} effort=${effort} sandbox=${sandbox}`));
+    assert.match(stdout.split(/\r?\n/)[0], / computer-use=off$/);
   });
 }
 
