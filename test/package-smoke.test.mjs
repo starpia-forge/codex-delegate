@@ -60,12 +60,12 @@ const fs = require("node:fs");
 const args = process.argv.slice(2);
 if (args.includes("--version")) console.log("codex-cli test");
 else if (args.join(" ") === "login status") console.log("Logged in");
-else {
+else if (args[0] === "exec") {
   process.stdin.resume();
   process.stdin.on("end", () => {
     fs.writeFileSync(args[args.indexOf("-o") + 1], "Packed worker result");
   });
-}
+} else process.exitCode = 1;
 `);
   Object.assign(env, {
     CLAUDE_CONFIG_DIR: join(home, ".claude"),

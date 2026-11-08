@@ -79,6 +79,17 @@ Release 태그를 지정해 설치하세요.
 }
 ```
 
+컴퓨터 사용은 컴퓨터 사용 역할(`computer-user`, `"computerUse": true`)만 할 수 있습니다. 나머지 역할은 해당 실행에 한해 컴퓨터 사용을 끈 채 Codex를 시작합니다. 두 Computer Use 플러그인을 끄고, Codex가 데스크톱 앱의 `node_repl` MCP 서버가 정의되어 있다고 알려 주면 그 서버도 끕니다. 그래서 이 역할들은 브라우저와 Chrome 플러그인의 `node_repl` 경로도 쓸 수 없습니다. 플러그인 목록에는 그대로 남습니다. `config.toml`은 수정하지 않습니다. 러너의 시작 줄에 `computer-use=on` 또는 `computer-use=off`가 표시됩니다. 다른 역할에서 컴퓨터 사용을 켜려면 두 워커가 한 데스크톱을 동시에 조작하지 않도록 `exclusive`도 함께 지정하세요. `exclusive` 없이 `computerUse`만 켜거나, `true`나 `false`가 아닌 값을 넣으면 러너가 실행을 거부합니다:
+
+```json
+{
+  "researcher": {
+    "computerUse": true,
+    "exclusive": true
+  }
+}
+```
+
 워커의 "완료"는 사실이 아니라 주장입니다. 리더는 커밋 전에 diff와 테스트를 직접 확인합니다. `code-review`는 모든 축을 Claude와 Codex가 각각 한 번씩 리뷰하므로, 한 모델이 놓친 것을 다른 모델이 잡아냅니다. 역할별 모델은 `~/.codex-delegate/roles.json`에서 바꿀 수 있습니다.
 
 워커는 git 저장소 안뿐 아니라 어느 디렉터리에서나 실행됩니다. 러너가 Codex에 `--skip-git-repo-check`를 넘기므로 다른 버전 관리 시스템이나 일반 폴더에서도 동작합니다. 다만 `/implement`, `/implement-spec`, `/code-review`는 리더가 git으로 워커의 변경을 확인하므로 여전히 git 저장소가 필요합니다.
