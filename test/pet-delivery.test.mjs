@@ -427,6 +427,7 @@ for (const owner of ["dead", "stale"]) test(`concurrent producers recover a ${ow
 test("a real worker finishing before cold-start health is labelled, removed, and never resurrected", async t => {
   const h = await harness(t);
   const fake = fakeCodex(h.root, `
+if (process.argv[2] !== "exec") process.exit(1);
 const fs = require('node:fs');
 process.stdin.resume();
 process.stdin.on('end', () => {

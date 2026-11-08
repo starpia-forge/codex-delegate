@@ -15,6 +15,7 @@ const token = "runner-test-token";
 async function harness(t, mode = "pet") {
   const root = mkdtempSync(join(tmpdir(), "pet runner "));
   const { home, env } = fakeCodex(root, `
+if (process.argv[2] !== "exec") process.exit(1);
 const fs = require("node:fs");
 fs.writeFileSync(process.env.FAKE_CODEX_STARTED, String(Date.now()));
 process.stdin.resume();
