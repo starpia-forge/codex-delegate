@@ -9,7 +9,14 @@ Spec: `.scratch/computer-use-off/spec.md`
 **Status:** ready-for-agent
 
 - [x] Both READMEs describe `computerUse` as above; the package smoke test passes.
-- [ ] With the overrides the runner builds for `implementer`, `codex … plugin list --json` shows `computer-use@openai-bundled` and `unified-computer-use@openai-bundled` with `enabled: false`, and `codex … mcp list` shows no `cua_repl` and `node_repl` disabled.
-- [ ] A short `implementer` run, asked to list its skills and tools without calling any, reports no computer-use skill and no `node_repl` or `cua_repl` tool (supporting evidence only).
+- [x] With the overrides the runner builds for `implementer`, `codex … plugin list --json` shows `computer-use@openai-bundled` and `unified-computer-use@openai-bundled` with `enabled: false`, and `codex … mcp list` shows no `cua_repl` and `node_repl` disabled.
+- [x] A short `implementer` run, asked to list its skills and tools without calling any, reports no computer-use skill and no `node_repl` or `cua_repl` tool (supporting evidence only).
 - [ ] `codex-computer-use` on "open Notepad, type hello, don't save" still produces a matching `final.png`.
 - [ ] Results recorded under Comments; the branch is merged to `main`.
+
+## Comments
+
+Manual acceptance on 2026-11-08, Windows 10 19045, codex-cli 0.167.0, Codex desktop app 26.1103, both Computer Use plugins and `node_repl` enabled in `config.toml`:
+
+1. `codex` with the three overrides the runner builds: `plugin list --json` shows `computer-use@openai-bundled` and `unified-computer-use@openai-bundled` `enabled: false`; `mcp list` shows `node_repl` disabled and no `cua_repl`. Without the overrides both plugins are enabled and `cua_repl` is listed.
+2. `implementer` through the integration branch's runner (after the review fixes): start-up line `computer-use=off`; the worker reports no `computer-use:computer-use` skill and no `node_repl` or `cua_repl` tool. Its visible MCP namespaces are only `mcp__codex_apps__*`. One run answered "computer-use skill: yes"; asked to quote it, it pointed at `cloud-environment:cloud-desktop` (managed Codex Cloud only, whose description mentions "computer-use tools"). Out of scope but noted: `spreadsheets:excel-live-control` stays visible; it acts on an open Excel workbook through the ChatGPT add-in, not through the screen.
