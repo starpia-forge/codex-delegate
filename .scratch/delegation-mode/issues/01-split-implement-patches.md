@@ -8,7 +8,7 @@ Work on a feature branch. It merges to `main` only after ticket 04's acceptance,
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Rebuilding the skills at the pinned upstream commit leaves the generated skills tree with no diff
 - [ ] No shared patch mentions `codex-implement`; the standard-only patches contain only the delegation changes
