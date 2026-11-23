@@ -14,6 +14,8 @@ import { checkPet } from "./pet-doctor.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const manifest = JSON.parse(readFileSync(join(root, "install-manifest.json"), "utf8"));
+const delegationModes = manifest.agents["claude-code"].modes;
+const acceptedModes = Object.keys(delegationModes).join("|");
 const MARKER = ".codex-delegate.json";
 const USER_ROLES = join(homedir(), ".codex-delegate", "roles.json");
 
@@ -30,6 +32,7 @@ Commands:
 Options:
   --scope <user|project>  user: home directory (default); project: current directory
   --agent <id>            Only this agent: ${Object.keys(manifest.agents).join(", ")} (repeatable)
+  --mode <${acceptedModes}>  Delegation mode (install with Claude Code only)
   --force                 Overwrite skills with the same name that this tool did not install
   --dry-run               Show what would change without changing anything
   --with-pet              Install the Release's Windows pet and Claude Code hooks (user scope)
@@ -44,6 +47,7 @@ function parseArgs(argv) {
     const arg = args.shift();
     if (arg === "--scope") opts.scope = args.shift();
     else if (arg === "--agent") opts.agents.push(args.shift());
+    else if (arg === "--mode") opts.mode = args.shift() ?? "";
     else if (arg === "--force") opts.force = true;
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--with-pet") opts.withPet = true;
@@ -56,6 +60,11 @@ function parseArgs(argv) {
     if (!manifest.agents[id]) throw new Error(`unknown agent: ${id} (expected: ${Object.keys(manifest.agents).join(", ")})`);
   }
   if (!opts.agents.length) opts.agents = Object.keys(manifest.agents);
+  if (opts.mode !== undefined) {
+    if (!Object.hasOwn(delegationModes, opts.mode)) throw new Error(`--mode must be ${acceptedModes}, got: ${opts.mode}`);
+    if (opts.command !== "install") throw new Error(`--mode is only valid for install (accepted values: ${acceptedModes})`);
+    if (!opts.agents.includes("claude-code")) throw new Error(`--mode requires Claude Code in the agent selection (accepted values: ${acceptedModes})`);
+  }
   if (opts.withPet && opts.withoutPet) throw new Error("--with-pet and --without-pet are contradictory");
   if (opts.withPet || opts.withoutPet) {
     if (opts.command !== "install") throw new Error("pet options are only valid for install");
@@ -69,11 +78,12 @@ function parseArgs(argv) {
 }
 
 // "claude/*" or "codex/tdd" -> [{ name, src }]
-function resolveSkills(patterns) {
+function resolveSkills(patterns, { allowMissingGroups = false } = {}) {
   const skills = [];
   for (const pattern of patterns) {
     const [group, name] = pattern.split("/");
     const groupDir = join(root, "skills", group);
+    if (allowMissingGroups && !existsSync(groupDir)) continue;
     const names = name === "*" ? readdirSync(groupDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : [name];
     for (const n of names) {
       if (!existsSync(join(groupDir, n, "SKILL.md"))) throw new Error(`manifest entry ${pattern}: skills/${group}/${n}/SKILL.md not found`);
@@ -133,15 +143,95 @@ function installedSkills(dir) {
     .map((e) => ({ name: e.name, marker: readMarker(join(dir, e.name)) }));
 }
 
+function recordedModes(scope) {
+  const skills = installedSkills(targetDir(manifest.agents["claude-code"], scope));
+  return [...new Set(skills.map(({ marker }) => Object.hasOwn(marker, "mode") ? marker.mode : "standard"))];
+}
+
+function recordedMode(scope) {
+  const modes = recordedModes(scope);
+  return modes.length === 1 && typeof modes[0] === "string" && Object.hasOwn(delegationModes, modes[0]) ? modes[0] : undefined;
+}
+
+function unresolvedModeDetail(scope) {
+  return `unresolved: found ${recordedModes(scope).map(mode => JSON.stringify(mode)).join(", ")}; reinstall with --mode ${acceptedModes} to repair it`;
+}
+
+function claudeScopes() {
+  const agent = manifest.agents["claude-code"];
+  return targetDir(agent, "project") !== targetDir(agent, "user") ? ["user", "project"] : ["user"];
+}
+
+function mixedModeWarning(projectPlan, plannedMode) {
+  if (claudeScopes().length === 1) return;
+  const userMode = recordedMode("user");
+  const projectMode = projectPlan ? plannedMode : recordedMode("project");
+  if (!userMode || !projectMode || userMode === projectMode) return;
+  const agent = manifest.agents["claude-code"];
+  const skillInScope = (scope, name) => {
+    if (scope === "project" && projectPlan) {
+      if (projectPlan.skills.some(s => s.name === name)) return { owned: true, mode: plannedMode };
+      if ([...projectPlan.stale, ...projectPlan.excluded].includes(name)) return;
+    }
+    const dir = join(targetDir(agent, scope), name);
+    if (existsSync(dir)) {
+      const marker = readMarker(dir);
+      return { owned: !!marker, mode: marker?.mode ?? "standard" };
+    }
+  };
+  const winningSkill = name => ["user", "project"].map(scope => {
+    const installed = skillInScope(scope, name);
+    return installed && { scope, ...installed };
+  }).find(Boolean);
+  const workflows = ["implement", "implement-spec"].map(name => {
+    const installed = winningSkill(name);
+    if (!installed) return `${name}: absent`;
+    return `${name}: ${installed.scope} (${installed.owned ? installed.mode : "unowned"}) wins`;
+  });
+  const reachableExcludedSkills = excludedSkills([userMode, projectMode]).flatMap(name => {
+    const installed = winningSkill(name);
+    return installed ? [`${name} (${installed.scope})`] : [];
+  });
+  return `user ${userMode}, project ${projectMode}. Claude Code prefers personal skills per name; ${workflows.join("; ")}. Skills excluded by delegation mode still reachable: ${reachableExcludedSkills.join(", ") || "none"}.`;
+}
+
+function excludedSkills(modes) {
+  return [...new Set(modes.flatMap(mode => delegationModes[mode]?.exclude ?? []))];
+}
+
+function unownedExcludedSkills(scope, exclusions) {
+  const agent = manifest.agents["claude-code"];
+  const dir = targetDir(agent, scope);
+  return exclusions.filter(name =>
+    existsSync(join(dir, name)) && !readMarker(join(dir, name)));
+}
+
+const unownedDelegationDetail = "not installed by this tool; delegation excluded by the mode is still reachable through this skill. Left untouched.";
+
 async function install(opts) {
+  if (opts.mode === undefined && opts.agents.includes("claude-code")) {
+    const modes = recordedModes(opts.scope);
+    if (modes.length && recordedMode(opts.scope) === undefined) {
+      console.error(`Delegation mode (${opts.scope}) is ${unresolvedModeDetail(opts.scope)}. No skills or markers were changed.`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const mode = opts.mode ?? recordedMode(opts.scope) ?? "standard";
   // Plan every agent before touching anything, so a conflict aborts cleanly.
   const plans = opts.agents.map((id) => {
     const agent = manifest.agents[id];
     const dir = targetDir(agent, opts.scope);
-    const skills = resolveSkills(agent.skills);
+    const shipped = resolveSkills(agent.skills);
+    const definition = agent.modes?.[mode];
+    const overlays = definition ? resolveSkills(definition.overlay, { allowMissingGroups: true }) : [];
+    const skills = shipped.filter(s => !definition?.exclude.includes(s.name))
+      .map(s => overlays.find(overlay => overlay.name === s.name) ?? s);
     const conflicts = skills.filter((s) => existsSync(join(dir, s.name)) && !readMarker(join(dir, s.name))).map((s) => s.name);
-    const stale = installedSkills(dir).filter((i) => !skills.some((s) => s.name === i.name)).map((i) => i.name);
-    return { id, agent, dir, skills, conflicts, stale };
+    const installed = installedSkills(dir);
+    const stale = installed.filter((i) => !shipped.some((s) => s.name === i.name)).map((i) => i.name);
+    const excluded = installed.filter((i) => shipped.some((s) => s.name === i.name) && definition?.exclude.includes(i.name)).map((i) => i.name);
+    return { id, agent, dir, skills, conflicts, stale, excluded };
   });
 
   const conflicted = plans.filter((p) => p.conflicts.length);
@@ -168,23 +258,38 @@ async function install(opts) {
   const add = (label, apply) => steps.push({ label, apply, status: "not applied" });
   for (const p of plans) {
     console.log(`${p.agent.name} -> ${p.dir}`);
+    if (p.id === "claude-code") console.log(`  Delegation mode: ${mode}`);
     console.log(`  install ${p.skills.length}: ${p.skills.map((s) => s.name).join(", ")}`);
     if (p.stale.length) console.log(`  remove (no longer shipped): ${p.stale.join(", ")}`);
+    if (p.excluded.length) console.log(`  remove (delegation mode): ${p.excluded.join(", ")}`);
     if (p.conflicts.length) console.log(`  overwrite (--force): ${p.conflicts.join(", ")}`);
     if (opts.dryRun) continue;
 
     add(`create skill directory ${p.dir}`, () => mkdirSync(p.dir, { recursive: true }));
     for (const name of p.stale) add(`remove stale skill ${join(p.dir, name)}`, () => rmSync(join(p.dir, name), { recursive: true, force: true }));
+    for (const name of p.excluded) add(`remove excluded skill ${join(p.dir, name)}`, () => rmSync(join(p.dir, name), { recursive: true, force: true }));
     for (const s of p.skills) {
       const dest = join(p.dir, s.name);
       add(`remove previous skill ${dest}`, () => rmSync(dest, { recursive: true, force: true }));
       add(`copy skill ${s.src} -> ${dest}`, () => cpSync(s.src, dest, { recursive: true }));
-      const marker = { package: pkg.name, version: pkg.version, agent: p.id, installedAt: new Date().toISOString() };
+      const marker = { package: pkg.name, version: pkg.version, agent: p.id, ...(p.id === "claude-code" ? { mode } : {}), installedAt: new Date().toISOString() };
       add(`write skill marker ${join(dest, MARKER)}`, () => writeFileSync(join(dest, MARKER), `${JSON.stringify(marker, null, 2)}\n`));
     }
   }
 
   if (opts.dryRun) {
+    const claudePlan = plans.find(p => p.id === "claude-code");
+    const scopes = claudeScopes();
+    const exclusions = excludedSkills(scopes.map(scope =>
+      claudePlan && (scope === opts.scope || scopes.length === 1) ? mode : recordedMode(scope)));
+    for (const scope of scopes) {
+      for (const name of unownedExcludedSkills(scope, exclusions)) {
+        console.log(`  [WARN] Unowned skill excluded by delegation mode (${scope}): ${name} - ${unownedDelegationDetail}`);
+      }
+    }
+    const projectPlan = opts.scope === "project" && claudePlan;
+    const mixed = projectPlan && mixedModeWarning(projectPlan, mode);
+    if (mixed) console.log(`  [WARN] Mixed delegation modes - ${mixed}`);
     console.log("\nDry run: nothing was changed.");
     return;
   }
@@ -244,6 +349,7 @@ function list(opts) {
     const dir = targetDir(agent, opts.scope);
     const installed = installedSkills(dir);
     console.log(`${agent.name} -> ${dir}`);
+    if (id === "claude-code" && installed.length) console.log(`  Delegation mode: ${recordedMode(opts.scope) ?? unresolvedModeDetail(opts.scope)}`);
     if (!installed.length) console.log("  nothing installed");
     for (const { name, marker } of installed) console.log(`  ${name}  ${marker.version}`);
   }
@@ -261,6 +367,28 @@ function run(command) {
 async function doctor() {
   const results = [];
   const check = (ok, label, detail = "") => results.push({ ok, label, detail });
+  const scopes = claudeScopes().map(scope => ({
+    scope, mode: recordedMode(scope),
+    installed: installedSkills(targetDir(manifest.agents["claude-code"], scope)).length > 0,
+  }));
+  const installedScopes = scopes.filter(s => s.installed);
+  const unusedRoles = installedScopes.length
+    ? (delegationModes[installedScopes[0].mode]?.unusedRoles ?? []).filter(role =>
+      installedScopes.every(s => delegationModes[s.mode]?.unusedRoles?.includes(role)))
+    : [];
+  const exclusions = excludedSkills(installedScopes.map(s => s.mode));
+  for (const s of scopes) {
+    if (s.installed && s.mode === undefined) {
+      check("fail", `Delegation mode (${s.scope})`, unresolvedModeDetail(s.scope));
+    } else if (s.scope === "user" || s.installed) {
+      check("ok", `Delegation mode (${s.scope})`, s.installed ? s.mode : "not installed");
+    }
+    for (const name of unownedExcludedSkills(s.scope, exclusions)) {
+      check("warn", `Unowned skill excluded by delegation mode (${s.scope}): ${name}`, unownedDelegationDetail);
+    }
+  }
+  const mixed = mixedModeWarning();
+  if (mixed) check("warn", "Mixed delegation modes", mixed);
 
   const [major, minor] = process.versions.node.split(".").map(Number);
   check(major > 18 || (major === 18 && minor >= 18) ? "ok" : "fail", "Node.js >= 18.18", process.versions.node);
@@ -275,12 +403,14 @@ async function doctor() {
   const claudeVersion = run("claude --version");
   check(claudeVersion ? "ok" : "warn", "Claude Code on PATH", claudeVersion ?? "not found");
 
-  const configPath = join(agentHome(manifest.agents.codex), "config.toml");
-  const computerUseEnabled = readComputerUseEnabled(configPath);
-  check(computerUseEnabled ? "ok" : "warn", "Computer Use plugin enabled",
-    computerUseEnabled ? configPath : `enable computer-use@openai-bundled in ${configPath} to use computer use`);
+  if (!unusedRoles.includes("computer-user")) {
+    const configPath = join(agentHome(manifest.agents.codex), "config.toml");
+    const computerUseEnabled = readComputerUseEnabled(configPath);
+    check(computerUseEnabled ? "ok" : "warn", "Computer Use plugin enabled",
+      computerUseEnabled ? configPath : `enable computer-use@openai-bundled in ${configPath} to use computer use`);
+  }
 
-  // Every role's model and effort should be offered by this Codex account.
+  // Validate overrides for every role, even when its availability check is skipped.
   const roles = JSON.parse(readFileSync(join(root, "src/runner/roles.json"), "utf8"));
   let overrides = {};
   if (existsSync(USER_ROLES)) {
@@ -302,6 +432,7 @@ async function doctor() {
     check("warn", "Codex model list", `${cachePath} not readable; run codex once to create it`);
   }
   for (const [role, base] of Object.entries(roles)) {
+    if (unusedRoles.includes(role)) continue;
     const config = { ...base, ...overrides[role] };
     const label = `Role ${role}: ${config.model} / ${config.effort}`;
     if (!models) continue;
