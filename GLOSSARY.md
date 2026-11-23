@@ -24,6 +24,10 @@ _Avoid_: install mode, tier, level, full mode
 Operating a native desktop application through its screen: taking screenshots, clicking, typing. Driving a web browser is not computer use.
 _Avoid_: desktop automation, GUI automation
 
+**Upstream skills**:
+The mattpocock/skills that codex-delegate bundles. It patches only the entry points that delegate to Codex, and takes everything else as-is.
+_Avoid_: base skills, vendored skills, original skills
+
 **Release**:
 A numbered version of codex-delegate. It fixes the skills, the installer and the pet app together under one version.
 _Avoid_: pet release, pet version
