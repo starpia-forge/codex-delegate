@@ -71,7 +71,7 @@ The installation remembers the delegation mode. A plain `install` (an update) ke
   - In minimum, `implement` keeps the review-base recording, the per-ticket checks and commits, and the `code-review` fixed-point step, and calls `tdd` at the pre-agreed seams instead of delegating.
   - In minimum, `implement-spec` keeps the review base and the `codex-research` instruction, and its implementer subagents call `tdd`, as upstream does.
 - **Recorded mode.**
-  - Every skill marker the installer writes gains a `mode` field holding the delegation mode of that install.
+  - Every Claude Code skill marker the installer writes gains a `mode` field holding the delegation mode of that install. Codex skill markers do not record a delegation mode.
   - The installer reads the current mode of a scope from the Claude Code skill markers in that scope.
   - A marker without `mode` (an install from before this feature) counts as `standard`.
   - A marker whose `mode` is not a known value, or Claude Code markers in one scope that disagree (for example after an interrupted install), make the scope's mode **unresolved**.
@@ -99,7 +99,7 @@ The installation remembers the delegation mode. A plain `install` (an update) ke
 ## Testing Decisions
 
 - **Good tests** drive the CLI as a child process with isolated Claude Code and Codex homes and a fake `codex` on `PATH`. They assert only what a user can observe: which skill directories exist, what installed `SKILL.md` files say, what markers record, and what `install`, `list` and `doctor` print, with their exit codes. They don't call installer internals.
-- **One seam:** the CLI process. No new seams. The build script needs network access to clone upstream and is not run in tests. Instead the install tests check the content of the committed generated skills through what `install --mode minimum` puts on disk. Build reproducibility is checked when implementing by rebuilding and confirming the generated tree has no diff.
+- **Seams:** install tests drive the CLI process and check the content of the committed generated skills through what `install --mode minimum` puts on disk. The build also has a network-free child-process test against a local fake upstream, verifying that patch failures preserve the generated skills and upstream pin. Build reproducibility is checked when implementing by rebuilding and confirming the generated tree has no diff.
 - **Install tests cover:**
   - minimum installs without `codex-implement` and `codex-computer-use`;
   - no installed Claude Code skill mentions them in minimum;
@@ -133,7 +133,7 @@ The installation remembers the delegation mode. A plain `install` (an update) ke
 - Changing the shared workflow patches (`grill-with-docs`, `to-spec`, `to-tickets`, `code-review`).
 - An ADR for this decision.
 - Making a project-scope mode take effect over a different user-scope mode. Claude Code's precedence decides that; this spec only warns about it.
-- Automated tests of the build script. It needs upstream and has no tests today; the minimum patch set is checked by rebuilding with no diff.
+- Build tests that require network access to the real upstream. The network-free local fake-upstream tests for patch-failure preservation are in scope; generated output reproducibility is checked by rebuilding with no diff.
 
 ## Further Notes
 
