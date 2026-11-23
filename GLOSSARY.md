@@ -16,6 +16,10 @@ _Avoid_: subagent, executor
 A named worker configuration (model, effort, sandbox, tools), such as `researcher`, `critic`, `implementer` or `computer-user`. A role is named for the job it does, not for the model it runs.
 _Avoid_: profile, persona
 
+**Delegation mode**:
+The installation choice of which roles the leader hands work to. `standard` delegates to every role. `minimum` delegates only research and review (`researcher`, `critic`), and the leader does implementation and computer use itself. It lasts until the user installs with another delegation mode.
+_Avoid_: install mode, tier, level, full mode
+
 **Computer use**:
 Operating a native desktop application through its screen: taking screenshots, clicking, typing. Driving a web browser is not computer use.
 _Avoid_: desktop automation, GUI automation
