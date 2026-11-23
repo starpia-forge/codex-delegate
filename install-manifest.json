@@ -11,6 +11,7 @@
         "standard": { "exclude": [], "overlay": [] },
         "minimum": {
           "exclude": ["codex-implement", "codex-computer-use"],
+          "unusedRoles": ["implementer", "computer-user"],
           "overlay": ["claude-minimum/*"]
         }
       }

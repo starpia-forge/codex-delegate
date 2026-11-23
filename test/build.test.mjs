@@ -1,22 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { snapshot } from "./helpers/directory-snapshot.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-function snapshot(dir) {
-  return Object.fromEntries(readdirSync(dir, { withFileTypes: true }).map(entry => [entry.name,
-    entry.isDirectory() ? snapshot(join(dir, entry.name)) : readFileSync(join(dir, entry.name)).toString("base64")
-  ]));
-}
-
 function fixture(t) {
-  const scratch = join(root, ".scratch");
-  mkdirSync(scratch, { recursive: true });
-  const dir = mkdtempSync(join(scratch, "build-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "delegation-build-test-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const write = (path, content) => {
     mkdirSync(dirname(path), { recursive: true });

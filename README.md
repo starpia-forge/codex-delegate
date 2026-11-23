@@ -66,7 +66,7 @@ message. Retry later or install from a tagged Release.
 
 `/grill-with-docs` → `/to-spec` → `/to-tickets` → `/implement` (or `/implement-spec`). Same commands and discipline as upstream; delegation happens inside each step.
 
-Minimum mode does not use the implementer or computer use roles. The leader (and each `/implement-spec` implementer subagent) builds tickets itself with `tdd`, and Claude uses its own tools for computer use. Research and review delegation stay the same as standard.
+Minimum mode does not use the `implementer` or `computer-user` roles. The leader (and each `/implement-spec` implementer subagent) builds tickets itself with `tdd`, and Claude uses its own tools for computer use. Research and review delegation stay the same as standard.
 
 | Role | Model | Strengths | Weaknesses | Why it gets this job |
 |---|---|---|---|---|

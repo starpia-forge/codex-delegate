@@ -1,15 +1,32 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
+import { snapshot } from "./helpers/directory-snapshot.mjs";
 import { legacyBundle, release, unusedPetPort } from "./helpers/pet-release.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 const markerName = ".codex-delegate.json";
+
+for (const invalid of ["standard", "future-mode"]) test(`list describes unresolved markers containing ${invalid}`, t => {
+  const f = fixture(t);
+  assert.equal(f.run("install", "--mode", "minimum").status, 0);
+  const path = join(f.skills, "codex-research", markerName);
+  const marker = JSON.parse(readFileSync(path, "utf8"));
+  writeFileSync(path, JSON.stringify({ ...marker, mode: invalid }));
+  const before = snapshot(f.root);
+  const result = f.run("list");
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /Delegation mode: unresolved: found/);
+  const line = result.output.split("\n").find(line => line.includes("Delegation mode:"));
+  assert.ok(line.includes('"minimum"') && line.includes(JSON.stringify(invalid)), line);
+  assert.doesNotMatch(line, /undefined/);
+  assert.deepEqual(snapshot(f.root), before);
+});
 const standardSkills = [
   "ask-matt", "code-review", "codebase-design", "codex-code-review", "codex-computer-use",
   "codex-implement", "codex-plan-review", "codex-research", "diagnosing-bugs", "domain-modeling",
@@ -19,7 +36,7 @@ const standardSkills = [
   "wizard", "writing-for-agents",
 ];
 
-function fixture(t) {
+function fixture(t, cliPath = cli) {
   const root = mkdtempSync(join(tmpdir(), "delegation mode test "));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const fake = fakeCodex(root, `
@@ -28,7 +45,7 @@ else if (process.argv.slice(2).join(" ") === "login status") console.log("Logged
 else process.exitCode = 1;
 `);
   const run = (...args) => {
-    const result = spawnSync(process.execPath, [cli, ...args], {
+    const result = spawnSync(process.execPath, [cliPath, ...args], {
       cwd: root, env: fake.env, encoding: "utf8", windowsHide: true,
     });
     assert.equal(result.error, undefined);
@@ -36,7 +53,7 @@ else process.exitCode = 1;
   };
   // Pet release fixtures serve HTTP in this process, so these CLI calls must be async.
   const runAsync = (...args) => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, ...args], {
+    const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: root, env: fake.env, windowsHide: true,
     });
     let stdout = "", stderr = "";
@@ -74,7 +91,7 @@ test("minimum installs the shared test-first workflow and keeps research and rev
   ]) assert.match(skill(name), new RegExp(delegation));
 });
 
-for (const mode of ["minimum", "standard"]) test(`plain reinstall retains ${mode} in all skill markers`, t => {
+for (const mode of ["minimum", "standard"]) test(`plain reinstall retains ${mode} only in Claude Code skill markers`, t => {
   const f = fixture(t);
   let result = f.run("install", "--mode", mode);
   assert.equal(result.status, 0, result.output);
@@ -87,7 +104,8 @@ for (const mode of ["minimum", "standard"]) test(`plain reinstall retains ${mode
   for (const dir of [f.skills, join(f.codexHome, "skills")]) {
     for (const name of readdirSync(dir)) {
       const marker = JSON.parse(readFileSync(join(dir, name, markerName), "utf8"));
-      assert.equal(marker.mode, mode, `${dir}/${name}`);
+      if (dir === f.skills) assert.equal(marker.mode, mode, `${dir}/${name}`);
+      else assert.ok(!Object.hasOwn(marker, "mode"), `${dir}/${name}`);
     }
   }
 });
@@ -116,11 +134,62 @@ test("fresh and pre-feature installs use the unchanged standard skill set", t =>
   assert.deepEqual(readdirSync(join(f.codexHome, "skills")), ["codebase-design", "research", "tdd"]);
 });
 
-function snapshot(dir) {
-  return Object.fromEntries(readdirSync(dir, { withFileTypes: true }).map(entry => [entry.name,
-    entry.isDirectory() ? snapshot(join(dir, entry.name)) : readFileSync(join(dir, entry.name)).toString("base64")
-  ]));
-}
+test("minimum installs successfully when the packaged overlay group is absent", t => {
+  const packageDir = mkdtempSync(join(tmpdir(), "delegation package test "));
+  t.after(() => rmSync(packageDir, { recursive: true, force: true }));
+  for (const path of ["bin", "package.json", "install-manifest.json", "pet/app/ui/pet-config.mjs", "src/runner", "skills/claude", "skills/codex"]) {
+    cpSync(fileURLToPath(new URL(`../${path}`, import.meta.url)), join(packageDir, path), { recursive: true });
+  }
+  const f = fixture(t, join(packageDir, "bin", "cli.mjs"));
+  const result = f.run("install", "--mode", "minimum");
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /Delegation mode: minimum/);
+  assert.ok(!existsSync(join(f.skills, "codex-implement")));
+  assert.ok(!existsSync(join(f.skills, "codex-computer-use")));
+  assert.deepEqual(readFileSync(join(f.skills, "implement", "SKILL.md")),
+    readFileSync(join(packageDir, "skills", "claude", "implement", "SKILL.md")));
+});
+
+test("identical user and project skill directories are diagnosed once and never treated as mixed", t => {
+  const f = fixture(t);
+  f.env.CLAUDE_CONFIG_DIR = join(f.root, ".claude");
+  assert.equal(f.run("install", "--mode", "minimum").status, 0);
+  const before = snapshot(f.root);
+  const preview = f.run("install", "--scope", "project", "--mode", "standard", "--dry-run");
+  assert.equal(preview.status, 0, preview.output);
+  assert.doesNotMatch(preview.output, /Mixed delegation modes/);
+  const result = f.run("doctor");
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /Delegation mode \(user\).*minimum/);
+  assert.doesNotMatch(result.output, /Delegation mode \(project\)/);
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+for (const minimumScope of ["user", "project"]) test(`a ${minimumScope}-only minimum install warns about unowned excluded skills in both scopes`, t => {
+  const f = fixture(t);
+  const directories = { user: f.skills, project: join(f.root, ".claude", "skills") };
+  for (const dir of Object.values(directories)) {
+    for (const name of ["codex-implement", "codex-computer-use"]) {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, "SKILL.md"), `Personal ${name}\n`);
+    }
+  }
+  const before = snapshot(f.root);
+  const preview = f.run("install", "--scope", minimumScope, "--mode", "minimum", "--dry-run");
+  assert.equal(preview.status, 0, preview.output);
+  assert.deepEqual(snapshot(f.root), before);
+  const installed = f.run("install", "--scope", minimumScope, "--mode", "minimum");
+  const codexPreview = f.run("install", "--agent", "codex", "--dry-run");
+  for (const result of [preview, installed, f.run("doctor"), codexPreview]) {
+    assert.equal(result.status, 0, result.output);
+    for (const scope of ["user", "project"]) {
+      for (const name of ["codex-implement", "codex-computer-use"]) {
+        assert.match(result.output, new RegExp(`Unowned skill excluded by delegation mode \\(${scope}\\): ${name}.*still reachable`));
+        assert.deepEqual(snapshot(join(directories[scope], name)), before[scope === "user" ? "claude" : ".claude"].skills[name]);
+      }
+    }
+  }
+});
 
 test("switching delegation modes removes excluded skills and restores standard workflows", t => {
   const f = fixture(t);
@@ -186,6 +255,10 @@ test("a Codex-only install restores worker skills without changing Claude Code's
   assert.equal(result.status, 0, result.output);
   assert.deepEqual(readdirSync(join(f.codexHome, "skills")), ["codebase-design", "research", "tdd"]);
   assert.deepEqual(snapshot(f.skills), before);
+  for (const name of readdirSync(join(f.codexHome, "skills"))) {
+    const marker = JSON.parse(readFileSync(join(f.codexHome, "skills", name, markerName), "utf8"));
+    assert.ok(!Object.hasOwn(marker, "mode"), name);
+  }
 });
 
 test("user and project installs keep their recorded modes and skills independent", t => {
@@ -227,7 +300,7 @@ test("user minimum over project standard warns about winning workflows and reach
     assert.match(result.output, /\[WARN\] Mixed delegation modes.*user minimum.*project standard/);
     assert.match(result.output, /implement: user \(minimum\) wins/);
     assert.match(result.output, /implement-spec: user \(minimum\) wins/);
-    assert.match(result.output, /Heavy delegation still reachable:.*codex-implement \(project\).*codex-computer-use \(project\)/);
+    assert.match(result.output, /Skills excluded by delegation mode still reachable:.*codex-implement \(project\).*codex-computer-use \(project\)/);
   }
 });
 
@@ -243,11 +316,11 @@ test("user standard over project minimum warns without refusing, including the d
     assert.match(result.output, /\[WARN\] Mixed delegation modes.*user standard.*project minimum/);
     assert.match(result.output, /implement: user \(standard\) wins/);
     assert.match(result.output, /implement-spec: user \(standard\) wins/);
-    assert.match(result.output, /Heavy delegation still reachable:.*codex-implement \(user\).*codex-computer-use \(user\)/);
+    assert.match(result.output, /Skills excluded by delegation mode still reachable:.*codex-implement \(user\).*codex-computer-use \(user\)/);
   }
 });
 
-test("mixed-scope warnings resolve each workflow and unowned heavy-delegation skill separately", t => {
+test("mixed-scope warnings resolve each workflow and unowned excluded skill separately", t => {
   const f = fixture(t);
   assert.equal(f.run("install", "--mode", "minimum").status, 0);
   assert.equal(f.run("install", "--scope", "project", "--mode", "standard").status, 0);
@@ -260,12 +333,12 @@ test("mixed-scope warnings resolve each workflow and unowned heavy-delegation sk
     assert.match(result.output, /\[WARN\] Mixed delegation modes/);
     assert.match(result.output, /implement: project \(standard\) wins/);
     assert.match(result.output, /implement-spec: user \(minimum\) wins/);
-    assert.match(result.output, /Heavy delegation still reachable: codex-implement \(user\), codex-computer-use \(project\)/);
+    assert.match(result.output, /Skills excluded by delegation mode still reachable: codex-implement \(user\), codex-computer-use \(project\)/);
     assert.deepEqual(snapshot(f.skills), before);
   }
 });
 
-for (const scope of ["user", "project"]) test(`minimum warns and leaves unowned ${scope} heavy-delegation skills untouched even with force`, t => {
+for (const scope of ["user", "project"]) test(`minimum warns and leaves unowned ${scope} excluded skills untouched even with force`, t => {
   const f = fixture(t);
   const skills = scope === "user" ? f.skills : join(f.root, ".claude", "skills");
   for (const name of ["codex-implement", "codex-computer-use"]) {
@@ -283,7 +356,7 @@ for (const scope of ["user", "project"]) test(`minimum warns and leaves unowned 
     assert.equal(result.status, 0, result.output);
     assert.doesNotMatch(result.output, /remove \(delegation mode\)/);
     for (const [name, content] of Object.entries(before)) {
-      assert.match(result.output, new RegExp(`\\[WARN\\] Unowned heavy-delegation skill \\(${scope}\\): ${name}.*still reachable`));
+      assert.match(result.output, new RegExp(`\\[WARN\\] Unowned skill excluded by delegation mode \\(${scope}\\): ${name}.*still reachable`));
       assert.deepEqual(snapshot(join(skills, name)), content);
     }
   }
@@ -291,7 +364,7 @@ for (const scope of ["user", "project"]) test(`minimum warns and leaves unowned 
   const diagnosed = f.run("doctor");
   assert.equal(diagnosed.status, 0, diagnosed.output);
   for (const name of Object.keys(before)) {
-    assert.match(diagnosed.output, new RegExp(`\\[WARN\\] Unowned heavy-delegation skill \\(${scope}\\): ${name}.*still reachable`));
+    assert.match(diagnosed.output, new RegExp(`\\[WARN\\] Unowned skill excluded by delegation mode \\(${scope}\\): ${name}.*still reachable`));
   }
   assert.deepEqual(snapshot(f.root), installed);
 });
@@ -452,7 +525,9 @@ for (const scope of ["user", "project"]) test(`disagreeing ${scope} Claude Code 
   assert.deepEqual(readdirSync(skills), standardSkills);
   for (const dir of [skills, codexSkills]) {
     for (const name of readdirSync(dir)) {
-      assert.equal(JSON.parse(readFileSync(join(dir, name, markerName), "utf8")).mode, "standard");
+      const marker = JSON.parse(readFileSync(join(dir, name, markerName), "utf8"));
+      if (dir === skills) assert.equal(marker.mode, "standard");
+      else assert.ok(!Object.hasOwn(marker, "mode"));
     }
   }
 });
@@ -507,7 +582,9 @@ for (const unknown of ["future-mode", null, 0]) test(`unknown recorded mode ${JS
   assert.ok(!readdirSync(f.skills).includes("codex-computer-use"));
   for (const dir of [f.skills, join(f.codexHome, "skills")]) {
     for (const name of readdirSync(dir)) {
-      assert.equal(JSON.parse(readFileSync(join(dir, name, markerName), "utf8")).mode, "minimum");
+      const marker = JSON.parse(readFileSync(join(dir, name, markerName), "utf8"));
+      if (dir === f.skills) assert.equal(marker.mode, "minimum");
+      else assert.ok(!Object.hasOwn(marker, "mode"));
     }
   }
 });
