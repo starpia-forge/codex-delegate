@@ -15,7 +15,7 @@ Spec: `.scratch/delegation-mode/spec.md`
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] Switching standard → minimum removes `codex-implement` and `codex-computer-use` and installs the minimum variants; minimum → standard restores them; the output labels the mode-caused removals
 - [ ] `install --dry-run --mode minimum` on a standard install prints the mode and the planned additions and removals and changes nothing on disk
