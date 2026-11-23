@@ -14,7 +14,7 @@ Spec: `.scratch/delegation-mode/spec.md`
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] A fresh `install --mode minimum`, run through the CLI with isolated homes, has no `codex-implement` or `codex-computer-use`, and no Claude Code skill this tool installed mentions either
 - [ ] The installed minimum `implement` tells the leader to build with `tdd` at the agreed seams itself, to record the review base before starting, to check and commit each ticket, and to pass the review base to `code-review` as the fixed point
