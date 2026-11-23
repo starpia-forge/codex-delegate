@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { fakeCodex } from "./helpers/fake-codex.mjs";
+import { legacyBundle, release, unusedPetPort } from "./helpers/pet-release.mjs";
 
 const cli = fileURLToPath(new URL("../bin/cli.mjs", import.meta.url));
 const markerName = ".codex-delegate.json";
@@ -33,7 +34,18 @@ else process.exitCode = 1;
     assert.equal(result.error, undefined);
     return { ...result, output: result.stdout + result.stderr };
   };
-  return { root, ...fake, run, skills: join(fake.claudeHome, "skills") };
+  // Pet release fixtures serve HTTP in this process, so these CLI calls must be async.
+  const runAsync = (...args) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, ...args], {
+      cwd: root, env: fake.env, windowsHide: true,
+    });
+    let stdout = "", stderr = "";
+    child.stdout.on("data", chunk => stdout += chunk);
+    child.stderr.on("data", chunk => stderr += chunk);
+    child.on("error", reject);
+    child.on("close", status => resolve({ status, stdout, stderr, output: stdout + stderr }));
+  });
+  return { root, ...fake, run, runAsync, skills: join(fake.claudeHome, "skills") };
 }
 
 test("minimum installs the shared test-first workflow and keeps research and review delegation", t => {
@@ -202,25 +214,217 @@ test("user and project installs keep their recorded modes and skills independent
   }
 });
 
-test("minimum leaves unowned heavy-delegation skills untouched even with force", t => {
+test("user minimum over project standard warns about winning workflows and reachable project delegation", t => {
   const f = fixture(t);
+  assert.equal(f.run("install", "--mode", "minimum").status, 0);
+  const before = snapshot(f.root);
+  const preview = f.run("install", "--scope", "project", "--mode", "standard", "--dry-run");
+  assert.deepEqual(snapshot(f.root), before);
+  const installed = f.run("install", "--scope", "project", "--mode", "standard");
+  assert.equal(installed.status, 0, installed.output);
+  for (const result of [preview, installed, f.run("doctor")]) {
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /\[WARN\] Mixed delegation modes.*user minimum.*project standard/);
+    assert.match(result.output, /implement: user \(minimum\) wins/);
+    assert.match(result.output, /implement-spec: user \(minimum\) wins/);
+    assert.match(result.output, /Heavy delegation still reachable:.*codex-implement \(project\).*codex-computer-use \(project\)/);
+  }
+});
+
+test("user standard over project minimum warns without refusing, including the dry-run preview", t => {
+  const f = fixture(t);
+  assert.equal(f.run("install", "--mode", "standard").status, 0);
+  const before = snapshot(f.root);
+  const preview = f.run("install", "--scope", "project", "--mode", "minimum", "--dry-run");
+  assert.deepEqual(snapshot(f.root), before);
+  const installed = f.run("install", "--scope", "project", "--mode", "minimum");
+  for (const result of [preview, installed, f.run("doctor")]) {
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /\[WARN\] Mixed delegation modes.*user standard.*project minimum/);
+    assert.match(result.output, /implement: user \(standard\) wins/);
+    assert.match(result.output, /implement-spec: user \(standard\) wins/);
+    assert.match(result.output, /Heavy delegation still reachable:.*codex-implement \(user\).*codex-computer-use \(user\)/);
+  }
+});
+
+test("mixed-scope warnings resolve each workflow and unowned heavy-delegation skill separately", t => {
+  const f = fixture(t);
+  assert.equal(f.run("install", "--mode", "minimum").status, 0);
+  assert.equal(f.run("install", "--scope", "project", "--mode", "standard").status, 0);
+  rmSync(join(f.skills, "implement"), { recursive: true });
+  mkdirSync(join(f.skills, "codex-implement"));
+  writeFileSync(join(f.skills, "codex-implement", "SKILL.md"), "Personal implementation delegation\n");
+  const before = snapshot(f.skills);
+  for (const result of [f.run("doctor"), f.run("install", "--scope", "project")]) {
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /\[WARN\] Mixed delegation modes/);
+    assert.match(result.output, /implement: project \(standard\) wins/);
+    assert.match(result.output, /implement-spec: user \(minimum\) wins/);
+    assert.match(result.output, /Heavy delegation still reachable: codex-implement \(user\), codex-computer-use \(project\)/);
+    assert.deepEqual(snapshot(f.skills), before);
+  }
+});
+
+for (const scope of ["user", "project"]) test(`minimum warns and leaves unowned ${scope} heavy-delegation skills untouched even with force`, t => {
+  const f = fixture(t);
+  const skills = scope === "user" ? f.skills : join(f.root, ".claude", "skills");
   for (const name of ["codex-implement", "codex-computer-use"]) {
-    const dir = join(f.skills, name);
+    const dir = join(skills, name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "SKILL.md"), `User's own ${name} skill\n`);
-    writeFileSync(join(dir, "notes.txt"), "User content\n");
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "assets", "data.bin"), Buffer.from([0, 255, 128, 13, 10]));
   }
   const before = Object.fromEntries(["codex-implement", "codex-computer-use"].map(name => [
-    name, snapshot(join(f.skills, name)),
+    name, snapshot(join(skills, name)),
   ]));
-  for (const flags of [["--mode", "minimum", "--force"], []]) {
-    const result = f.run("install", ...flags);
+  for (const flags of [["--mode", "minimum", "--force", "--dry-run"], ["--mode", "minimum", "--force"], []]) {
+    const result = f.run("install", "--scope", scope, ...flags);
     assert.equal(result.status, 0, result.output);
     assert.doesNotMatch(result.output, /remove \(delegation mode\)/);
     for (const [name, content] of Object.entries(before)) {
-      assert.deepEqual(snapshot(join(f.skills, name)), content);
+      assert.match(result.output, new RegExp(`\\[WARN\\] Unowned heavy-delegation skill \\(${scope}\\): ${name}.*still reachable`));
+      assert.deepEqual(snapshot(join(skills, name)), content);
     }
   }
+  const installed = snapshot(f.root);
+  const diagnosed = f.run("doctor");
+  assert.equal(diagnosed.status, 0, diagnosed.output);
+  for (const name of Object.keys(before)) {
+    assert.match(diagnosed.output, new RegExp(`\\[WARN\\] Unowned heavy-delegation skill \\(${scope}\\): ${name}.*still reachable`));
+  }
+  assert.deepEqual(snapshot(f.root), installed);
+});
+
+for (const scope of ["user", "project"]) {
+  for (const unresolved of [false, true]) test(`uninstall removes every owned ${scope} skill with ${unresolved ? "unresolved" : "minimum"} mode and preserves unowned skills`, t => {
+    const f = fixture(t);
+    const initial = f.run("install", "--scope", scope, "--mode", unresolved ? "standard" : "minimum");
+    assert.equal(initial.status, 0, initial.output);
+    const skills = scope === "user" ? f.skills : join(f.root, ".claude", "skills");
+    const codexSkills = scope === "user" ? join(f.codexHome, "skills") : join(f.root, ".agents", "skills");
+    const marker = JSON.parse(readFileSync(join(skills, "implement", markerName), "utf8"));
+    mkdirSync(join(skills, "retired-skill"));
+    writeFileSync(join(skills, "retired-skill", markerName), JSON.stringify(marker));
+    writeFileSync(join(skills, "retired-skill", "SKILL.md"), "Previously shipped skill\n");
+    if (unresolved) {
+      marker.mode = "future-mode";
+      writeFileSync(join(skills, "implement", markerName), JSON.stringify(marker));
+      // Keep codex-implement tool-owned, but make computer use personal.
+      rmSync(join(skills, "codex-computer-use", markerName));
+    } else {
+      for (const name of ["codex-implement", "codex-computer-use"]) {
+        mkdirSync(join(skills, name));
+        writeFileSync(join(skills, name, "SKILL.md"), `Personal ${name}\n`);
+      }
+    }
+    mkdirSync(join(codexSkills, "personal-worker"));
+    writeFileSync(join(codexSkills, "personal-worker", "SKILL.md"), "Personal worker\n");
+    const unowned = unresolved ? ["codex-computer-use"] : ["codex-computer-use", "codex-implement"];
+    const expected = Object.fromEntries(unowned.map(name => [name, snapshot(join(skills, name))]));
+    const worker = snapshot(join(codexSkills, "personal-worker"));
+    const before = snapshot(f.root);
+    const preview = f.run("uninstall", "--scope", scope, "--dry-run");
+    assert.equal(preview.status, 0, preview.output);
+    assert.deepEqual(snapshot(f.root), before);
+    const removed = f.run("uninstall", "--scope", scope);
+    assert.equal(removed.status, 0, removed.output);
+    assert.deepEqual(snapshot(skills), expected);
+    assert.deepEqual(snapshot(codexSkills), { "personal-worker": worker });
+    const again = f.run("uninstall", "--scope", scope);
+    assert.equal(again.status, 0, again.output);
+    assert.match(again.output, /nothing installed/);
+    assert.deepEqual(snapshot(skills), expected);
+  });
+}
+
+test("switching delegation modes keeps a disabled pet disabled without downloads or hook changes", async t => {
+  const f = fixture(t);
+  Object.assign(f.env, {
+    CODEX_DELEGATE_TEST_PLATFORM: "win32", CODEX_DELEGATE_PET_TEST_WEBVIEW2: "present",
+    CODEX_DELEGATE_PET_PORT: await unusedPetPort(t),
+  });
+  const r = await release(t, f);
+  const settingsPath = join(f.claudeHome, "settings.json");
+  const settings = '{ "theme": "dark", "hooks": { "Stop": [] } }\n';
+  writeFileSync(settingsPath, settings);
+  for (const mode of ["standard", "minimum", "standard"]) {
+    const result = await f.runAsync("install", "--mode", mode);
+    assert.equal(result.status, 0, result.output);
+    assert.deepEqual(r.requests, []);
+    assert.equal(existsSync(join(f.home, ".codex-delegate", "pet-state")), false);
+    assert.equal(existsSync(join(f.home, ".codex-delegate", "pet")), false);
+    assert.equal(readFileSync(settingsPath, "utf8"), settings);
+    const listed = await f.runAsync("list");
+    assert.equal(listed.status, 0, listed.output);
+    assert.match(listed.output, /Pet: not installed/);
+    assert.match(listed.output, new RegExp(`Delegation mode: ${mode}`));
+  }
+});
+
+test("switching delegation modes keeps the pet enabled and updates it like a plain install", async t => {
+  const f = fixture(t);
+  Object.assign(f.env, {
+    CODEX_DELEGATE_TEST_PLATFORM: "win32", CODEX_DELEGATE_PET_TEST_WEBVIEW2: "present",
+    CODEX_DELEGATE_PET_PORT: await unusedPetPort(t),
+  });
+  const r = await release(t, f);
+  const initial = await f.runAsync("install", "--with-pet");
+  assert.equal(initial.status, 0, initial.output);
+  const petRoot = join(f.home, ".codex-delegate");
+  const state = join(petRoot, "pet-state");
+  const markerPath = join(state, markerName);
+  const settingsPath = join(f.claudeHome, "settings.json");
+  const token = readFileSync(join(state, "token"));
+  const settings = readFileSync(settingsPath);
+  const preferences = '{"hidden":true,"future":1}\n';
+  writeFileSync(join(state, "pet-preferences.json"), preferences);
+  writeFileSync(join(state, "sessions.json"), "keep sessions");
+  for (const flags of [[], ["--mode", "minimum"], ["--mode", "standard"]]) {
+    const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+    marker.bundle = legacyBundle;
+    writeFileSync(markerPath, JSON.stringify(marker));
+    writeFileSync(join(petRoot, "pet", "obsolete.txt"), "old bundle");
+    r.requests.length = 0;
+    const result = await f.runAsync("install", ...flags);
+    assert.equal(result.status, 0, result.output);
+    assert.deepEqual(r.requests, r.paths);
+    assert.deepEqual(JSON.parse(readFileSync(markerPath, "utf8")).bundle, r.bundle);
+    assert.equal(existsSync(join(petRoot, "pet", "obsolete.txt")), false);
+    assert.deepEqual(readFileSync(join(state, "token")), token);
+    assert.equal(readFileSync(join(state, "pet-preferences.json"), "utf8"), preferences);
+    assert.equal(readFileSync(join(state, "sessions.json"), "utf8"), "keep sessions");
+    assert.deepEqual(readFileSync(settingsPath), settings);
+    const listed = await f.runAsync("list");
+    assert.equal(listed.status, 0, listed.output);
+    assert.match(listed.output, /Pet: enabled, .*hidden/);
+    assert.match(listed.output, new RegExp(`Delegation mode: ${flags[1] ?? "standard"}`));
+  }
+});
+
+for (const mode of ["minimum", "standard"]) test(`explicit pet flags combine with delegation mode ${mode}`, async t => {
+  const f = fixture(t);
+  Object.assign(f.env, {
+    CODEX_DELEGATE_TEST_PLATFORM: "win32", CODEX_DELEGATE_PET_TEST_WEBVIEW2: "present",
+    CODEX_DELEGATE_PET_PORT: await unusedPetPort(t),
+  });
+  const r = await release(t, f);
+  const settingsPath = join(f.claudeHome, "settings.json");
+  writeFileSync(settingsPath, '{"theme":"dark"}');
+  const installed = await f.runAsync("install", "--mode", mode, "--with-pet");
+  assert.equal(installed.status, 0, installed.output);
+  assert.deepEqual(r.requests, r.paths);
+  assert.match((await f.runAsync("list")).output, /Pet: enabled/);
+  r.requests.length = 0;
+  const otherMode = mode === "minimum" ? "standard" : "minimum";
+  const removed = await f.runAsync("install", "--mode", otherMode, "--without-pet");
+  assert.equal(removed.status, 0, removed.output);
+  assert.deepEqual(r.requests, []);
+  const listed = await f.runAsync("list");
+  assert.equal(listed.status, 0, listed.output);
+  assert.match(listed.output, new RegExp(`Delegation mode: ${otherMode}`));
+  assert.match(listed.output, /Pet: not installed/);
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), { theme: "dark", hooks: {} });
 });
 
 for (const scope of ["user", "project"]) test(`disagreeing ${scope} Claude Code markers refuse plain installs until an explicit mode repairs them`, t => {

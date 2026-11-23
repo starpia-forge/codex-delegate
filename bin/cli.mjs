@@ -151,6 +151,42 @@ function recordedMode(scope) {
   return modes.length === 1 && typeof modes[0] === "string" && Object.hasOwn(manifest.agents["claude-code"].modes, modes[0]) ? modes[0] : undefined;
 }
 
+function mixedModeWarning(projectPlan, plannedMode) {
+  const userMode = recordedMode("user");
+  const projectMode = projectPlan ? plannedMode : recordedMode("project");
+  if (!userMode || !projectMode || userMode === projectMode) return;
+  const agent = manifest.agents["claude-code"];
+  const skill = (scope, name) => {
+    if (scope === "project" && projectPlan) {
+      if (projectPlan.skills.some(s => s.name === name)) return { mode: plannedMode };
+      if ([...projectPlan.stale, ...projectPlan.excluded].includes(name)) return;
+    }
+    const dir = join(targetDir(agent, scope), name);
+    if (existsSync(dir)) return readMarker(dir) ?? { mode: "unowned" };
+  };
+  const winner = name => ["user", "project"].find(scope => skill(scope, name));
+  const workflows = ["implement", "implement-spec"].map(name => {
+    const scope = winner(name);
+    if (!scope) return `${name}: absent`;
+    const mode = skill(scope, name).mode ?? "standard";
+    return `${name}: ${scope} (${mode}) wins`;
+  });
+  const heavy = ["codex-implement", "codex-computer-use"].flatMap(name => {
+    const scope = winner(name);
+    return scope ? [`${name} (${scope})`] : [];
+  });
+  return `user ${userMode}, project ${projectMode}. Claude Code prefers personal skills per name; ${workflows.join("; ")}. Heavy delegation still reachable: ${heavy.join(", ") || "none"}.`;
+}
+
+function unownedExcludedSkills(scope, mode) {
+  const agent = manifest.agents["claude-code"];
+  const dir = targetDir(agent, scope);
+  return (agent.modes[mode]?.exclude ?? []).filter(name =>
+    existsSync(join(dir, name)) && !readMarker(join(dir, name)));
+}
+
+const unownedDelegationDetail = "not installed by this tool; heavy delegation is still reachable through this skill. Left untouched.";
+
 async function install(opts) {
   if (opts.mode === undefined && opts.agents.includes("claude-code")) {
     const modes = recordedModes(opts.scope);
@@ -221,6 +257,14 @@ async function install(opts) {
   }
 
   if (opts.dryRun) {
+    if (opts.agents.includes("claude-code")) {
+      for (const name of unownedExcludedSkills(opts.scope, mode)) {
+        console.log(`  [WARN] Unowned heavy-delegation skill (${opts.scope}): ${name} - ${unownedDelegationDetail}`);
+      }
+    }
+    const projectPlan = opts.scope === "project" && plans.find(p => p.id === "claude-code");
+    const mixed = projectPlan && mixedModeWarning(projectPlan, mode);
+    if (mixed) console.log(`  [WARN] Mixed delegation modes - ${mixed}`);
     console.log("\nDry run: nothing was changed.");
     return;
   }
@@ -310,7 +354,12 @@ async function doctor() {
     } else if (s.scope === "user" || s.installed) {
       check("ok", `Delegation mode (${s.scope})`, s.installed ? s.mode : "not installed");
     }
+    for (const name of unownedExcludedSkills(s.scope, s.mode)) {
+      check("warn", `Unowned heavy-delegation skill (${s.scope}): ${name}`, unownedDelegationDetail);
+    }
   }
+  const mixed = mixedModeWarning();
+  if (mixed) check("warn", "Mixed delegation modes", mixed);
 
   const [major, minor] = process.versions.node.split(".").map(Number);
   check(major > 18 || (major === 18 && minor >= 18) ? "ok" : "fail", "Node.js >= 18.18", process.versions.node);
