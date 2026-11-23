@@ -8,6 +8,7 @@
 //                 plus src/skills/* each bundled with src/runner/; Claude Code only
 // skills/codex/   the upstream skills the Codex workers need (src/codex-skills.json)
 //                 with patches/codex/ applied; Codex only
+// skills/claude-minimum/ skills that differ after shared + minimum patches
 //
 // Each agent gets its own copy, patched for its own role, so a skill's
 // instructions never have to serve the delegating and the delegated agent at once.
@@ -16,8 +17,9 @@
 // no longer applies, skills/ is left untouched.
 
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { isDeepStrictEqual } from "node:util";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +32,12 @@ const codexSkills = JSON.parse(readFileSync(join(root, "src/codex-skills.json"),
 const outDir = join(root, "skills");
 
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
+
+function contents(dir) {
+  return Object.fromEntries(readdirSync(dir, { withFileTypes: true }).map(entry => [entry.name,
+    entry.isDirectory() ? contents(join(dir, entry.name)) : readFileSync(join(dir, entry.name))
+  ]));
+}
 
 // A patch's target skill is the directory of the first file it touches: a/<category>/<skill>/...
 function patchedSkill(patchPath) {
@@ -96,13 +104,22 @@ try {
     cpSync(runnerDir, join(dest, "scripts"), { recursive: true });
   }
 
+  const minimumPatched = applyPatches(upstream, "claude", commit, "minimum");
+  mkdirSync(join(staging, "claude-minimum"), { recursive: true });
+  for (const dir of upstreamSkills) {
+    const name = basename(dir);
+    if (!isDeepStrictEqual(contents(dir), contents(join(staging, "claude", name)))) {
+      cpSync(dir, join(staging, "claude-minimum", name), { recursive: true });
+    }
+  }
+
   const codexPatched = applyPatches(upstream, "codex", commit);
   for (const dir of upstreamSkills) {
     if (codexSkills.includes(basename(dir))) cpSync(dir, join(staging, "codex", basename(dir)), { recursive: true });
   }
   cpSync(join(upstream, "LICENSE"), join(staging, "THIRD_PARTY_LICENSE-mattpocock-skills"));
 
-  for (const name of claudePatched) {
+  for (const name of new Set([...claudePatched, ...minimumPatched])) {
     if (!upstreamNames.includes(name)) throw new Error(`patched skill ${name} is not listed in upstream plugin.json`);
   }
   for (const name of codexPatched) {

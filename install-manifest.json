@@ -6,7 +6,14 @@
       "homeEnv": "CLAUDE_CONFIG_DIR",
       "userDir": "skills",
       "projectDir": ".claude/skills",
-      "skills": ["claude/*"]
+      "skills": ["claude/*"],
+      "modes": {
+        "standard": { "exclude": [], "overlay": [] },
+        "minimum": {
+          "exclude": ["codex-implement", "codex-computer-use"],
+          "overlay": ["claude-minimum/*"]
+        }
+      }
     },
     "codex": {
       "name": "Codex (workers)",

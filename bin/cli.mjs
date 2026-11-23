@@ -30,6 +30,7 @@ Commands:
 Options:
   --scope <user|project>  user: home directory (default); project: current directory
   --agent <id>            Only this agent: ${Object.keys(manifest.agents).join(", ")} (repeatable)
+  --mode <standard|minimum>  Delegation mode (install with Claude Code only)
   --force                 Overwrite skills with the same name that this tool did not install
   --dry-run               Show what would change without changing anything
   --with-pet              Install the Release's Windows pet and Claude Code hooks (user scope)
@@ -44,6 +45,7 @@ function parseArgs(argv) {
     const arg = args.shift();
     if (arg === "--scope") opts.scope = args.shift();
     else if (arg === "--agent") opts.agents.push(args.shift());
+    else if (arg === "--mode") opts.mode = args.shift() ?? "";
     else if (arg === "--force") opts.force = true;
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--with-pet") opts.withPet = true;
@@ -56,6 +58,12 @@ function parseArgs(argv) {
     if (!manifest.agents[id]) throw new Error(`unknown agent: ${id} (expected: ${Object.keys(manifest.agents).join(", ")})`);
   }
   if (!opts.agents.length) opts.agents = Object.keys(manifest.agents);
+  if (opts.mode !== undefined) {
+    const accepted = Object.keys(manifest.agents["claude-code"].modes).join("|");
+    if (!Object.hasOwn(manifest.agents["claude-code"].modes, opts.mode)) throw new Error(`--mode must be ${accepted}, got: ${opts.mode}`);
+    if (opts.command !== "install") throw new Error(`--mode is only valid for install (accepted values: ${accepted})`);
+    if (!opts.agents.includes("claude-code")) throw new Error(`--mode requires Claude Code in the agent selection (accepted values: ${accepted})`);
+  }
   if (opts.withPet && opts.withoutPet) throw new Error("--with-pet and --without-pet are contradictory");
   if (opts.withPet || opts.withoutPet) {
     if (opts.command !== "install") throw new Error("pet options are only valid for install");
@@ -133,14 +141,25 @@ function installedSkills(dir) {
     .map((e) => ({ name: e.name, marker: readMarker(join(dir, e.name)) }));
 }
 
+function recordedMode(scope) {
+  const skills = installedSkills(targetDir(manifest.agents["claude-code"], scope));
+  const modes = new Set(skills.map(({ marker }) => marker.mode ?? "standard"));
+  return modes.size === 1 ? [...modes][0] : undefined;
+}
+
 async function install(opts) {
+  const mode = opts.mode ?? recordedMode(opts.scope) ?? "standard";
   // Plan every agent before touching anything, so a conflict aborts cleanly.
   const plans = opts.agents.map((id) => {
     const agent = manifest.agents[id];
     const dir = targetDir(agent, opts.scope);
-    const skills = resolveSkills(agent.skills);
+    const shipped = resolveSkills(agent.skills);
+    const definition = agent.modes?.[mode];
+    const overlays = definition ? resolveSkills(definition.overlay) : [];
+    const skills = shipped.filter(s => !definition?.exclude.includes(s.name))
+      .map(s => overlays.find(overlay => overlay.name === s.name) ?? s);
     const conflicts = skills.filter((s) => existsSync(join(dir, s.name)) && !readMarker(join(dir, s.name))).map((s) => s.name);
-    const stale = installedSkills(dir).filter((i) => !skills.some((s) => s.name === i.name)).map((i) => i.name);
+    const stale = installedSkills(dir).filter((i) => !shipped.some((s) => s.name === i.name)).map((i) => i.name);
     return { id, agent, dir, skills, conflicts, stale };
   });
 
@@ -179,7 +198,7 @@ async function install(opts) {
       const dest = join(p.dir, s.name);
       add(`remove previous skill ${dest}`, () => rmSync(dest, { recursive: true, force: true }));
       add(`copy skill ${s.src} -> ${dest}`, () => cpSync(s.src, dest, { recursive: true }));
-      const marker = { package: pkg.name, version: pkg.version, agent: p.id, installedAt: new Date().toISOString() };
+      const marker = { package: pkg.name, version: pkg.version, agent: p.id, mode, installedAt: new Date().toISOString() };
       add(`write skill marker ${join(dest, MARKER)}`, () => writeFileSync(join(dest, MARKER), `${JSON.stringify(marker, null, 2)}\n`));
     }
   }
@@ -244,6 +263,7 @@ function list(opts) {
     const dir = targetDir(agent, opts.scope);
     const installed = installedSkills(dir);
     console.log(`${agent.name} -> ${dir}`);
+    if (id === "claude-code" && installed.length) console.log(`  Delegation mode: ${recordedMode(opts.scope)}`);
     if (!installed.length) console.log("  nothing installed");
     for (const { name, marker } of installed) console.log(`  ${name}  ${marker.version}`);
   }
@@ -261,6 +281,15 @@ function run(command) {
 async function doctor() {
   const results = [];
   const check = (ok, label, detail = "") => results.push({ ok, label, detail });
+  const scopes = ["user", "project"].map(scope => ({
+    scope, mode: recordedMode(scope),
+    installed: installedSkills(targetDir(manifest.agents["claude-code"], scope)).length > 0,
+  }));
+  const installedScopes = scopes.filter(s => s.installed);
+  const onlyMinimum = installedScopes.length > 0 && installedScopes.every(s => s.mode === "minimum");
+  for (const s of scopes) {
+    if (s.scope === "user" || s.installed) check("ok", `Delegation mode (${s.scope})`, s.installed ? s.mode ?? "unresolved" : "not installed");
+  }
 
   const [major, minor] = process.versions.node.split(".").map(Number);
   check(major > 18 || (major === 18 && minor >= 18) ? "ok" : "fail", "Node.js >= 18.18", process.versions.node);
@@ -275,12 +304,14 @@ async function doctor() {
   const claudeVersion = run("claude --version");
   check(claudeVersion ? "ok" : "warn", "Claude Code on PATH", claudeVersion ?? "not found");
 
-  const configPath = join(agentHome(manifest.agents.codex), "config.toml");
-  const computerUseEnabled = readComputerUseEnabled(configPath);
-  check(computerUseEnabled ? "ok" : "warn", "Computer Use plugin enabled",
-    computerUseEnabled ? configPath : `enable computer-use@openai-bundled in ${configPath} to use computer use`);
+  if (!onlyMinimum) {
+    const configPath = join(agentHome(manifest.agents.codex), "config.toml");
+    const computerUseEnabled = readComputerUseEnabled(configPath);
+    check(computerUseEnabled ? "ok" : "warn", "Computer Use plugin enabled",
+      computerUseEnabled ? configPath : `enable computer-use@openai-bundled in ${configPath} to use computer use`);
+  }
 
-  // Every role's model and effort should be offered by this Codex account.
+  // Validate overrides for every role, even when its availability check is skipped.
   const roles = JSON.parse(readFileSync(join(root, "src/runner/roles.json"), "utf8"));
   let overrides = {};
   if (existsSync(USER_ROLES)) {
@@ -302,6 +333,7 @@ async function doctor() {
     check("warn", "Codex model list", `${cachePath} not readable; run codex once to create it`);
   }
   for (const [role, base] of Object.entries(roles)) {
+    if (onlyMinimum && ["implementer", "computer-user"].includes(role)) continue;
     const config = { ...base, ...overrides[role] };
     const label = `Role ${role}: ${config.model} / ${config.effort}`;
     if (!models) continue;

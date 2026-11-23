@@ -22,6 +22,9 @@ Node.js 18.18 이상, git, Codex CLI(`npm i -g @openai/codex` 후 `codex login`)
 npx github:starpia-forge/codex-delegate install
 npx github:starpia-forge/codex-delegate#vX.Y.Z install
 
+# 조사와 리뷰만 위임하고, Claude가 tdd로 구현
+npx github:starpia-forge/codex-delegate install --mode minimum
+
 # 사용자 폴더 대신 현재 프로젝트에 설치
 npx github:starpia-forge/codex-delegate install --scope project
 
@@ -36,6 +39,8 @@ npx github:starpia-forge/codex-delegate uninstall
 ```
 
 설치 후 Claude Code와 Codex를 재시작하세요. 이 도구가 설치한 스킬만 건드리며, 같은 이름의 기존 스킬이 있으면 `--force`를 주지 않는 한 설치를 중단합니다. Windows에서 PowerShell이 `npx`를 막으면 `npx.cmd`를 사용하세요.
+
+`--mode standard|minimum`은 에이전트 선택에 Claude Code가 포함된 `install`에서 위임 모드를 지정합니다. 새 설치는 전체 스킬을 설치하는 `standard`가 기본값입니다. 일반 `install`은 해당 범위에 기록된 모드를 유지하며, 모드 기록이 없는 이전 설치는 `standard`로 취급합니다. Minimum은 `codex-implement`와 `codex-computer-use`를 설치하지 않습니다. `list`는 모드를 표시하고, `doctor`는 설치된 각 범위의 모드를 표시하며 사용하는 역할을 점검합니다.
 
 ## 펫
 
@@ -60,6 +65,8 @@ Release 태그를 지정해 설치하세요.
 ## 워크플로우
 
 `/grill-with-docs` → `/to-spec` → `/to-tickets` → `/implement` (또는 `/implement-spec`). 명령과 규율은 업스트림과 같고, 위임은 각 단계 안에서 일어납니다.
+
+Minimum 모드는 구현(`implementer`) 역할과 컴퓨터 사용(`computer-user`) 역할을 사용하지 않습니다. 리더와 각 `/implement-spec` 구현 서브에이전트가 `tdd`로 티켓을 직접 구현하며, 컴퓨터 사용은 Claude 자신의 도구로 수행합니다. 조사와 리뷰 위임은 standard와 같습니다.
 
 | 역할 | 모델 | 강점 | 약점 | 이 역할을 맡긴 이유 |
 |---|---|---|---|---|

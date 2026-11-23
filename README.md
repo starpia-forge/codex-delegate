@@ -22,6 +22,9 @@ Requires Node.js 18.18+, git and the Codex CLI (`npm i -g @openai/codex`, then `
 npx github:starpia-forge/codex-delegate install
 npx github:starpia-forge/codex-delegate#vX.Y.Z install
 
+# Delegate only research and review; Claude implements with tdd
+npx github:starpia-forge/codex-delegate install --mode minimum
+
 # Install into the current project instead of your user folders
 npx github:starpia-forge/codex-delegate install --scope project
 
@@ -36,6 +39,8 @@ npx github:starpia-forge/codex-delegate uninstall
 ```
 
 Restart Claude Code and Codex afterwards. Only skills this tool installed are ever touched; a name clash with an existing skill stops the install unless you pass `--force`. On Windows, use `npx.cmd` if PowerShell blocks `npx`.
+
+`--mode standard|minimum` selects the delegation mode on `install` when Claude Code is in the agent selection. A fresh install defaults to `standard`, the full skill set. Plain `install` keeps the scope's recorded mode; older installs without a recorded mode count as `standard`. Minimum omits `codex-implement` and `codex-computer-use`. `list` shows the mode, and `doctor` shows each installed scope's mode and checks the roles it uses.
 
 ## Pet
 
@@ -60,6 +65,8 @@ message. Retry later or install from a tagged Release.
 ## Workflow
 
 `/grill-with-docs` → `/to-spec` → `/to-tickets` → `/implement` (or `/implement-spec`). Same commands and discipline as upstream; delegation happens inside each step.
+
+Minimum mode does not use the implementer or computer use roles. The leader (and each `/implement-spec` implementer subagent) builds tickets itself with `tdd`, and Claude uses its own tools for computer use. Research and review delegation stay the same as standard.
 
 | Role | Model | Strengths | Weaknesses | Why it gets this job |
 |---|---|---|---|---|
