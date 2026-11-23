@@ -141,13 +141,25 @@ function installedSkills(dir) {
     .map((e) => ({ name: e.name, marker: readMarker(join(dir, e.name)) }));
 }
 
-function recordedMode(scope) {
+function recordedModes(scope) {
   const skills = installedSkills(targetDir(manifest.agents["claude-code"], scope));
-  const modes = new Set(skills.map(({ marker }) => marker.mode ?? "standard"));
-  return modes.size === 1 ? [...modes][0] : undefined;
+  return [...new Set(skills.map(({ marker }) => Object.hasOwn(marker, "mode") ? marker.mode : "standard"))];
+}
+
+function recordedMode(scope) {
+  const modes = recordedModes(scope);
+  return modes.length === 1 && typeof modes[0] === "string" && Object.hasOwn(manifest.agents["claude-code"].modes, modes[0]) ? modes[0] : undefined;
 }
 
 async function install(opts) {
+  if (opts.mode === undefined && opts.agents.includes("claude-code")) {
+    const modes = recordedModes(opts.scope);
+    if (modes.length && recordedMode(opts.scope) === undefined) {
+      console.error(`Delegation mode (${opts.scope}) is unresolved: found ${modes.map(mode => JSON.stringify(mode)).join(", ")}. Reinstall with --mode standard|minimum to repair it. No skills or markers were changed.`);
+      process.exitCode = 1;
+      return;
+    }
+  }
   const mode = opts.mode ?? recordedMode(opts.scope) ?? "standard";
   // Plan every agent before touching anything, so a conflict aborts cleanly.
   const plans = opts.agents.map((id) => {
@@ -159,8 +171,10 @@ async function install(opts) {
     const skills = shipped.filter(s => !definition?.exclude.includes(s.name))
       .map(s => overlays.find(overlay => overlay.name === s.name) ?? s);
     const conflicts = skills.filter((s) => existsSync(join(dir, s.name)) && !readMarker(join(dir, s.name))).map((s) => s.name);
-    const stale = installedSkills(dir).filter((i) => !shipped.some((s) => s.name === i.name)).map((i) => i.name);
-    return { id, agent, dir, skills, conflicts, stale };
+    const installed = installedSkills(dir);
+    const stale = installed.filter((i) => !shipped.some((s) => s.name === i.name)).map((i) => i.name);
+    const excluded = installed.filter((i) => shipped.some((s) => s.name === i.name) && definition?.exclude.includes(i.name)).map((i) => i.name);
+    return { id, agent, dir, skills, conflicts, stale, excluded };
   });
 
   const conflicted = plans.filter((p) => p.conflicts.length);
@@ -187,13 +201,16 @@ async function install(opts) {
   const add = (label, apply) => steps.push({ label, apply, status: "not applied" });
   for (const p of plans) {
     console.log(`${p.agent.name} -> ${p.dir}`);
+    if (p.id === "claude-code") console.log(`  Delegation mode: ${mode}`);
     console.log(`  install ${p.skills.length}: ${p.skills.map((s) => s.name).join(", ")}`);
     if (p.stale.length) console.log(`  remove (no longer shipped): ${p.stale.join(", ")}`);
+    if (p.excluded.length) console.log(`  remove (delegation mode): ${p.excluded.join(", ")}`);
     if (p.conflicts.length) console.log(`  overwrite (--force): ${p.conflicts.join(", ")}`);
     if (opts.dryRun) continue;
 
     add(`create skill directory ${p.dir}`, () => mkdirSync(p.dir, { recursive: true }));
     for (const name of p.stale) add(`remove stale skill ${join(p.dir, name)}`, () => rmSync(join(p.dir, name), { recursive: true, force: true }));
+    for (const name of p.excluded) add(`remove excluded skill ${join(p.dir, name)}`, () => rmSync(join(p.dir, name), { recursive: true, force: true }));
     for (const s of p.skills) {
       const dest = join(p.dir, s.name);
       add(`remove previous skill ${dest}`, () => rmSync(dest, { recursive: true, force: true }));
@@ -288,7 +305,11 @@ async function doctor() {
   const installedScopes = scopes.filter(s => s.installed);
   const onlyMinimum = installedScopes.length > 0 && installedScopes.every(s => s.mode === "minimum");
   for (const s of scopes) {
-    if (s.scope === "user" || s.installed) check("ok", `Delegation mode (${s.scope})`, s.installed ? s.mode ?? "unresolved" : "not installed");
+    if (s.installed && s.mode === undefined) {
+      check("fail", `Delegation mode (${s.scope})`, `unresolved: found ${recordedModes(s.scope).map(mode => JSON.stringify(mode)).join(", ")}; reinstall with --mode standard|minimum to repair it`);
+    } else if (s.scope === "user" || s.installed) {
+      check("ok", `Delegation mode (${s.scope})`, s.installed ? s.mode : "not installed");
+    }
   }
 
   const [major, minor] = process.versions.node.split(".").map(Number);
