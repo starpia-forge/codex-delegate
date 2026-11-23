@@ -1,6 +1,6 @@
 # Spec: Delegation mode (standard and minimum)
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
