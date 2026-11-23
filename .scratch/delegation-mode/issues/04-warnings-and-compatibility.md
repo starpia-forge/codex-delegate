@@ -10,7 +10,7 @@ Spec: `.scratch/delegation-mode/spec.md`
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] User minimum + project standard: `install --scope project` and `doctor` warn that the user's minimum `implement` and `implement-spec` win, and that the project's `codex-implement` and `codex-computer-use` are still reachable
 - [ ] User standard + project minimum: `install --scope project` and `doctor` warn that the user's standard `implement` and `implement-spec` and its heavy-delegation skills win
