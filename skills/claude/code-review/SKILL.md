@@ -9,7 +9,7 @@ Three-axis review of the diff between `HEAD` and a fixed point the user supplies
 - **Spec**: does the code faithfully implement the originating issue / spec?
 - **Correctness**: does the code actually work, with no bugs, unhandled cases or hollow tests?
 
-Every axis is reviewed by **two independent reviewers**: a Claude sub-agent per axis, and Codex (GPT 6 Astra) covering all three axes in one run. All of them run in parallel so they don't pollute each other's context, then this skill merges their findings per axis. Start every sub-agent with a fresh context window.
+Every axis is reviewed by **two independent reviewers**: a Claude sub-agent per axis, and Codex (GPT 6.2 Sol) covering all three axes in one run. All of them run in parallel so they don't pollute each other's context, then this skill merges their findings per axis. Start every sub-agent with a fresh context window.
 
 The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
 

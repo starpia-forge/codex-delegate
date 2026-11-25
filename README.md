@@ -72,7 +72,7 @@ Minimum mode does not use the `implementer` or `computer-user` roles. The leader
 |---|---|---|---|---|
 | Leader | Claude Opus 5.5 | Reads user intent, analyses code, designs | Web search | Only the leader talks to you, so intent is never lost. It writes specs and tickets, briefs workers and verifies their output |
 | Researcher | GPT 6 Luna | Cheap; Codex's strong web search | Lower intelligence | Covers the leader's weak spot with cited answers to outside questions |
-| Critic | GPT 6 Astra | Sharp critic and code reviewer | High cost | Attacks specs and tickets before they are published, and reviews code alongside Claude |
+| Critic | GPT 6.2 Sol | Finds more code-grounded defects | Slow reviews (several minutes each) | Attacks specs and tickets before they are published, and reviews code alongside Claude |
 | Implementer | GPT 6.1 Sol | Implementation quality for the cost | Misreads intent; calls work done too early | Builds one ticket at a time, test-first, from a self-contained brief. Runs **without a sandbox or approvals**; the leader reruns tests and checks every criterion |
 | Computer use | GPT 6 Astra | Strong at driving desktop apps | High cost | Operates native apps for the leader. Runs **without a sandbox or approvals**; the Codex desktop app must be running |
 

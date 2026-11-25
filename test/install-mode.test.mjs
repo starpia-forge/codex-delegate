@@ -619,6 +619,7 @@ test("minimum's post-install doctor passes without the implementer's model and s
   const f = fixture(t);
   writeFileSync(join(f.codexHome, "models_cache.json"), JSON.stringify({ models: [
     { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+    { slug: "gpt-6.2-sol", supported_reasoning_levels: [{ effort: "medium" }] },
     { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
   ] }));
   for (const args of [["install", "--mode", "minimum"], ["doctor"]]) {
@@ -626,7 +627,7 @@ test("minimum's post-install doctor passes without the implementer's model and s
     assert.equal(result.status, 0, result.output);
     assert.match(result.output, /Delegation mode \(user\).*minimum/);
     assert.doesNotMatch(result.output, /Role implementer:|Role computer-user:|Computer Use plugin/);
-    assert.match(result.output, /\[OK  \] Role critic: gpt-6-astra \/ medium/);
+    assert.match(result.output, /\[OK  \] Role critic: gpt-6\.2-sol \/ medium/);
     assert.match(result.output, /\[OK  \] Role researcher: gpt-6-luna \/ max/);
   }
 });
@@ -645,6 +646,7 @@ for (const [role, override, status, message] of [
   assert.equal(installed.status, 0, installed.output);
   writeFileSync(join(f.codexHome, "models_cache.json"), JSON.stringify({ models: [
     { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+    { slug: "gpt-6.2-sol", supported_reasoning_levels: [{ effort: "medium" }] },
     { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
   ] }));
   mkdirSync(join(f.home, ".codex-delegate"), { recursive: true });
@@ -663,6 +665,7 @@ for (const mode of [undefined, "standard"]) test(`doctor keeps all checks with $
   }
   writeFileSync(join(f.codexHome, "models_cache.json"), JSON.stringify({ models: [
     { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+    { slug: "gpt-6.2-sol", supported_reasoning_levels: [{ effort: "medium" }] },
     { slug: "gpt-6.1-sol", supported_reasoning_levels: [{ effort: "high" }] },
     { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
   ] }));
@@ -692,6 +695,7 @@ for (const scope of ["user", "project"]) {
       writeFileSync(path, JSON.stringify(marker));
       writeFileSync(join(f.codexHome, "models_cache.json"), JSON.stringify({ models: [
         { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+        { slug: "gpt-6.2-sol", supported_reasoning_levels: [{ effort: "medium" }] },
         { slug: "gpt-6.1-sol", supported_reasoning_levels: [{ effort: "high" }] },
         { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
       ] }));
@@ -724,6 +728,7 @@ for (const modes of [[null, "minimum"], ["minimum", "minimum"], ["standard", "mi
     }
     writeFileSync(join(f.codexHome, "models_cache.json"), JSON.stringify({ models: [
       { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+      { slug: "gpt-6.2-sol", supported_reasoning_levels: [{ effort: "medium" }] },
       { slug: "gpt-6.1-sol", supported_reasoning_levels: [{ effort: "high" }] },
       { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
     ] }));
