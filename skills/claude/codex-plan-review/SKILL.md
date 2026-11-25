@@ -1,6 +1,6 @@
 ---
 name: codex-plan-review
-description: Adversarial review of a draft plan, spec, or ticket breakdown by Codex running GPT 6 Astra (read-only). Use after drafting a spec or tickets and before publishing them, or whenever a plan should be challenged before work starts.
+description: Adversarial review of a draft plan, spec, or ticket breakdown by Codex running GPT 6.2 Sol (read-only). Use after drafting a spec or tickets and before publishing them, or whenever a plan should be challenged before work starts.
 ---
 
 Have the Codex review worker attack a draft before anyone builds on it. You stay the decision-maker: the worker's findings are input, not instructions.

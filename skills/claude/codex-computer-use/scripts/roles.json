@@ -1,7 +1,7 @@
 {
   "critic": {
     "purpose": "Adversarial plan review and code review",
-    "model": "gpt-6-astra",
+    "model": "gpt-6.2-sol",
     "effort": "medium",
     "sandbox": "read-only",
     "webSearch": false

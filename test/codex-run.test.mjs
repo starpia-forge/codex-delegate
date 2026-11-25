@@ -711,7 +711,7 @@ for (const { role, model, effort } of [
 }
 
 for (const { role, model, effort, sandbox, extra } of [
-  { role: "critic", model: "gpt-6-astra", effort: "medium", sandbox: "read-only", extra: [] },
+  { role: "critic", model: "gpt-6.2-sol", effort: "medium", sandbox: "read-only", extra: [] },
   { role: "researcher", model: "gpt-6-luna", effort: "max", sandbox: "read-only", extra: ["-c", "web_search=live"] },
 ]) {
   test(`${role} keeps its existing sandbox and Codex arguments`, t => {

@@ -27,6 +27,7 @@ else process.exitCode = 1;
   }
   writeFileSync(join(codexHome, "models_cache.json"), JSON.stringify({ models: [
     { slug: "gpt-6-astra", supported_reasoning_levels: [{ effort: "medium" }] },
+    { slug: "gpt-6.2-sol", supported_reasoning_levels: [{ effort: "medium" }] },
     { slug: "gpt-6.1-sol", supported_reasoning_levels: [{ effort: "high" }] },
     { slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "max" }] },
   ] }));
