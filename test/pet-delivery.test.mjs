@@ -76,7 +76,9 @@ const server = createServer((req, res) => {
         stage.tick();
         appendFileSync(root + '/late', JSON.stringify(stage.snapshot()) + '\\n');
       }
-      setTimeout(() => res.end('{}'), Number(process.env.STUB_POST_DELAY || 0));
+      const reply = () => process.env.STUB_POST_GATE && !existsSync(process.env.STUB_POST_GATE)
+        ? setTimeout(reply, 10) : res.end('{}');
+      reply();
     });
   } else { res.writeHead(404).end(); }
 });
@@ -92,7 +94,10 @@ setTimeout(() => process.exit(), 15000).unref();
     CLAUDE_CONFIG_DIR: join(root, "claude"), CODEX_HOME: join(root, "codex"),
     CODEX_DELEGATE_PET_PORT: String(port), STUB_DELAY: "1200",
     CODEX_DELEGATE_PET_TEST_COMMAND: JSON.stringify([process.execPath, stub]),
-    CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS: String(HELPER_HEALTH_WAIT_MS), ...overrides };
+    CODEX_DELEGATE_PET_TEST_HEALTH_WAIT_MS: String(HELPER_HEALTH_WAIT_MS),
+    // A slow Windows runner can exceed the helper's 250 ms POST deadline and
+    // strand the spool; no test here depends on that timeout firing.
+    CODEX_DELEGATE_PET_TEST_POST_WAIT_MS: "2000", ...overrides };
   const lines = name => existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8").trim().split("\n").filter(Boolean) : [];
   t.after(async () => {
     for (const pid of lines("starts")) { try { process.kill(Number(pid)); } catch {} }
@@ -373,14 +378,18 @@ for (const listening of [false, true]) test(`a fresh updating flag spools withou
 });
 
 test("concurrent producers launch once and new healthy events cannot overtake the startup backlog", async t => {
-  // Slow replay enough for the late producer to land during it, but stay well
-  // under the helper's 250 ms POST deadline: a timed-out POST ends delivery and
-  // strands the backlog, which slow CI runners hit at 180 ms.
-  const h = await harness(t, { STUB_POST_DELAY: "100" });
+  // Hold the first replay reply until the late producer has spooled, so it
+  // lands during replay by construction rather than by timing. The POST wait
+  // outlasts the hold: a timed-out POST would end delivery and strand the backlog.
+  const h = await harness(t, { STUB_POST_GATE: join(tmpdir(), `post-gate-${process.pid}-${Date.now()}`),
+    CODEX_DELEGATE_PET_TEST_POST_WAIT_MS: "10000" });
+  t.after(() => rmSync(h.env.STUB_POST_GATE, { force: true }));
   await Promise.all(Array.from({ length: 4 }, () => h.produce("await worker.send('start'); await worker.send('end', 'success');")));
   assert.equal(h.events().length, 0, "workers should finish before health is ready");
   await until(() => h.events().length >= 1, "startup backlog never began delivery");
   await h.produce();
+  assert.equal(h.events().length, 1, "replay must still be held when the late producer finishes");
+  writeFileSync(h.env.STUB_POST_GATE, "");
   await until(() => h.events().length === 9, "events arriving during replay were stranded");
   assert.equal(h.lines("starts").length, 1);
   const events = h.events();

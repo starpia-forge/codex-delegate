@@ -6,6 +6,8 @@ import { bundle, EXPIRY_MS, health, lock, post, readToken, spool, updating } fro
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const LOCK_MAX_AGE_MS = 2 * 60 * 1000;
+// Tests raise this so a slow runner cannot turn a held reply into a timeout.
+const POST_WAIT_MS = Number(process.env.CODEX_DELEGATE_PET_TEST_POST_WAIT_MS ?? 250);
 const claim = join(spool, "delivery.claim");
 
 function stale(path) {
@@ -101,7 +103,7 @@ async function deliver(token, fd) {
     const { name, event } = events[0];
     if (updating()) return false;
     refresh(fd);
-    if (await post(event, token, Date.now() + 250) !== 200) return false;
+    if (await post(event, token, Date.now() + POST_WAIT_MS) !== 200) return false;
     // If it can't be removed yet, stop rather than post it again in a loop;
     // the stage drops the duplicate when a later round delivers it.
     try { unlinkSync(join(spool, name)); } catch { return false; }
